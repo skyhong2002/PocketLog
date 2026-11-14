@@ -69,8 +69,8 @@ The screenshots predate that responsive repair. Layout arithmetic and overlap/DS
 regressions run in CI. Docker smoke passed again on the final rebuilt image.
 
 Still pending: real browser zoom, screen readers, Firefox/Safari, reduced motion,
-file-picker agent import, clipboard/download actions,
-and the newly rewritten schedule mutation path. Goals and a custom category/rule
+clipboard/download actions,
+and broader keyboard/reduced-motion acceptance. Goals and a custom category/rule
 were saved and confirmed through API reads. A device key was created with64
 characters, one-time guidance and cleared dialog contents on close. Worker dev-proxy
 checks are recorded separately in WEB_IMPLEMENTATION.md. The first-answer Chat picker issue (#16) was fixed in c318cf3 and verified against
@@ -124,3 +124,24 @@ insertion ordering within that millisecond. Cache identities now share exact nat
 04:00 day scopes, including DST, while arbitrary/overview queries remain separate.
 Old exact-key current-day snapshots are not migrated: an online read populates the
 new identity before the improved offline reopening works.
+
+## Web dialog and import follow-up
+
+Issue #21: with the final rebuilt image, an invalid03:59 schedule time now produces
+a persistent, focused alert inside the modal and preserves the entered value.
+A server-rejected timezone also stays in the dialog. Correcting to09:15 and
+explicitly consenting saved a schedule; API read confirmed enabled/minute555 and
+Asia/Taipei. The test disabled it again.
+[Dialog feedback screenshot](screenshots/web-dialog-feedback.png). A deliberately
+held synthetic request was failed after Escape and opening the goals dialog; its
+late error did not enter the new dialog or global notice. This used a temporary
+fixture-only browser fetch stub, restored immediately. Native Escape worked.
+
+Agent import was exercised through the browser file-upload tool with a synthetic
+Codex JSONL containing two text turns, metadata, a tool output and an image. Both
+preview checkboxes began unchecked. Approving only one turn stored exactly that
+turn; the unselected text and excluded payloads were absent from the API record.
+Replay opened successfully. No real session files or external model were used.
+
+Web syntax, timeline/import regressions, Rust fmt/clippy/tests and final-image
+Docker smoke passed; unchanged Android checks remain the33-test build above.

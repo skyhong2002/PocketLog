@@ -99,6 +99,7 @@ function btn(text, fn, cls) {
   n.onclick = () =>
     safe(async () => {
       focusKey = n.dataset.key || null;
+      n.closest("dialog")?.querySelector(".dialog-feedback")?.remove();
       n.disabled = true;
       n.setAttribute("aria-busy", "true");
       try {
@@ -107,7 +108,7 @@ function btn(text, fn, cls) {
         n.disabled = false;
         n.removeAttribute("aria-busy");
       }
-    });
+    }, n);
   return n;
 }
 function iconBtn(name, label, fn, cls) {
@@ -199,18 +200,38 @@ function panel(title, cls) {
   if (title) add(s, el("h2", title));
   return s;
 }
-function notice(text) {
+function notice(text, error = false, source) {
+  // A detached originating control belongs to an old page/dialog, never a new one.
+  if (source && !source.isConnected) return;
+  const dialog = source
+    ? source.closest("dialog[open]")
+    : $("#confirm").open ? $("#confirm") : $("#modal").open ? $("#modal") : null;
+  if (dialog) {
+    let feedback = dialog.querySelector(".dialog-feedback");
+    if (!feedback) {
+      feedback = el("p", null, "callout dialog-feedback");
+      add(dialog.querySelector("#modal-body, #confirm-body"), feedback);
+    }
+    feedback.classList.toggle("warn", error);
+    feedback.setAttribute("role", error ? "alert" : "status");
+    feedback.textContent = text;
+    if (error) {
+      feedback.tabIndex = -1;
+      feedback.focus();
+    }
+    return;
+  }
   const n = $("#notice");
   n.textContent = text;
   n.hidden = false;
   clearTimeout(notice.timeout);
   notice.timeout = setTimeout(() => (n.hidden = true), 7000);
 }
-async function safe(fn) {
+async function safe(fn, source) {
   try {
     await fn();
   } catch (e) {
-    if (e !== STALE) notice(e.message || "操作失敗，請重試");
+    if (e !== STALE) notice(e.message || "操作失敗，請重試", true, source);
   }
 }
 class ApiError extends Error {
@@ -453,7 +474,7 @@ function modal(title, build) {
   heading.id = "modal-title";
   p.replaceChildren(heading, content);
   // Late async builders retain a detached container after close, never a newer dialog.
-  safe(() => build(content));
+  safe(() => build(content), content);
   if (!$("#modal").open) $("#modal").showModal();
   // Announce the dialog by its title instead of landing on the close button.
   heading.tabIndex = -1;
@@ -2118,6 +2139,8 @@ async function briefScheduleDialog() {
       `${String(Math.floor(schedule.minute_of_day / 60)).padStart(2, "0")}:${String(schedule.minute_of_day % 60).padStart(2, "0")}`,
       "time",
     );
+    at.min = "04:00";
+    at.max = "23:59";
     const daily = check(p, "每日摘要", schedule.daily),
       weekly = check(
         p,
@@ -2133,8 +2156,9 @@ async function briefScheduleDialog() {
           "儲存排程",
           async () => {
             const parts = at.value.split(":").map(Number);
-            if (parts.length !== 2 || !parts.every(Number.isInteger))
-              throw Error("請填寫有效時間");
+            if (parts.length !== 2 || !parts.every(Number.isInteger) ||
+                parts[0] < 4 || parts[0] > 23 || parts[1] < 0 || parts[1] > 59)
+              throw Error("摘要產生時間需介於 04:00–23:59，請修改後重試。");
             await api(
               "/v1/briefs/schedule",
               {
