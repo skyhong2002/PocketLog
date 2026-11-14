@@ -7,7 +7,7 @@
   <p><strong>A private activity journal for Android and the web.</strong></p>
 
   <p>
-    See what you did, remember how you felt, and understand your rhythm.<br>
+    Capture your context, review your day, and understand your rhythm.<br>
     Inspired by Dayflow, designed around a phone's battery and your privacy.
   </p>
 

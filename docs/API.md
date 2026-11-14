@@ -36,7 +36,14 @@ queries return at most 1,000 of each record type and cap serialized output at
 480 KiB; `truncated` is true if anything is omitted. Exports use this same contract
 and are not guaranteed complete when truncated. Pagination/import remain planned.
 Cards identify `source` as `app_only`, `local_excerpt`, `ai` or `user`. AI output
-must be reviewed and never infers feelings. See [analysis](ANALYSIS.md).
+must be reviewed and never infers feelings. Each card also includes
+`pending_context`: true when the server still has matching raw observations for
+that stored activity (same app, start inclusive/end exclusive). This is separate
+from provenance: existing AI/user notes can have late evidence pending. It does
+not mean active generation, AI consent or a successful phone capture. False only
+means no matching server-pending evidence; excluded/offline/expired context is
+not inferred. Older servers may omit the field. Timeline clipping does not change
+this association. No extra collection or polling is introduced. See [analysis](ANALYSIS.md).
 
 SQLite is plaintext inside the private volume. Use encrypted host storage and
 backups. SQL deletion cannot erase provider copies, exports, SSD history or

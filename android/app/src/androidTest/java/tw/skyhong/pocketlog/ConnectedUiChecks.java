@@ -42,6 +42,7 @@ final class ConnectedUiChecks {
             stage = "valid synthetic connection";
             fillConnection(endpoint, "a".repeat(64)); click("驗證並連線"); await("手機紀錄未開啟"); await("活動"); awaitSettled();
             assertConsentOff(); capture("timeline");
+            if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
             for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
                 stage = "navigation " + page[0]; click(page[0]); await(page[1]); awaitSettled();
                 if (has("無法載入")) throw new IllegalStateException("Connected page failed");
@@ -51,6 +52,7 @@ final class ConnectedUiChecks {
             captureStatusCheck();
             stage = "category visibility, list parity, reset and recreation";
             categoryVisibilityCheck();
+            if ("yes".equals(args.getString("pending"))) pendingContextCheck();
             stage = "reflection draft navigation and empty edit";
             click("時間軸"); await("活動"); awaitSettled();
             setEditor("哪件事讓你恢復精神？", "Synthetic unsaved reflection");
@@ -171,6 +173,43 @@ final class ConnectedUiChecks {
         reveal("重新檢查擷取狀態");
         click("返回"); await("沒有活動時"); awaitSettled();
         CaptureDiagnostics.INSTANCE.clear(); assertConsentOff();
+    }
+    private void pendingContextCheck() throws Exception {
+        stage = "server-pending context list and secure inspector";
+        click("時間軸"); await("活動"); awaitSettled(); click("清單");
+        Field loaded=MainActivity.class.getDeclaredField("loaded"); loaded.setAccessible(true);
+        org.json.JSONArray cards=((JSONObject)loaded.get(activity)).getJSONArray("cards");
+        JSONObject pending=null;
+        for(int i=0;i<cards.length();i++) if(cards.getJSONObject(i).optBoolean("pending_context")) {pending=cards.getJSONObject(i);break;}
+        if(pending==null) throw new IllegalStateException("Pending synthetic API fixture absent");
+        String title=pending.getString("title");
+        await("有待處理內容");
+        test.runOnMainSync(() -> {
+            for(View v:views()) if(v instanceof TextView && title.contentEquals(((TextView)v).getText())) {
+                View row=v;
+                while(!row.isClickable() && row.getParent() instanceof View) row=(View)row.getParent();
+                row.requestRectangleOnScreen(new android.graphics.Rect(0,0,row.getWidth(),row.getHeight()),true); return;
+            }
+            throw new IllegalStateException("Pending activity row absent");
+        }); test.waitForIdleSync(); capture("pending-context-list");
+        click(title);
+        long until=System.currentTimeMillis()+5000;
+        boolean explained=false;
+        while(System.currentTimeMillis()<until) {
+            android.view.accessibility.AccessibilityNodeInfo root=test.getUiAutomation().getRootInActiveWindow();
+            if(accessibilityContains(root,"12 分鐘",0) && accessibilityContains(root,"不代表 AI 正在生成",0)) {explained=true;break;}
+            Thread.sleep(100);
+        }
+        test.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        if(!explained) throw new IllegalStateException("Pending inspector explanation absent");
+        assertConsentOff();
+        click("活動檢視：時間軸");
+    }
+    private boolean accessibilityContains(android.view.accessibility.AccessibilityNodeInfo node,String value,int depth) {
+        if(node==null || depth>32) return false;
+        if(node.getText()!=null && node.getText().toString().contains(value)) return true;
+        for(int i=0;i<node.getChildCount();i++) if(accessibilityContains(node.getChild(i),value,depth+1)) return true;
+        return false;
     }
     private void categoryVisibilityCheck() throws Exception {
         click("時間軸"); await("活動"); awaitSettled();

@@ -397,7 +397,7 @@ class MainActivity : Activity() {
     private fun colorFor(id: String): Int = style(id)?.let { Palette.parse(it.optString("color")) } ?: Palette.parse(defaultColors.getOrNull(baseCategories.indexOf(id)))
     private fun sourceLabel(source: String) = when (source) { "user" -> "你的修改"; "ai" -> "AI 摘要，請核對"; "local_excerpt" -> "可見文字摘錄"; else -> "僅 app 使用紀錄" }
     private fun cardsOf(data: JSONObject?): List<JSONObject> = data?.optJSONArray("cards")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
-    private fun item(c: JSONObject) = TimelineItem(c.getLong("start_ms"), c.getLong("end_ms"), c.optString("title"), label(c.getString("category")), colorFor(c.getString("category")))
+    private fun item(c: JSONObject) = TimelineItem(c.getLong("start_ms"), c.getLong("end_ms"), c.optString("title"), label(c.getString("category")) + if (c.optBoolean("pending_context")) " · 有待處理內容" else "", colorFor(c.getString("category")))
     private fun intervals(list: List<JSONObject>) = list.map { TimelineMath.Interval(it.getLong("start_ms"), it.getLong("end_ms")) }
     private fun totals(list: List<JSONObject>): List<Pair<String, Long>> =
         list.groupBy { it.getString("category") }.map { (id, rows) -> id to rows.sumOf { it.getLong("end_ms") - it.getLong("start_ms") } }.sortedByDescending { it.second }
@@ -657,6 +657,8 @@ class MainActivity : Activity() {
             return
         }
         ui.meta(card, "整日已記錄 ${TimelineMath.duration(tracked)} · ${list.size} 張活動卡 · 點卡片可修改", bottom = 8)
+        val pending = list.count { it.optBoolean("pending_context") }
+        if (pending > 0) ui.meta(card, "$pending 張活動有待處理內容；不代表 AI 正在生成。稍後重新整理可查看結果。", bottom = 8)
         val count = ui.meta(card, "")
         ui.meta(card, "切換分類只影響活動顯示；下方目標與時間分配仍統計整日。", bottom = 4)
         val filters = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
@@ -841,6 +843,7 @@ class MainActivity : Activity() {
     private fun editCard(card: JSONObject) {
         val content = ui.column(null, 20)
         ui.meta(content, "${clock(card.getLong("start_ms"))}–${clock(card.getLong("end_ms"))} · ${TimelineMath.duration(card.getLong("end_ms") - card.getLong("start_ms"))} · ${sourceLabel(card.optString("source"))}")
+        if (card.optBoolean("pending_context")) ui.banner(content, "伺服器仍有內容等待處理。通常在活動結束至少 12 分鐘後處理，工作程序暫停或重試時可能更久；這不代表 AI 正在生成。請稍後重新整理。", Kind.INFO)
         val title = ui.field(content, "標題", "", Field.TEXT, card.optString("title"))
         val summary = ui.field(content, "摘要", "", Field.MULTILINE, card.optString("summary"))
         val category = ui.spinner(content, "分類", categories.map { label(it) }, categories.indexOf(card.getString("category")).coerceAtLeast(0))

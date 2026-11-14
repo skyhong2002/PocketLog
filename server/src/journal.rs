@@ -200,12 +200,24 @@ pub(super) struct Card {
     summary: String,
     category: Category,
     source: &'static str,
+    // Matching raw context remains on the server; this is neither a worker
+    // execution state nor permission to send context to an external provider.
+    pending_context: bool,
 }
 pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card>> {
     let preferences = workspace::load(db)?;
     activities
         .iter()
         .map(|a| {
+            // Timeline activities may be clipped to the requested window. Match
+            // pending raw evidence against the stored activity's full interval.
+            let pending_context = db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms WHERE a.id=?)",
+                    [&a.id],
+                    |r| r.get(0),
+                )
+                .map_err(storage_error)?;
             let note: Option<(String, String, String, i64)> = db
                 .query_row(
                     "SELECT title,summary,category,edited FROM notes WHERE id=?",
@@ -237,6 +249,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 summary,
                 category,
                 source,
+                pending_context,
             })
         })
         .collect()
@@ -361,4 +374,123 @@ async fn overview(
         ranked.sort_by(|a,b|b.1.cmp(&a.1).then(a.0.cmp(&b.0))); ranked.truncate(10);
         Ok(Json(serde_json::json!({"from_ms":w.from_ms,"to_ms":w.to_ms,"categories":categories,"apps":apps,"checkin_count":checkins,"mood_average":mood,"energy_average":energy,"title_keywords":ranked,"keywords_sample_limit":1000})))
     }).await
+}
+
+#[cfg(test)]
+mod pending_context_tests {
+    use super::*;
+
+    fn setup() -> (AppState, Activity) {
+        let state = AppState::new(
+            Connection::open_in_memory().unwrap(),
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+        let activity = Activity {
+            id: "synthetic-activity".into(),
+            start_ms: 100,
+            end_ms: 200,
+            app: "org.example.reader".into(),
+            category: Category::Learning,
+        };
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO activities VALUES (?,?,?,?,?)",
+                params![
+                    activity.id,
+                    activity.start_ms,
+                    activity.end_ms,
+                    activity.app,
+                    "\"learning\""
+                ],
+            )
+            .unwrap();
+        (state, activity)
+    }
+
+    fn observe(db: &Connection, id: &str, at: i64, app: &str) {
+        db.execute(
+            "INSERT INTO observations VALUES (?,?,?,'synthetic private evidence',1,NULL,NULL)",
+            params![id, at, app],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn pending_matches_app_and_half_open_stored_interval() {
+        for (at, app, expected) in [
+            (99, "org.example.reader", false),
+            (100, "org.example.reader", true),
+            (150, "org.example.reader", true),
+            (199, "org.example.reader", true),
+            (200, "org.example.reader", false),
+            (150, "org.example.other", false),
+        ] {
+            let (state, activity) = setup();
+            let db = state.db.lock().unwrap();
+            let initial = cards(&db, std::slice::from_ref(&activity)).unwrap();
+            assert!(!initial[0].pending_context);
+            assert_eq!(initial[0].source, "app_only");
+            observe(&db, "synthetic-observation", at, app);
+            let result = cards(&db, &[activity]).unwrap();
+            assert_eq!(result[0].pending_context, expected);
+            assert_eq!(result[0].source, "app_only");
+            let json = serde_json::to_value(&result[0]).unwrap();
+            assert_eq!(json["pending_context"], expected);
+            assert!(!json.to_string().contains("synthetic private evidence"));
+        }
+    }
+
+    #[test]
+    fn clipped_card_uses_full_stored_activity_bounds() {
+        let (state, mut activity) = setup();
+        let db = state.db.lock().unwrap();
+        activity.start_ms = 140;
+        activity.end_ms = 160;
+        for at in [110, 190] {
+            observe(&db, "synthetic-observation", at, &activity.app);
+            let result = cards(&db, std::slice::from_ref(&activity)).unwrap();
+            assert!(result[0].pending_context);
+            assert_eq!((result[0].start_ms, result[0].end_ms), (140, 160));
+            db.execute("DELETE FROM observations", []).unwrap();
+        }
+    }
+
+    #[test]
+    fn late_context_preserves_note_source_and_tracks_remaining_raw_evidence() {
+        for (edited, source) in [(0, "local_excerpt"), (1, "user"), (2, "ai")] {
+            let (state, activity) = setup();
+            let db = state.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO notes VALUES (?,'Synthetic title','Synthetic summary','\"learning\"',?)",
+                params![activity.id, edited],
+            )
+            .unwrap();
+            assert!(!cards(&db, std::slice::from_ref(&activity)).unwrap()[0].pending_context);
+            for index in 0..13 {
+                observe(
+                    &db,
+                    &format!("synthetic-{index}"),
+                    110 + index,
+                    &activity.app,
+                );
+            }
+            let result = cards(&db, std::slice::from_ref(&activity)).unwrap();
+            assert!(result[0].pending_context);
+            assert_eq!(result[0].source, source);
+            assert_eq!(result[0].title, "Synthetic title");
+            // A worker batch consumes at most twelve observations. Remaining
+            // evidence must keep the flag set even after a note was committed.
+            db.execute("DELETE FROM observations WHERE at_ms<122", [])
+                .unwrap();
+            assert!(cards(&db, std::slice::from_ref(&activity)).unwrap()[0].pending_context);
+            db.execute("DELETE FROM observations", []).unwrap();
+            let result = cards(&db, &[activity]).unwrap();
+            assert!(!result[0].pending_context);
+            assert_eq!(result[0].source, source);
+        }
+    }
 }

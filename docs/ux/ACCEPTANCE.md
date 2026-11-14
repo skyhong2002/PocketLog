@@ -332,3 +332,42 @@ no native production source changed in this web fix.
 - [Phone source labels](screenshots/web-content-source-mobile.png)
 - [AI inspector](screenshots/web-content-source-inspector.png)
 - [Desktop source labels](screenshots/web-content-source-desktop.png)
+
+## Pending server context (#30), 0.4.7-dev
+
+Official Dayflow `CanvasTimelineDataView.swift` and `ActivityCard.swift` expose
+generation/failure visibility (source observations at2c79e161). PocketLog now
+exposes its own narrower fact: `pending_context` means matching raw context remains
+on the server. It is separate from provenance and does not promise active AI.
+The indexed query matches full stored activity bounds even when the displayed
+card is clipped. No schema, collection, consent, retry controls or polling changes.
+Native list/canvas metadata, aggregate count and secure inspector, plus web
+list/Daily/timeline labels and inspector, explain waiting and manual refresh.
+Older servers without the field continue to render normally. README no longer
+introduces the product as remembering feelings; the focus review label now says
+focus level. Historical records/API/export are preserved.
+
+Sol backend tests: matching app, inclusive start/exclusive end, missing/mismatched
+evidence, clipped windows, late evidence on AI/user/local notes, partial12-of13
+consumption and final clearing. Rustfmt/clippy-Dwarnings,17unit/31integration pass;
+standalone audit1509advisories/185dependencies passes with local-index warning.
+Android37unit/build/instrumentationbuild/lint, normal+2× connected checks pass;
+normal also checks actual offline cache/queued reflection. A targeted secure
+inspector check reads the synthetic accessibility tree; screenshots remain View
+snapshots, not compositor/TalkBack/physical gesture verification. Screenshot
+scrolling initially exposed only the heading; runner now reveals the entire row.
+
+Built image390px list/inspector and1440px list were visually checked; no horizontal
+overflow. All content is synthetic. API first showed app_only+pending=true; the
+isolated worker consumed the local-only observation, producing local_excerpt
+and pending=false. Web manual refresh removed both card and aggregate markers.
+Missing/false web fields show no marker. Final Docker smoke and web regressions pass.
+
+- [Native pending card](screenshots/native-pending-context.png)
+- [Native2× text](screenshots/native-pending-context-large.png)
+- [Web pending card](screenshots/web-pending-context.png)
+- [Web explanation](screenshots/web-pending-context-inspector.png)
+- [Desktop](screenshots/web-pending-context-desktop.png)
+
+No external AI or real journal used. False does not prove capture or processing
+success: phone-local queues/exclusions/expired evidence remain outside this flag.

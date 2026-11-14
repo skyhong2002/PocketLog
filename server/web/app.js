@@ -1376,6 +1376,8 @@ async function timelinePage(parent, seq) {
       "muted",
     ),
   );
+  const pendingCount = days.reduce((n, d) => n + d.cards.filter((c) => c.pending_context === true).length, 0);
+  if (pendingCount) add(left, el("p", `${pendingCount} 張活動有待處理內容。${pendingContextHelp}`, "muted"));
   if (!current.length && mode === "day") {
     const isToday = day === journalDate();
     add(
@@ -1478,8 +1480,12 @@ function contentSource(source) {
     default: return { label: "來源未提供", detail: "目前資料沒有可辨識的內容來源；請自行核對標題、摘要與分類。" };
   }
 }
+function pendingContextLabel(c) {
+  return c.pending_context === true ? "有待處理內容" : "";
+}
+const pendingContextHelp = "伺服器仍有內容等待處理。通常在活動結束至少 12 分鐘後處理，工作程序暫停或重試時可能更久；這不代表 AI 正在生成。請稍後重新整理。";
 function eventLabel(c) {
-  return `${time(c.start_ms)}–${time(c.end_ms)}，${c.title}，${styleFor(c.category).name}，${duration(c.end_ms - c.start_ms)}，${contentSource(c.source).label}`;
+  return `${time(c.start_ms)}–${time(c.end_ms)}，${c.title}，${styleFor(c.category).name}，${duration(c.end_ms - c.start_ms)}，${contentSource(c.source).label}${pendingContextLabel(c) ? "，" + pendingContextLabel(c) : ""}`;
 }
 function track(data, compact) {
   const lane = el("div", null, "timeline");
@@ -1507,12 +1513,12 @@ function track(data, compact) {
     b.style.setProperty("--lane", index);
     b.style.setProperty("--lanes", lanes);
     b.setAttribute("aria-label", eventLabel(c));
-    b.title = `${c.title} · ${time(c.start_ms)}–${time(c.end_ms)} · ${contentSource(c.source).label}`;
+    b.title = `${c.title} · ${time(c.start_ms)}–${time(c.end_ms)} · ${contentSource(c.source).label}${pendingContextLabel(c) ? " · " + pendingContextLabel(c) : ""}`;
     add(b, el("strong", c.title));
     if (!compact || height >= 40)
       add(b, el("small", `${time(c.start_ms)}–${time(c.end_ms)}`));
     if (height >= 52 && !compact)
-      add(b, el("span", `${c.app} · ${category.name} · ${contentSource(c.source).label}`, "event-meta"));
+      add(b, el("span", `${pendingContextLabel(c) ? pendingContextLabel(c) + " · " : ""}${c.app} · ${category.name} · ${contentSource(c.source).label}`, "event-meta"));
     if (height >= 84 && !compact && c.summary)
       add(b, el("span", c.summary, "event-summary"));
     add(lane, b);
@@ -1555,6 +1561,7 @@ function activityList(parent, data, showDate) {
         el("strong", c.title),
         el("small", `${c.app} · ${category.name}`),
         el("small", contentSource(c.source).label),
+        c.pending_context === true ? el("small", pendingContextLabel(c)) : null,
       ),
       el("span", duration(c.end_ms - c.start_ms), "activity-length"),
     );
@@ -1649,7 +1656,7 @@ function summary(parent, m) {
       "muted",
     ),
     segmented(
-      "這天整體的感覺",
+      "這天的專注程度",
       Object.entries(names),
       last?.rating,
       async (rating) => {
@@ -1702,6 +1709,7 @@ function editCard(c) {
       ]),
     );
     add(p, el("p", contentSource(c.source).detail, "muted"));
+    if (c.pending_context === true) add(p, el("p", pendingContextHelp, "hint"));
     const title = field(p, "標題", c.title),
       note = field(p, "摘要", c.summary, "textarea"),
       choice = select(
@@ -1878,6 +1886,7 @@ async function reviewPage(parent, seq, kind) {
             el("strong", c.title),
             el("small", `${c.app} · ${styleFor(c.category).name}`),
             el("small", contentSource(c.source).label),
+            c.pending_context === true ? el("small", pendingContextLabel(c)) : null,
           ),
           el("span", duration(c.end_ms - c.start_ms), "activity-length"),
         );
