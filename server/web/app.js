@@ -897,7 +897,7 @@ function onboard(step) {
       p,
       el(
         "p",
-        "沒有 AI 也能使用時間軸、感受與反思。想要摘要與 Chat 時，可以接上自己的 OpenAI 相容、Anthropic Messages 或 Gemini generateContent API。",
+        "沒有 AI 也能使用時間軸、活動分類、專注統計與反思。想要摘要與 Chat 時，可以接上自己的 OpenAI 相容、Anthropic Messages 或 Gemini generateContent API。",
       ),
       el(
         "p",

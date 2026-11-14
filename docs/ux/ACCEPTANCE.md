@@ -771,3 +771,21 @@ retain #39's verified fmt/clippy/57tests/audit/web/Docker checks and successful 
 - [Actionable capture warning](screenshots/native-capture-no-eligible.png)
 - [2×text warning and visible action](screenshots/native-capture-no-eligible-large.png)
 - [Accurate privacy guidance at2×text](screenshots/native-capture-privacy-large.png)
+
+## First-run copy after mood-entry removal (#41)
+
+The optional-AI onboarding step no longer advertises the removed manual mood
+feature. It names timeline, activity classification, focus statistics and optional
+reflection instead. Legacy-record export/deletion and AI-exclusion explanations
+remain accurate and retained. This follows the owner's feature correction; it
+adds no Dayflow parity claim or collection/provider behavior.
+
+On the final built image, the disposable workspace was temporarily reset to
+onboarding0. All four real steps were traversed. The fourth step was inspected at
+1280px and390px with no horizontal overflow, then completed through its real
+button; shared onboarding1, goals and rules were restored/preserved. No external
+provider call or phone capture was made. Web syntax/import/timeline checks and
+Docker smoke pass; Rust/native source and dependencies are unchanged from #39/#40.
+
+- [Desktop final step](screenshots/web-onboarding-current-desktop.png)
+- [Phone final step](screenshots/web-onboarding-current-mobile.png)
