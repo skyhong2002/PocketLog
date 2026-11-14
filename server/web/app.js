@@ -184,6 +184,8 @@ function close() {
   $("#modal").close();
 }
 function login() {
+  $("#modal").close();
+  $("#modal-body").replaceChildren();
   current = [];
   reviewRows = [];
   chat = [];
@@ -1515,6 +1517,7 @@ function exportData(days) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+$("#modal").addEventListener("close", () => $("#modal-body").replaceChildren());
 boot().catch((error) => {
   if (error.message !== "請重新登入私人日誌")
     notice(error.message || "無法載入，請重新整理");
