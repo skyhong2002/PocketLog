@@ -478,3 +478,50 @@ Android unchanged from #31's37unit/build/lint and connected acceptance.
 
 - [Phone initial list](screenshots/web-phone-default-list.png)
 - [Desktop initial grid](screenshots/web-desktop-default-grid.png)
+
+## Native capture app selection (#34)
+
+Official Dayflow source2c79e161's `SettingsRecordingPrivacyTabView.swift` implements
+installed-app search, visible count, bounded grid and no-match guidance;
+`RecordingPrivacySettingsViewModel.swift:85–93` matches app names/package IDs.
+The separate permission rows remain in `ScreenRecordingPermissionView.swift`.
+These are source observations, not a macOS runtime claim. The supplied actual
+Dayflow screenshots show timeline hierarchy, not this settings interaction.
+
+PocketLog's previous native picker was an unsearchable multi-choice list. Sol6.1
+implemented local label/package search, selected/visible counts, scrollable empty
+and no-match states, wrapping recycled rows and a secure bounded dialog. Manual
+package entries outside launcher results survive. Invalid manual input now marks
+the field before any background lookup; Views are read only on the UI thread.
+Limits remain2000launcher results/80-character labels; query is capped160chars.
+No permission, installed-app upload, logging, storage, sampling or consent changes.
+Fill modifies the form only; Save remains explicit and separate.
+
+Root's emulator-only instrumentation opens the actual MainActivity app-list page
+and actual picker. It selects Settings from the disposable AOSP image, filters to
+no match and back with whitespace/uppercase, checks retained selection, fills
+while preserving synthetic `org.example.manual`, cancels a changed selection and
+verifies invalid input feedback. Persisted lists and all collection consents stay
+unchanged. An explicitly empty app result list separately exercises the same
+production dialog's no-app explanation. No real phone/app inventory was used.
+
+Normal and2×font runs pass. Actual IME visibility was verified from window insets;
+both action buttons remained fully visible in the keyboard-adjusted display frame.
+Captures use public `WindowInspector` dialog Views with FLAG_SECURE asserted. They
+are View snapshots, including the shrunken keyboard-state dialog, not compositor
+screenshots of the keyboard or TalkBack verification. Final large-font pictures
+were inspected; search/count/results/actions remain readable and scrollable.
+
+Android37unit tests,assembleDebug,assembleDebugAndroidTest,lintDebug pass; full
+connected8page/realHTTPS/offlinequeue/cache/brief-consent regression passes after
+integration. Rustfmt/clippy-Dwarnings20unit/31integration,audit1509/185,web regression
+and Docker smoke of unchanged production image pass. Version13/0.4.8-dev uses the
+same signing certificate as earlier APKs. No server source/deployment change is
+needed; production remains7603f9a. Physical phone/TalkBack/battery remain gaps.
+
+- [Searchable app list](screenshots/native-app-picker.png)
+- [Selection retained across searches](screenshots/native-app-picker-selected.png)
+- [No search match](screenshots/native-app-picker-no-match.png)
+- [2×text](screenshots/native-app-picker-large.png)
+- [Dialog adjusted for visible keyboard](screenshots/native-app-picker-keyboard.png)
+- [Explicit empty app result](screenshots/native-app-picker-empty.png)

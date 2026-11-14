@@ -1601,18 +1601,25 @@ class MainActivity : Activity() {
     }
 
     private fun chooseApps(field: EditText) {
+        // Views belong to the main thread, including validation of a manually edited list.
+        val initial = try {
+            RecordingRules.packages(field.text.toString())
+        } catch (_: IllegalArgumentException) {
+            val message = "請輸入完整套件名稱，例如 com.example.app；以空白、逗號或換行分隔"
+            field.error = message
+            field.requestFocus()
+            notice(message, Kind.WARN)
+            return
+        }
+        field.error = null
         task("讀取已安裝 app…", {
-            val selected = RecordingRules.packages(field.text.toString())
-            val apps = packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), android.content.pm.PackageManager.ResolveInfoFlags.of(0))
-                .take(2000).map { it.activityInfo.packageName to RecordingRules.cap(it.loadLabel(packageManager).toString(), 80) }
-                .distinctBy { it.first }.sortedBy { it.second }
-            apps to selected
-        }) { (apps, initial) ->
-            val chosen = initial.toMutableSet()
-            dialog().setTitle("選擇 app，完成後仍須儲存清單")
-                .setMultiChoiceItems(apps.map { "${it.second}\n${it.first}" }.toTypedArray(), apps.map { it.first in chosen }.toBooleanArray()) { _, index, checked ->
-                    if (checked) chosen += apps[index].first else chosen -= apps[index].first
-                }.setNegativeButton("取消", null).setPositiveButton("填入清單") { _, _ -> field.setText(chosen.sorted().joinToString("\n")) }.showSecure()
+            packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), android.content.pm.PackageManager.ResolveInfoFlags.of(0))
+                .take(AppPicker.MAX_APPS).map { AppPicker.App(it.activityInfo.packageName, RecordingRules.cap(it.loadLabel(packageManager).toString(), 80)) }
+                .distinctBy { it.packageName }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        }) { apps ->
+            AppPicker.show(this@MainActivity, apps, initial) { chosen ->
+                field.setText(chosen.sorted().joinToString("\n"))
+            }
             notice("選好後記得按「儲存清單」", Kind.INFO)
         }
     }

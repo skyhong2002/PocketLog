@@ -91,8 +91,11 @@ Usage Access permission. Only activity after consent is eligible; no infovore
 history is imported. The collector runs at most once per 15 minutes when work is
 scheduled. Android controls actual timing, especially under Doze.
 
-For context, choose a small app allowlist (installed launcher apps can be selected
-without granting broad package visibility), save the exclusion/allow lists, read
+For context, choose a small app allowlist. In Android Settings →「排除與允許清單」,
+「從已安裝 app 選擇」searches launcher app names or full package names without
+granting broad package visibility. Selections survive searches; Cancel discards
+the temporary edits.「填入清單」only fills the form; press「儲存清單」to apply it.
+Manually entered packages outside the launcher list are preserved. Then read
 and accept the separate context notice, then enable the PocketLog Accessibility
 service in Android settings. Thumbnail capture and model processing each have
 additional opt-ins. Sensitive/excluded apps take precedence over allowlists.
