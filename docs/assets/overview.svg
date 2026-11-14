@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">PocketLog: make room for reflection</title>
+  <desc id="desc">Product direction, not an app screenshot: activity capture and context understanding are planned; explicit mood and energy check-ins are available in the development foundation.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#122F28"/><stop offset="1" stop-color="#224B3E"/></linearGradient>
+    <linearGradient id="card" x2="1" y2="1"><stop stop-color="#315B4C"/><stop offset="1" stop-color="#24483D"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#D5DCA0" stop-opacity=".14"/><stop offset="1" stop-color="#D5DCA0" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="560" rx="28" fill="url(#bg)"/>
+  <circle cx="1030" cy="100" r="380" fill="url(#glow)"/>
+  <g fill="none" stroke="#80AC91" stroke-opacity=".12"><circle cx="1075" cy="510" r="190"/><circle cx="1075" cy="510" r="265"/><circle cx="1075" cy="510" r="340"/></g>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <rect x="54" y="54" width="204" height="30" rx="15" fill="#365A48"/>
+    <circle cx="72" cy="69" r="4" fill="#D9E6A3"/>
+    <text x="84" y="74" font-size="11" letter-spacing="1.5" fill="#E2EDC4">A JOURNAL THAT NOTICES</text>
+    <text x="54" y="175" fill="#F3F4E9" font-size="61" font-weight="700" letter-spacing="-2">Make room</text>
+    <text x="54" y="245" fill="#D9E6A3" font-size="61" font-weight="700" letter-spacing="-2">for reflection.</text>
+    <text x="57" y="299" fill="#BED0C5" font-size="18">What happened. How you felt.</text>
+    <text x="57" y="329" fill="#BED0C5" font-size="18">A little more understanding, every day.</text>
+    <path d="M57 380h490" stroke="#587767" stroke-opacity=".6"/>
+    <text x="57" y="414" fill="#EDF0DD" font-size="14">ANDROID FIRST</text>
+    <text x="228" y="414" fill="#EDF0DD" font-size="14">SELF-HOSTED</text>
+    <text x="399" y="414" fill="#EDF0DD" font-size="14">YOUR RHYTHM</text>
+    <text x="57" y="492" fill="#92AD9D" font-size="12">PRODUCT DIRECTION · DEVELOPMENT FOUNDATION</text>
+    <path d="M695 131v299" stroke="#8CA992" stroke-width="2" stroke-dasharray="4 7"/>
+    <circle cx="695" cy="145" r="7" fill="#D9E6A3"/><circle cx="695" cy="280" r="7" fill="#D9E6A3"/><circle cx="695" cy="415" r="7" fill="#D9E6A3"/>
+    <g>
+      <rect x="725" y="99" width="419" height="110" rx="18" fill="url(#card)" stroke="#68866C" stroke-opacity=".6"/>
+      <text x="750" y="131" font-size="11" fill="#CBDAAD" letter-spacing="1.7">01 / NOTICE</text>
+      <text x="750" y="164" font-size="24" font-weight="600" fill="#F1F2E7">Your day, in context.</text>
+      <text x="750" y="189" font-size="13" fill="#B5CABD">Activity capture · planned</text>
+    </g>
+    <g>
+      <rect x="725" y="234" width="419" height="110" rx="18" fill="url(#card)" stroke="#68866C" stroke-opacity=".6"/>
+      <text x="750" y="266" font-size="11" fill="#CBDAAD" letter-spacing="1.7">02 / UNDERSTAND</text>
+      <text x="750" y="299" font-size="24" font-weight="600" fill="#F1F2E7">More than screen time.</text>
+      <text x="750" y="324" font-size="13" fill="#B5CABD">Semantic summaries + categories · planned</text>
+    </g>
+    <g>
+      <rect x="725" y="369" width="419" height="110" rx="18" fill="#DCE9C1"/>
+      <text x="750" y="401" font-size="11" fill="#4D684E" letter-spacing="1.7">03 / REFLECT</text>
+      <text x="750" y="434" font-size="24" font-weight="600" fill="#1C3D30">How did that feel?</text>
+      <text x="750" y="459" font-size="13" fill="#46664D">Mood + energy check-ins · available</text>
+    </g>
+  </g>
+</svg>

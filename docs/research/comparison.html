@@ -1,0 +1,1159 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>手機活動日誌工具比較</title>
+<style>
+:root{color-scheme:dark light;font-family:var(--font-sans,system-ui,sans-serif);color:var(--foreground,#e7e8ed);font-size:14px;line-height:1.55}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,a,input{outline-offset:4px}button{cursor:pointer}a{color:var(--primary,#a4b8ff)}button{color:inherit}p{margin:0 0 12px}.muted{color:var(--muted-foreground,#a0a5b2)}.small{font-size:12px}.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}.search{background:var(--card,#191b22);color:inherit;border:1px solid var(--border,#383b46);border-radius:var(--radius,10px);padding:10px 12px;min-width:170px;flex:1}.toggle{display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap}input[type=checkbox]{accent-color:var(--primary,#99acff);width:16px;height:16px}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.tab,.reset,.pick summary,.outline{border:1px solid var(--border,#383b46);background:transparent;border-radius:var(--radius,9px);padding:8px 11px}.tab[aria-pressed=true]{background:var(--primary,#a4b8ff);color:var(--primary-foreground,#141b37);border-color:transparent;font-weight:650}.reset{font-size:12px;padding:6px 9px}.pick{margin:10px 0}.pick summary{cursor:pointer;display:inline-block}.project-picker{display:flex;flex-wrap:wrap;gap:10px 16px;padding:14px;margin-top:8px;background:var(--card,#191b22);border-radius:var(--radius,10px)}.info{padding:14px 16px;border:1px solid var(--border,#383b46);border-radius:var(--radius,10px);margin:12px 0;background:var(--card,#191b22)}.info strong{color:var(--primary,#a4b8ff)}.caption{display:flex;justify-content:space-between;gap:8px;align-items:center;margin:12px 0 8px}.table-wrap{overflow:auto;max-height:650px;border:1px solid var(--border,#383b46);border-radius:var(--radius,10px);scrollbar-width:thin}table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}th,td{padding:12px 10px;border-bottom:1px solid var(--border,#383b46);text-align:left;vertical-align:top;min-width:155px;max-width:230px}thead th{position:sticky;top:0;background:var(--card,#191b22);z-index:2;font-size:12px;font-weight:600;color:var(--muted-foreground,#b0b4c0)}th:first-child,td:first-child{position:sticky;left:0;min-width:150px;width:150px;max-width:150px;background:var(--card,#191b22);border-right:1px solid var(--border,#383b46);z-index:1}thead th:first-child{z-index:3}tr:last-child td{border-bottom:0}.name{padding:0;border:0;background:none;text-align:left;font-weight:650;color:var(--foreground,#eee);font-size:13px}.name:hover{text-decoration:underline}.platform{font-size:11px;margin-top:4px;color:var(--muted-foreground,#a0a5b2)}.cell{border:1px solid transparent;background:transparent;padding:4px 7px;border-radius:6px;text-align:left;line-height:1.5;font-size:12px;max-width:210px}.cell:hover{border-color:var(--ring,#9eb1ff)}.yes{color:var(--success,#8bd4ae);background:color-mix(in srgb,var(--success,#8bd4ae) 10%,transparent)}.partial,.manual,.rule{color:var(--warning,#e5c483);background:color-mix(in srgb,var(--warning,#e5c483) 9%,transparent)}.desktop{color:var(--info,#9ec9f5);background:color-mix(in srgb,var(--info,#9ec9f5) 9%,transparent)}.absent,.unknown{color:var(--muted-foreground,#a0a5b2)}.neutral{font-size:12px}.legend{display:flex;flex-wrap:wrap;gap:9px 14px;margin:10px 0}.dot{width:7px;height:7px;display:inline-block;border-radius:50%;margin-right:4px;background:currentColor}.empty{padding:25px;text-align:center}.footer{font-size:12px;color:var(--muted-foreground,#a0a5b2);margin-top:12px}dialog{background:var(--popover,#20232c);color:var(--foreground,#e7e8ed);border:1px solid var(--border,#414553);border-radius:var(--radius,12px);padding:20px;width:620px;max-width:calc(100% - 24px);max-height:640px;overflow:auto;box-shadow:0 12px 50px #0006}dialog::backdrop{background:#0008}.dialog-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.dialog-top h2{font-size:19px;margin:0 0 2px}.close{background:transparent;border:1px solid var(--border,#414553);border-radius:6px;color:inherit;padding:4px 10px}.detail-row{padding:11px 0;border-bottom:1px solid var(--border,#383b46)}.detail-row h3{font-size:13px;margin:0 0 4px}.detail-row p{font-size:13px;margin:0}.detail-row.highlight{border-left:3px solid var(--primary,#a4b8ff);padding-left:10px}.sources{padding-left:20px;font-size:13px}.sources li{margin:7px 0}.sha{font-family:var(--font-mono,monospace);font-size:11px;overflow-wrap:anywhere}.dialog-section{font-size:14px;margin:18px 0 6px}@media(max-width:480px){:root{font-size:13px}.search{flex-basis:100%}.controls{gap:9px}.tab{padding:7px 9px;font-size:12px}.info{font-size:12px}.table-wrap{max-height:590px}th:first-child,td:first-child{min-width:128px;width:128px;max-width:128px}th,td{min-width:145px;padding:10px 8px}.name{font-size:12px}.caption{align-items:flex-start}.hide-mobile{display:none}}
+</style></head><body>
+<p class="muted small">原始碼核對 · 2026-11-14 · 11 個專案 · 未做實機與耗電測試</p>
+<div class="info"><strong>AWARE 確實有手機定時截圖。</strong> 但收集圖片、OCR 搜尋、AI 理解活動、記錄感受，是不同能力。這份比較把它們分開；所有功能格都能點開看解釋與程式碼依據。</div>
+<div class="controls"><input id="query" class="search" aria-label="搜尋專案或功能" placeholder="搜尋專案或功能，例如：截圖、心情、語音"><label class="toggle"><input id="mobile" type="checkbox">只看支援手機</label><label class="toggle"><input id="shots" type="checkbox">手機自動截圖</label></div>
+<div class="tabs" id="tabs" aria-label="比較功能群組"></div>
+<details class="pick"><summary>選擇要比較的專案</summary><div class="project-picker" id="picker"></div><div class="controls"><button class="reset" id="selectAll">全部選取</button><button class="reset" id="clearAll">全部取消</button></div></details>
+<div class="caption"><div><strong id="count" aria-live="polite"></strong><div class="small muted" id="groupHint"></div></div><button class="reset" id="reset">重設篩選</button></div>
+<div class="table-wrap" tabindex="0" aria-label="功能比較表，可橫向捲動"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+<div class="legend small"><span class="yes"><i class="dot"></i>已確認的能力</span><span class="partial"><i class="dot"></i>手動／有條件／部分能力</span><span class="desktop"><i class="dot"></i>僅桌面</span><span class="unknown"><i class="dot"></i>未見內建／未確認</span></div>
+<p class="footer">「未見內建」＝本次核對的核心程式路徑未找到，並非證明所有版本與外掛都沒有。「未確認」＝證據不足。原始碼存在也不代表已在最新版 Android／iOS 驗證可用。橫向滑動看更多欄位；點專案名稱看全部功能。</p>
+<dialog id="detail"><div class="dialog-top"><div><h2 id="detailTitle"></h2><a id="repoLink" target="_blank" rel="noopener noreferrer">GitHub 專案 ↗</a></div><button class="close" id="close" aria-label="關閉專案詳情">關閉</button></div><p id="conclusion" class="info"></p><div id="detailFields"></div><h3 class="dialog-section">程式碼／技術依據</h3><ul class="sources" id="sources"></ul><p class="muted small">核對的來源版本</p><p id="sha" class="sha muted"></p></dialog>
+<script id="data" type="application/json">[
+  {
+    "id": "aw",
+    "name": "ActivityWatch Android",
+    "repo": "ActivityWatch/aw-android",
+    "url": "https://github.com/ActivityWatch/aw-android",
+    "sha": "284be9a4688bf132e679b55bc03c183a5d95e72f",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android",
+        "detail": "Android",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "系統使用事件；可選網址／媒體資訊",
+        "detail": "系統使用事件；可選網址／媒體資訊",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "未見內建",
+        "detail": "已查核心 watcher：以 UsageStats、無障礙服務及 MediaSession 取得事件，未見定時截圖路徑。",
+        "kind": "absent"
+      },
+      "vision": {
+        "label": "未見內建",
+        "detail": "核心並非用視覺模型讀懂畫面。",
+        "kind": "absent"
+      },
+      "summary": {
+        "label": "非核心功能",
+        "detail": "官方文件有把統計交給外部 AI 分析的工作流，不等同內建自動活動摘要。",
+        "kind": "partial"
+      },
+      "category": {
+        "label": "規則比對",
+        "detail": "以 app 名稱與標題做正規表示式分類；不是畫面語意分類。",
+        "kind": "rule"
+      },
+      "mood": {
+        "label": "未確認",
+        "detail": "核對的核心紀錄與分類路徑未確認有心情自填流程。",
+        "kind": "unknown"
+      },
+      "compute": {
+        "label": "手機端收集／本機服務；可同步",
+        "detail": "手機端收集／本機服務；可同步",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機事件資料庫",
+        "detail": "本機事件資料庫",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "MPL-2.0",
+        "detail": "MPL-2.0",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "自動",
+        "detail": "UsageStatsManager 讀取前景 app、時間與 session。",
+        "kind": "yes"
+      },
+      "web": {
+        "label": "條件支援",
+        "detail": "無障礙服務讀取支援瀏覽器的網址／標題，效果依瀏覽器而異。",
+        "kind": "partial"
+      },
+      "audio": {
+        "label": "媒體資訊",
+        "detail": "記錄播放器提供的標題、作者、播放狀態；不是錄音。",
+        "kind": "partial"
+      },
+      "timeline": {
+        "label": "使用時間軸",
+        "detail": "以 app／網站等事件呈現。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "事件查詢",
+        "detail": "可查事件與統計，不是視覺內容的語意搜尋。",
+        "kind": "partial"
+      }
+    },
+    "conclusion": "適合參考事件擷取與統計，不能直接替代我們的截圖內容理解。",
+    "sources": [
+      {
+        "title": "App 使用事件",
+        "url": "https://github.com/ActivityWatch/aw-android/blob/284be9a4688bf132e679b55bc03c183a5d95e72f/mobile/src/main/java/net/activitywatch/android/watcher/UsageStatsWatcher.kt"
+      },
+      {
+        "title": "網頁資訊",
+        "url": "https://github.com/ActivityWatch/aw-android/blob/284be9a4688bf132e679b55bc03c183a5d95e72f/mobile/src/main/java/net/activitywatch/android/watcher/WebWatcher.kt"
+      },
+      {
+        "title": "媒體事件",
+        "url": "https://github.com/ActivityWatch/aw-android/blob/284be9a4688bf132e679b55bc03c183a5d95e72f/mobile/src/main/java/net/activitywatch/android/watcher/MediaWatcher.kt"
+      },
+      {
+        "title": "分類規則文件",
+        "url": "https://github.com/ActivityWatch/docs/blob/master/src/features/categorization.rst"
+      }
+    ]
+  },
+  {
+    "id": "memex",
+    "name": "Memex",
+    "repo": "memex-lab/memex",
+    "url": "https://github.com/memex-lab/memex",
+    "sha": "d541b1b5ce3bc69c71037fc27819959aacab27fe",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android / iOS",
+        "detail": "Android / iOS",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "文字、照片、語音、匯入／分享",
+        "detail": "文字、照片、語音、匯入／分享",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "未見內建",
+        "detail": "已查 Android manifest、輸入／相簿與 agent 路徑，未見全天自動擷取其他 app 畫面的管線。相簿照片建議不等於自動截圖。",
+        "kind": "absent"
+      },
+      "vision": {
+        "label": "輸入圖片",
+        "detail": "可交由支援多模態的模型理解使用者提供的圖片；不是自動讀取全天畫面。",
+        "kind": "partial"
+      },
+      "summary": {
+        "label": "AI 整理",
+        "detail": "模型把生活片段整理成卡片、摘要與洞察。",
+        "kind": "yes"
+      },
+      "category": {
+        "label": "AI 標籤／卡片",
+        "detail": "manage_timeline_card 由模型選擇卡片模板及標籤；不等同全天活動分類。",
+        "kind": "partial"
+      },
+      "mood": {
+        "label": "可文字記感受",
+        "detail": "能提供感受作為日誌內容；未確認有標準化每日心情量表。",
+        "kind": "partial"
+      },
+      "compute": {
+        "label": "手機編排 agent；推論依設定的模型端點",
+        "detail": "手機編排 agent；推論依設定的模型端點",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機檔案／SQLite；模型請求可出網",
+        "detail": "本機檔案／SQLite；模型請求可出網",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "GPL-3.0",
+        "detail": "GPL-3.0",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "未見內建",
+        "detail": "未見以 UsageStats 自動記錄其他 app 時數的核心管線。",
+        "kind": "absent"
+      },
+      "web": {
+        "label": "使用者提供連結",
+        "detail": "可整理使用者提供的連結；不是自動瀏覽歷史追蹤。",
+        "kind": "manual"
+      },
+      "audio": {
+        "label": "使用者語音",
+        "detail": "由使用者提供語音片段。",
+        "kind": "manual"
+      },
+      "timeline": {
+        "label": "AI 卡片時間軸",
+        "detail": "根據使用者提供或匯入的紀錄建立。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "知識／紀錄查找",
+        "detail": "README 與 agent 系統提供知識整理、搜尋及問答。",
+        "kind": "yes"
+      }
+    },
+    "conclusion": "最接近「AI 整理生活片段」，但其資料來源不是全天被動手機截圖。",
+    "sources": [
+      {
+        "title": "輸入來源與資料流",
+        "url": "https://github.com/memex-lab/memex/blob/d541b1b5ce3bc69c71037fc27819959aacab27fe/README.md"
+      },
+      {
+        "title": "Android 權限與服務",
+        "url": "https://github.com/memex-lab/memex/blob/d541b1b5ce3bc69c71037fc27819959aacab27fe/android/app/src/main/AndroidManifest.xml"
+      },
+      {
+        "title": "AI 建立卡片與標籤",
+        "url": "https://github.com/memex-lab/memex/blob/d541b1b5ce3bc69c71037fc27819959aacab27fe/lib/agent/skills/manage_timeline_card/timeline_card_skill.dart"
+      },
+      {
+        "title": "相簿照片建議",
+        "url": "https://github.com/memex-lab/memex/blob/d541b1b5ce3bc69c71037fc27819959aacab27fe/lib/data/services/photo_suggestion_service.dart"
+      }
+    ]
+  },
+  {
+    "id": "omi",
+    "name": "Omi",
+    "repo": "BasedHardware/omi",
+    "url": "https://github.com/BasedHardware/omi",
+    "sha": "c40fda41b0670fb89ed7237807d71450ad705890",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android / iOS；另有桌面／穿戴裝置",
+        "detail": "Android / iOS；另有桌面／穿戴裝置",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "手機麥克風、穿戴裝置音訊；桌面另有畫面",
+        "detail": "手機麥克風、穿戴裝置音訊；桌面另有畫面",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "手機未確認",
+        "detail": "核對到的手機 capture 是麥克風／BLE 音訊，未確認全天手機畫面擷取。桌面畫面功能不能套用到手機。",
+        "kind": "unknown"
+      },
+      "vision": {
+        "label": "桌面有",
+        "detail": "專案有桌面畫面與會議截圖處理；手機端未確認同樣能力。",
+        "kind": "desktop"
+      },
+      "summary": {
+        "label": "對話摘要",
+        "detail": "後端以 LLM 處理對話、摘要、待辦及記憶。",
+        "kind": "yes"
+      },
+      "category": {
+        "label": "對話結構化",
+        "detail": "模型整理對話與任務；不是已確認的手機畫面活動分類。",
+        "kind": "partial"
+      },
+      "mood": {
+        "label": "未確認",
+        "detail": "未確認有等同每日心情量表的手機自填流程。",
+        "kind": "unknown"
+      },
+      "compute": {
+        "label": "雲端／後端為主；另有裝置端轉錄路徑",
+        "detail": "雲端／後端為主；另有裝置端轉錄路徑",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "手機音訊暫存＋後端；依模式不同",
+        "detail": "手機音訊暫存＋後端；依模式不同",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "MIT",
+        "detail": "MIT",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "手機未確認",
+        "detail": "未確認有 Android 全 app 使用事件的核心日誌。",
+        "kind": "unknown"
+      },
+      "web": {
+        "label": "手機未確認",
+        "detail": "未確認手機自動追蹤其他瀏覽器內容。",
+        "kind": "unknown"
+      },
+      "audio": {
+        "label": "核心來源",
+        "detail": "手機麥克風／BLE 音訊收集，可即時或批次處理。",
+        "kind": "yes"
+      },
+      "timeline": {
+        "label": "對話／記憶列表",
+        "detail": "以對話及記憶為主。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "記憶搜尋／問答",
+        "detail": "可搜尋和詢問過去對話與記憶。",
+        "kind": "yes"
+      }
+    },
+    "conclusion": "值得借鏡音訊到記憶的後端；不能稱為已確認的手機版 Dayflow。",
+    "sources": [
+      {
+        "title": "手機擷取架構",
+        "url": "https://github.com/BasedHardware/omi/blob/c40fda41b0670fb89ed7237807d71450ad705890/app/lib/services/capture/CAPTURE_ARCHITECTURE.md"
+      },
+      {
+        "title": "手機麥克風來源",
+        "url": "https://github.com/BasedHardware/omi/blob/c40fda41b0670fb89ed7237807d71450ad705890/app/lib/services/audio_sources/phone_mic_source.dart"
+      },
+      {
+        "title": "裝置端處理的限制與開關",
+        "url": "https://github.com/BasedHardware/omi/blob/c40fda41b0670fb89ed7237807d71450ad705890/app/lib/services/on_device/README.md"
+      },
+      {
+        "title": "後端 LLM 結構化",
+        "url": "https://github.com/BasedHardware/omi/blob/c40fda41b0670fb89ed7237807d71450ad705890/backend/utils/llm/conversation_processing.py"
+      }
+    ]
+  },
+  {
+    "id": "void",
+    "name": "MemoryVoid",
+    "repo": "dhruvpitroda20-code/MemoryVoid",
+    "url": "https://github.com/dhruvpitroda20-code/MemoryVoid",
+    "sha": "5e66282c6119c3e3ac7f8eccc4cab2c6595aa00f",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android",
+        "detail": "Android",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "硬體鍵／助理手勢觸發截圖＋語音",
+        "detail": "硬體鍵／助理手勢觸發截圖＋語音",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "手動觸發",
+        "detail": "AccessibilityService.takeScreenshot；由硬體鍵／助理動作觸發，非全天定時截圖。不同模式可在開始或結束時擷取。",
+        "kind": "manual"
+      },
+      "vision": {
+        "label": "未見內建",
+        "detail": "已核對擷取服務與主要介面，未見把圖片交給視覺模型理解的管線。",
+        "kind": "absent"
+      },
+      "summary": {
+        "label": "未見內建",
+        "detail": "核心保存語音／截圖／文字筆記，未見 AI 摘要管線。",
+        "kind": "absent"
+      },
+      "category": {
+        "label": "手動標籤",
+        "detail": "介面由使用者建立與選取分類。",
+        "kind": "manual"
+      },
+      "mood": {
+        "label": "可附語音／筆記",
+        "detail": "能主動記下感受；未確認專用心情量表。",
+        "kind": "partial"
+      },
+      "compute": {
+        "label": "手機端擷取與保存",
+        "detail": "手機端擷取與保存",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機圖片、語音與紀錄",
+        "detail": "本機圖片、語音與紀錄",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "MIT",
+        "detail": "MIT",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "未見內建",
+        "detail": "不是 app 使用時數追蹤器。",
+        "kind": "absent"
+      },
+      "web": {
+        "label": "手動截取畫面",
+        "detail": "可保存目前畫面，未見自動瀏覽歷史管線。",
+        "kind": "manual"
+      },
+      "audio": {
+        "label": "手動錄音",
+        "detail": "依按鍵動作開始與停止。",
+        "kind": "manual"
+      },
+      "timeline": {
+        "label": "記憶卡片",
+        "detail": "保存手動捕捉的片刻。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "未確認",
+        "detail": "未確認內容語意搜尋。",
+        "kind": "unknown"
+      }
+    },
+    "conclusion": "擷取 API 很值得參考，但它是快速手動記憶工具。",
+    "sources": [
+      {
+        "title": "按鍵、錄音、截圖",
+        "url": "https://github.com/dhruvpitroda20-code/MemoryVoid/blob/5e66282c6119c3e3ac7f8eccc4cab2c6595aa00f/app/src/main/java/com/example/essentialspace/KeyMappingService.kt"
+      },
+      {
+        "title": "手動分類與筆記",
+        "url": "https://github.com/dhruvpitroda20-code/MemoryVoid/blob/5e66282c6119c3e3ac7f8eccc4cab2c6595aa00f/app/src/main/java/com/example/essentialspace/MainActivity.kt"
+      }
+    ]
+  },
+  {
+    "id": "mindful",
+    "name": "Mindful",
+    "repo": "akaMrNagar/Mindful",
+    "url": "https://github.com/akaMrNagar/Mindful",
+    "sha": "b6eb68d500463c54e1127b6cc7ad540f02ae0c8e",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android",
+        "detail": "Android",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "系統使用統計＋無障礙 UI 事件",
+        "detail": "系統使用統計＋無障礙 UI 事件",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "未見內建",
+        "detail": "核對的主要擷取管線不是截圖。",
+        "kind": "absent"
+      },
+      "vision": {
+        "label": "未見內建",
+        "detail": "以 app／UI 節點判斷短影片等情境，並非視覺模型讀畫面。",
+        "kind": "absent"
+      },
+      "summary": {
+        "label": "未見內建",
+        "detail": "主要是使用統計、專注、封鎖與提醒。",
+        "kind": "absent"
+      },
+      "category": {
+        "label": "規則／使用者設定",
+        "detail": "依 app、限制群組與特定 UI 規則處理，不是 AI 內容分類。",
+        "kind": "rule"
+      },
+      "mood": {
+        "label": "未確認",
+        "detail": "wellbeing 定位不代表已內建心情日誌。",
+        "kind": "unknown"
+      },
+      "compute": {
+        "label": "手機端統計、規則與限制",
+        "detail": "手機端統計、規則與限制",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機；README 宣告可離線使用",
+        "detail": "本機；README 宣告可離線使用",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "GPL-2.0",
+        "detail": "GPL-2.0",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "自動",
+        "detail": "UsageStatsManager 取得前景使用時長。",
+        "kind": "yes"
+      },
+      "web": {
+        "label": "條件辨識",
+        "detail": "無障礙節點識別瀏覽器／特定介面，不等同全文理解。",
+        "kind": "partial"
+      },
+      "audio": {
+        "label": "未見核心錄音",
+        "detail": "已查核心擷取路徑未見用全天音訊建立日誌。",
+        "kind": "absent"
+      },
+      "timeline": {
+        "label": "使用／專注紀錄",
+        "detail": "可回看使用量與專注 session。",
+        "kind": "partial"
+      },
+      "search": {
+        "label": "統計查閱",
+        "detail": "未見跨畫面內容語意搜尋。",
+        "kind": "partial"
+      }
+    },
+    "conclusion": "是數位習慣管理工具，和自動內容日誌差異很大。",
+    "sources": [
+      {
+        "title": "App 使用統計",
+        "url": "https://github.com/akaMrNagar/Mindful/blob/b6eb68d500463c54e1127b6cc7ad540f02ae0c8e/android/app/src/main/java/com/mindful/android/helpers/usages/AppsUsageHelper.kt"
+      },
+      {
+        "title": "前景 app 事件",
+        "url": "https://github.com/akaMrNagar/Mindful/blob/b6eb68d500463c54e1127b6cc7ad540f02ae0c8e/android/app/src/main/java/com/mindful/android/services/accessibility/TrackingManager.kt"
+      },
+      {
+        "title": "短影片介面規則",
+        "url": "https://github.com/akaMrNagar/Mindful/blob/b6eb68d500463c54e1127b6cc7ad540f02ae0c8e/android/app/src/main/java/com/mindful/android/services/accessibility/ShortsPlatformManager.kt"
+      }
+    ]
+  },
+  {
+    "id": "daily",
+    "name": "Daily You",
+    "repo": "Demizo/Daily_You",
+    "url": "https://github.com/Demizo/Daily_You",
+    "sha": "f2dc0efa51e55bdfb169118dab8ba86febd59968",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android",
+        "detail": "Android",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "使用者輸入日記、心情、標籤與附件",
+        "detail": "使用者輸入日記、心情、標籤與附件",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "未見內建",
+        "detail": "核對輸入、資料模型與 manifest，未見自動擷取其他 app 畫面；repo 的 screenshots 含商店／測試圖片，不能當作記錄能力。",
+        "kind": "absent"
+      },
+      "vision": {
+        "label": "未見內建",
+        "detail": "核心是使用者自己記錄。",
+        "kind": "absent"
+      },
+      "summary": {
+        "label": "未見內建",
+        "detail": "已查紀錄與統計路徑，未見自動 LLM 摘要。",
+        "kind": "absent"
+      },
+      "category": {
+        "label": "手動標籤／分類",
+        "detail": "使用者選取標籤、分類與追蹤值。",
+        "kind": "manual"
+      },
+      "mood": {
+        "label": "明確支援",
+        "detail": "Entry 有 mood 欄位，編輯頁提供心情選取。",
+        "kind": "yes"
+      },
+      "compute": {
+        "label": "手機端編輯、儲存與統計",
+        "detail": "手機端編輯、儲存與統計",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機／自選儲存；離線使用",
+        "detail": "本機／自選儲存；離線使用",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "GPL-3.0＋額外條款",
+        "detail": "GPL-3.0＋額外條款",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "未見內建",
+        "detail": "不是 app 使用紀錄器。",
+        "kind": "absent"
+      },
+      "web": {
+        "label": "未見內建",
+        "detail": "不是瀏覽器監測器。",
+        "kind": "absent"
+      },
+      "audio": {
+        "label": "手動附件",
+        "detail": "目前編輯頁可開啟 audio_recorder_page 加入音訊附件。",
+        "kind": "manual"
+      },
+      "timeline": {
+        "label": "日記時間軸",
+        "detail": "依日記紀錄回顧。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "日記查閱／篩選",
+        "detail": "可回看日記；此處未確認語意搜尋。",
+        "kind": "partial"
+      }
+    },
+    "conclusion": "適合借鏡心情輸入與日記回顧，不能替代被動活動擷取。",
+    "sources": [
+      {
+        "title": "日記與 mood 資料模型",
+        "url": "https://github.com/Demizo/Daily_You/blob/f2dc0efa51e55bdfb169118dab8ba86febd59968/lib/models/entry.dart"
+      },
+      {
+        "title": "編輯、心情、標籤與附件",
+        "url": "https://github.com/Demizo/Daily_You/blob/f2dc0efa51e55bdfb169118dab8ba86febd59968/lib/pages/edit_entry_page.dart"
+      },
+      {
+        "title": "統計計算",
+        "url": "https://github.com/Demizo/Daily_You/blob/f2dc0efa51e55bdfb169118dab8ba86febd59968/lib/stats/entry_stats.dart"
+      },
+      {
+        "title": "完整授權條款",
+        "url": "https://github.com/Demizo/Daily_You/blob/f2dc0efa51e55bdfb169118dab8ba86febd59968/ADDITIONAL_TERMS.md"
+      }
+    ]
+  },
+  {
+    "id": "beiwe",
+    "name": "Beiwe",
+    "repo": "onnela-lab/beiwe-android",
+    "url": "https://github.com/onnela-lab/beiwe-android",
+    "sha": "5eb833ce413fc3b7c52e1e2790b01c8d584df028",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android / iOS（不同 app）；有後端",
+        "detail": "Android / iOS（不同 app）；有後端",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "感測器、通訊紀錄（依版本）、問卷／錄音",
+        "detail": "感測器、通訊紀錄（依版本）、問卷／錄音",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "未見內建",
+        "detail": "核對 Android listeners、manifest 與研究平台資料流，未見全天螢幕截圖理解管線。",
+        "kind": "absent"
+      },
+      "vision": {
+        "label": "未見內建",
+        "detail": "核心是原始感測資料與問卷。",
+        "kind": "absent"
+      },
+      "summary": {
+        "label": "非日誌摘要",
+        "detail": "資料可交給後端／Forest 做研究分析，非現成 AI 每日生活摘要。",
+        "kind": "partial"
+      },
+      "category": {
+        "label": "感測資料研究分析",
+        "detail": "不是從手機畫面判斷工作／娛樂的分類器。",
+        "kind": "partial"
+      },
+      "mood": {
+        "label": "可設問卷",
+        "detail": "研究者能設計自述／心情問卷；不是現成消費型日記。",
+        "kind": "partial"
+      },
+      "compute": {
+        "label": "手機採樣、加密暫存／上傳；後端分析",
+        "detail": "手機採樣、加密暫存／上傳；後端分析",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "手機加密檔案＋研究伺服器",
+        "detail": "手機加密檔案＋研究伺服器",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "BSD-3-Clause（Android app）",
+        "detail": "BSD-3-Clause（Android app）",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "非主要資料流",
+        "detail": "核對到的核心包含感測／通訊／螢幕狀態，不應等同完整 app 內容日誌。",
+        "kind": "partial"
+      },
+      "web": {
+        "label": "未見內建",
+        "detail": "未確認其他瀏覽器頁面內容擷取。",
+        "kind": "absent"
+      },
+      "audio": {
+        "label": "依研究設定",
+        "detail": "支援主動錄音及其他可設定的音訊採樣。",
+        "kind": "partial"
+      },
+      "timeline": {
+        "label": "研究資料流",
+        "detail": "不是完成的生活活動卡片介面。",
+        "kind": "partial"
+      },
+      "search": {
+        "label": "研究端查詢",
+        "detail": "不是現成日誌語意搜尋。",
+        "kind": "partial"
+      }
+    },
+    "conclusion": "可參考採樣、問卷與上傳排程；不是手機畫面內容回顧產品。",
+    "sources": [
+      {
+        "title": "GPS 採樣",
+        "url": "https://github.com/onnela-lab/beiwe-android/blob/5eb833ce413fc3b7c52e1e2790b01c8d584df028/app/src/main/java/org/beiwe/app/listeners/GPSListener.kt"
+      },
+      {
+        "title": "問卷答案保存",
+        "url": "https://github.com/onnela-lab/beiwe-android/blob/5eb833ce413fc3b7c52e1e2790b01c8d584df028/app/src/main/java/org/beiwe/app/survey/SurveyAnswersRecorder.kt"
+      },
+      {
+        "title": "Wi-Fi／行動網路上傳條件",
+        "url": "https://github.com/onnela-lab/beiwe-android/blob/5eb833ce413fc3b7c52e1e2790b01c8d584df028/app/src/main/java/org/beiwe/app/networking/NetworkUtility.kt"
+      },
+      {
+        "title": "權限與服務",
+        "url": "https://github.com/onnela-lab/beiwe-android/blob/5eb833ce413fc3b7c52e1e2790b01c8d584df028/app/src/main/AndroidManifest.xml"
+      }
+    ]
+  },
+  {
+    "id": "aware",
+    "name": "AWARE",
+    "repo": "awareframework/aware-client",
+    "url": "https://github.com/awareframework/aware-client",
+    "sha": "f77e873baaedfc649fd39ca8f3547f914c3e6b32",
+    "mobile": true,
+    "fields": {
+      "platforms": {
+        "label": "Android（本次核對的 client）",
+        "detail": "Android（本次核對的 client）",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "感測器、app 事件、問卷；可定時截圖",
+        "detail": "感測器、app 事件、問卷；可定時截圖",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "原始碼支援",
+        "detail": "MediaProjection＋ImageReader 定時擷取，間隔／壓縮可設定，螢幕關閉暫停；有保存與同步接線。未實機驗證。",
+        "kind": "yes"
+      },
+      "vision": {
+        "label": "未見核心 AI",
+        "detail": "查到圖片保存與資料同步；未找到在這條核心路徑上自動理解畫面的視覺模型。",
+        "kind": "absent"
+      },
+      "summary": {
+        "label": "未見核心 AI",
+        "detail": "未找到截圖直接產生活動摘要的內建流程。",
+        "kind": "absent"
+      },
+      "category": {
+        "label": "框架／外掛擴充",
+        "detail": "研究者可加分析或外掛；不能把可擴充當成現成 AI 活動分類。",
+        "kind": "partial"
+      },
+      "mood": {
+        "label": "經驗採樣問卷",
+        "detail": "ESM 支援多種問卷題型，可用於感受紀錄。",
+        "kind": "partial"
+      },
+      "compute": {
+        "label": "手機收集／儲存／同步；分析需整合",
+        "detail": "手機收集／儲存／同步；分析需整合",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機圖片／資料庫；研究同步通道",
+        "detail": "本機圖片／資料庫；研究同步通道",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "Apache-2.0",
+        "detail": "Apache-2.0",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "原始碼支援",
+        "detail": "Applications 模組追蹤 app／無障礙事件。",
+        "kind": "yes"
+      },
+      "web": {
+        "label": "可截圖／節點資料",
+        "detail": "可採集資料，但未確認通用瀏覽內容摘要流程。",
+        "kind": "partial"
+      },
+      "audio": {
+        "label": "依感測器／外掛",
+        "detail": "框架功能需按實際配置確認，非整套日誌。",
+        "kind": "partial"
+      },
+      "timeline": {
+        "label": "研究框架",
+        "detail": "有資料視覺化入口，非 Dayflow 式完成活動日誌。",
+        "kind": "partial"
+      },
+      "search": {
+        "label": "需自行整合",
+        "detail": "未確認內建畫面內容語意搜尋。",
+        "kind": "unknown"
+      }
+    },
+    "conclusion": "這次最重要的修正：確實有手機定時截圖，但還缺 AI 理解與完整回顧產品。",
+    "sources": [
+      {
+        "title": "定時截圖、保存、同步排程",
+        "url": "https://github.com/awareframework/aware-client/blob/f77e873baaedfc649fd39ca8f3547f914c3e6b32/aware-core/src/main/java/com/aware/ScreenShot.java"
+      },
+      {
+        "title": "截圖同步服務",
+        "url": "https://github.com/awareframework/aware-client/blob/f77e873baaedfc649fd39ca8f3547f914c3e6b32/aware-core/src/main/java/com/aware/syncadapters/ScreenShot_Sync.java"
+      },
+      {
+        "title": "經驗採樣問卷",
+        "url": "https://github.com/awareframework/aware-client/blob/f77e873baaedfc649fd39ca8f3547f914c3e6b32/aware-core/src/main/java/com/aware/ESM.java"
+      },
+      {
+        "title": "App 事件模組",
+        "url": "https://github.com/awareframework/aware-client/blob/f77e873baaedfc649fd39ca8f3547f914c3e6b32/aware-core/src/main/java/com/aware/Applications.java"
+      }
+    ]
+  },
+  {
+    "id": "recall",
+    "name": "OpenRecall",
+    "repo": "openrecall/openrecall",
+    "url": "https://github.com/openrecall/openrecall",
+    "sha": "62303e09bfd2491907e788ac5cbbdc21e73bd323",
+    "mobile": false,
+    "fields": {
+      "platforms": {
+        "label": "Windows / macOS / Linux",
+        "detail": "Windows / macOS / Linux",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "定期桌面截圖＋前景 app／標題",
+        "detail": "定期桌面截圖＋前景 app／標題",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "僅桌面",
+        "detail": "沒有已確認的手機擷取端。",
+        "kind": "desktop"
+      },
+      "vision": {
+        "label": "OCR＋向量",
+        "detail": "本機 OCR 轉文字，再算文字 embedding；不能等同視覺 LLM 理解活動。",
+        "kind": "partial"
+      },
+      "summary": {
+        "label": "未見內建",
+        "detail": "已查核心 app、screenshot、OCR、NLP；主要是保存與檢索，未見每日活動摘要。",
+        "kind": "absent"
+      },
+      "category": {
+        "label": "未見活動分類",
+        "detail": "語意搜尋不等同工作／娛樂等活動分類。",
+        "kind": "absent"
+      },
+      "mood": {
+        "label": "未見核心功能",
+        "detail": "已查核心資料流未見心情紀錄。",
+        "kind": "absent"
+      },
+      "compute": {
+        "label": "桌面本機 OCR、embedding 與搜尋",
+        "detail": "桌面本機 OCR、embedding 與搜尋",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機截圖與資料庫",
+        "detail": "本機截圖與資料庫",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "AGPL-3.0",
+        "detail": "AGPL-3.0",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "桌面 app／標題",
+        "detail": "隨截圖記錄前景 app 與標題。",
+        "kind": "desktop"
+      },
+      "web": {
+        "label": "畫面 OCR",
+        "detail": "可搜尋截圖中的文字。",
+        "kind": "partial"
+      },
+      "audio": {
+        "label": "未見核心錄音",
+        "detail": "已查核心模組未見錄音日誌。",
+        "kind": "absent"
+      },
+      "timeline": {
+        "label": "畫面歷史",
+        "detail": "可按時間回看截圖。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "語意搜尋",
+        "detail": "SentenceTransformer embedding＋相似度。",
+        "kind": "yes"
+      }
+    },
+    "conclusion": "和我們同樣有畫面擷取，但主要解決「找回看過的內容」，不是完整活動摘要。",
+    "sources": [
+      {
+        "title": "定期截圖、去重與入庫",
+        "url": "https://github.com/openrecall/openrecall/blob/62303e09bfd2491907e788ac5cbbdc21e73bd323/openrecall/screenshot.py"
+      },
+      {
+        "title": "本機 OCR",
+        "url": "https://github.com/openrecall/openrecall/blob/62303e09bfd2491907e788ac5cbbdc21e73bd323/openrecall/ocr.py"
+      },
+      {
+        "title": "文字向量與搜尋",
+        "url": "https://github.com/openrecall/openrecall/blob/62303e09bfd2491907e788ac5cbbdc21e73bd323/openrecall/nlp.py"
+      }
+    ]
+  },
+  {
+    "id": "screenpipe",
+    "name": "Screenpipe",
+    "repo": "screenpipe/screenpipe",
+    "url": "https://github.com/screenpipe/screenpipe",
+    "sha": "a9742080bdd2970b73c7e2728e1901b8d0d6584f",
+    "mobile": false,
+    "fields": {
+      "platforms": {
+        "label": "Windows / macOS / Linux",
+        "detail": "Windows / macOS / Linux",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "桌面畫面／無障礙樹、音訊、互動事件",
+        "detail": "桌面畫面／無障礙樹、音訊、互動事件",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "僅桌面",
+        "detail": "本次確認的是桌面擷取，不是 Android 全天記錄。",
+        "kind": "desktop"
+      },
+      "vision": {
+        "label": "多層處理",
+        "detail": "有無障礙文字、截圖及受 gate 控制的 OCR；可連後續 AI 工作流。不是每張圖都送視覺模型。",
+        "kind": "partial"
+      },
+      "summary": {
+        "label": "可接 AI 工作流",
+        "detail": "透過工作流／agent 等處理擷取資料，具體摘要依啟用功能與服務而異。",
+        "kind": "partial"
+      },
+      "category": {
+        "label": "有工作流分類器",
+        "detail": "核對到雲端分類器讀取時間、app 名稱與標題；這條路徑並非直接看截圖。",
+        "kind": "partial"
+      },
+      "mood": {
+        "label": "未確認",
+        "detail": "未確認標準化每日心情紀錄流程。",
+        "kind": "unknown"
+      },
+      "compute": {
+        "label": "本機擷取／索引；部分分類與 AI 可在雲端",
+        "detail": "本機擷取／索引；部分分類與 AI 可在雲端",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "本機為預設；雲端功能另有資料路徑",
+        "detail": "本機為預設；雲端功能另有資料路徑",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "目前為商業／source-available 授權",
+        "detail": "目前為商業／source-available 授權",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "桌面自動",
+        "detail": "擷取 app 切換與互動事件。",
+        "kind": "desktop"
+      },
+      "web": {
+        "label": "桌面畫面／文字",
+        "detail": "無障礙與 OCR 可取得網頁相關內容。",
+        "kind": "desktop"
+      },
+      "audio": {
+        "label": "桌面音訊",
+        "detail": "可擷取音訊與轉錄；依平台／設定。",
+        "kind": "desktop"
+      },
+      "timeline": {
+        "label": "桌面歷史",
+        "detail": "可回看和搜尋擷取的歷史。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "文字／AI 查找",
+        "detail": "有本機查詢與 AI／agent 整合。",
+        "kind": "yes"
+      }
+    },
+    "conclusion": "擷取與擴充架構有參考價值；平台與目前授權都不能忽略。",
+    "sources": [
+      {
+        "title": "事件驅動畫面擷取",
+        "url": "https://github.com/screenpipe/screenpipe/blob/a9742080bdd2970b73c7e2728e1901b8d0d6584f/crates/screenpipe-engine/src/event_driven_capture.rs"
+      },
+      {
+        "title": "OCR 去重與 gate",
+        "url": "https://github.com/screenpipe/screenpipe/blob/a9742080bdd2970b73c7e2728e1901b8d0d6584f/crates/screenpipe-capture/src/ocr_gate.rs"
+      },
+      {
+        "title": "雲端工作流分類輸入",
+        "url": "https://github.com/screenpipe/screenpipe/blob/a9742080bdd2970b73c7e2728e1901b8d0d6584f/crates/screenpipe-engine/src/workflow_classifier.rs"
+      },
+      {
+        "title": "目前授權",
+        "url": "https://github.com/screenpipe/screenpipe/blob/a9742080bdd2970b73c7e2728e1901b8d0d6584f/LICENSE.md"
+      }
+    ]
+  },
+  {
+    "id": "dayflow",
+    "name": "Dayflow",
+    "repo": "JerryZLiu/Dayflow",
+    "url": "https://github.com/JerryZLiu/Dayflow",
+    "sha": "2c79e1619d7039c476e06e4b85b0246e50bc34fa",
+    "mobile": false,
+    "fields": {
+      "platforms": {
+        "label": "macOS",
+        "detail": "macOS",
+        "kind": "neutral"
+      },
+      "input": {
+        "label": "定時截圖；另有無障礙資訊",
+        "detail": "定時截圖；另有無障礙資訊",
+        "kind": "neutral"
+      },
+      "shots": {
+        "label": "僅桌面",
+        "detail": "核對的是 Mac 版，沒有已確認的手機擷取端。",
+        "kind": "desktop"
+      },
+      "vision": {
+        "label": "畫面 AI 分析",
+        "detail": "例如 Gemini 路徑將截圖合成影片分析，其他 provider 可採不同資料形式。",
+        "kind": "yes"
+      },
+      "summary": {
+        "label": "活動卡片／回顧",
+        "detail": "由模型生成活動標題、摘要、詳細描述等。",
+        "kind": "yes"
+      },
+      "category": {
+        "label": "AI 活動分類",
+        "detail": "活動卡片 prompt／schema 包含 category 與 subcategory。",
+        "kind": "yes"
+      },
+      "mood": {
+        "label": "有 survey 模組",
+        "detail": "repo 有自述問卷模組，但本次未深入確認題目與實際發布狀態，不能直接當成完整 wellbeing 流程。",
+        "kind": "unknown"
+      },
+      "compute": {
+        "label": "Mac 編排；模型可選本機／遠端",
+        "detail": "Mac 編排；模型可選本機／遠端",
+        "kind": "neutral"
+      },
+      "storage": {
+        "label": "Mac 本機保存；遠端分析會傳必要內容",
+        "detail": "Mac 本機保存；遠端分析會傳必要內容",
+        "kind": "neutral"
+      },
+      "license": {
+        "label": "MIT",
+        "detail": "MIT",
+        "kind": "neutral"
+      },
+      "usage": {
+        "label": "桌面情境",
+        "detail": "畫面與無障礙資料輔助理解 app 活動。",
+        "kind": "desktop"
+      },
+      "web": {
+        "label": "桌面畫面／情境",
+        "detail": "可由畫面和輔助資料理解瀏覽活動。",
+        "kind": "desktop"
+      },
+      "audio": {
+        "label": "此處未確認",
+        "detail": "本次重點核對螢幕到活動卡片管線。",
+        "kind": "unknown"
+      },
+      "timeline": {
+        "label": "活動時間軸",
+        "detail": "活動卡片、分類、每日／每週回顧。",
+        "kind": "yes"
+      },
+      "search": {
+        "label": "日誌問答",
+        "detail": "可對活動日誌問答。",
+        "kind": "yes"
+      }
+    },
+    "conclusion": "最接近我們要的理解與回顧流程；主要差別仍是桌面平台與手機電量限制。",
+    "sources": [
+      {
+        "title": "定時截圖",
+        "url": "https://github.com/JerryZLiu/Dayflow/blob/2c79e1619d7039c476e06e4b85b0246e50bc34fa/Dayflow/Dayflow/Core/Recording/ScreenRecorder.swift"
+      },
+      {
+        "title": "無障礙資訊記錄",
+        "url": "https://github.com/JerryZLiu/Dayflow/blob/2c79e1619d7039c476e06e4b85b0246e50bc34fa/Dayflow/Dayflow/Core/Recording/AccessibilityRecorder.swift"
+      },
+      {
+        "title": "Gemini 畫面分析",
+        "url": "https://github.com/JerryZLiu/Dayflow/blob/2c79e1619d7039c476e06e4b85b0246e50bc34fa/Dayflow/Dayflow/Core/AI/GeminiDirectProvider+Transcription.swift"
+      },
+      {
+        "title": "AI 摘要與分類欄位",
+        "url": "https://github.com/JerryZLiu/Dayflow/blob/2c79e1619d7039c476e06e4b85b0246e50bc34fa/Dayflow/Dayflow/Core/AI/GeminiDirectProvider+ActivityCards.swift"
+      }
+    ]
+  }
+]</script>
+<script>
+'use strict';
+const projects=JSON.parse(document.getElementById('data').textContent);
+const labels={platforms:'支援平台',input:'怎麼取得資料',shots:'手機自動截圖',vision:'畫面內容理解',summary:'AI 摘要',category:'分類方式',mood:'感受／心情紀錄',compute:'運算位置',storage:'資料保存位置',license:'授權',usage:'App 使用事件',web:'網頁資訊',audio:'音訊來源',timeline:'時間軸／回顧',search:'搜尋'};
+const groups=[{id:'core',label:'核心差異',keys:['input','shots','vision','summary','category','mood'],hint:'先看資料怎麼來，再看是否真的理解內容。'},{id:'capture',label:'資料擷取',keys:['input','shots','usage','web','audio'],hint:'系統事件、手動輸入、截圖與錄音各自比較。'},{id:'review',label:'理解與回顧',keys:['vision','summary','category','mood','timeline','search'],hint:'OCR 搜尋、AI 活動理解與使用者自填感受分開標示。'},{id:'architecture',label:'儲存與運算',keys:['platforms','compute','storage','license'],hint:'本機保存不代表分析內容永遠不出網；授權以核對版本為準。'}];
+let selected=new Set(projects.map(p=>p.id)),group='core';
+const $=id=>document.getElementById(id),node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n};
+function renderTabs(){const box=$('tabs');box.replaceChildren();groups.forEach(g=>{const b=node('button',g.label,'tab');b.type='button';b.setAttribute('aria-pressed',String(group===g.id));b.onclick=()=>{group=g.id;renderTabs();render()};box.append(b)})}
+function renderPicker(){const box=$('picker');box.replaceChildren();projects.forEach(p=>{const l=node('label',undefined,'toggle'),i=node('input');i.type='checkbox';i.checked=selected.has(p.id);i.onchange=()=>{i.checked?selected.add(p.id):selected.delete(p.id);render()};l.append(i,document.createTextNode(p.name));box.append(l)})}
+function visible(){const q=$('query').value.trim().toLowerCase();return projects.filter(p=>selected.has(p.id)&&(!$('mobile').checked||p.mobile)&&(!$('shots').checked||(p.mobile&&p.fields.shots.kind==='yes'))&&(!q||[p.name,p.repo,p.conclusion,...Object.values(p.fields).flatMap(x=>[x.label,x.detail])].join(' ').toLowerCase().includes(q)))}
+function render(){const rows=visible(),g=groups.find(x=>x.id===group);$('count').textContent=`顯示 ${rows.length} / ${projects.length} 個專案`;$('groupHint').textContent=g.hint;const tr=node('tr');tr.append(node('th','專案'));g.keys.forEach(k=>tr.append(node('th',labels[k])));$('thead').replaceChildren(tr);const body=$('tbody');body.replaceChildren();if(!rows.length){const td=node('td','沒有符合篩選的專案。可以重設篩選或重新勾選專案。','empty');td.colSpan=g.keys.length+1;const r=node('tr');r.append(td);body.append(r);return}rows.forEach(p=>{const row=node('tr'),nameCell=node('td'),name=node('button',p.name,'name');name.type='button';name.onclick=()=>showDetail(p.id);nameCell.append(name,node('div',p.mobile?'含手機端':'桌面端','platform'));row.append(nameCell);g.keys.forEach(k=>{const td=node('td'),v=p.fields[k],b=node('button',v.label,'cell '+v.kind);b.type='button';b.title=v.detail;b.setAttribute('aria-label',`${p.name}：${labels[k]}，${v.label}。點開查看依據`);b.onclick=()=>showDetail(p.id,k);td.append(b);row.append(td)});body.append(row)})}
+function showDetail(id,focusKey){const p=projects.find(x=>x.id===id);$('detailTitle').textContent=p.name;$('repoLink').href=p.url;$('conclusion').textContent=p.conclusion;$('detailFields').replaceChildren();const keys=Object.keys(labels);if(focusKey){keys.splice(keys.indexOf(focusKey),1);keys.unshift(focusKey)}keys.forEach(k=>{const v=p.fields[k],section=node('section',undefined,'detail-row'+(k===focusKey?' highlight':''));section.append(node('h3',labels[k]+' · '+v.label),node('p',v.detail));$('detailFields').append(section)});$('sources').replaceChildren();p.sources.forEach(s=>{const li=node('li'),a=node('a',s.title+' ↗');a.href=s.url;a.target='_blank';a.rel='noopener noreferrer';li.append(a);$('sources').append(li)});$('sha').textContent=p.sha;$('detail').showModal();$('detail').scrollTop=0}
+$('query').addEventListener('input',render);$('mobile').addEventListener('change',render);$('shots').addEventListener('change',render);$('close').onclick=()=>$('detail').close();$('detail').addEventListener('click',e=>{if(e.target===$('detail')){const r=$('detail').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('detail').close()}});$('selectAll').onclick=()=>{selected=new Set(projects.map(p=>p.id));renderPicker();render()};$('clearAll').onclick=()=>{selected.clear();renderPicker();render()};$('reset').onclick=()=>{$('query').value='';$('mobile').checked=false;$('shots').checked=false;selected=new Set(projects.map(p=>p.id));group='core';renderTabs();renderPicker();render()};renderTabs();renderPicker();render();
+</script></body></html>
