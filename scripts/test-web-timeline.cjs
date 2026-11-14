@@ -81,6 +81,10 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
 (async () => {
   const { loadDays } = require('../server/web/app.js');
   const savedFetch = global.fetch;
+  const watchdog = setTimeout(() => {
+    console.error('Day/week request test did not settle its response gates');
+    process.exitCode = 1;
+  }, 5000);
   try {
     for (const weekFirst of [false, true]) {
       const waiting = {};
@@ -121,6 +125,6 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
       };
       await assert.rejects(loadDays(['2026-11-10'], 1), error => String(error) === 'Symbol(stale render)');
     }
-  } finally { global.fetch = savedFetch; }
+  } finally { global.fetch = savedFetch; clearTimeout(watchdog); }
   console.log('Independent day/week snapshots survive both response orders and stale renders');
 })().catch(error => { console.error(error); process.exitCode = 1; });
