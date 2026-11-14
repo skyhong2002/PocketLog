@@ -196,7 +196,7 @@ final class ConnectedUiChecks {
         await("這些分類已隱藏"); await("顯示 0 / "+cards.length());
         capture("category-filter-empty"); click("重設分類篩選"); await("顯示 "+cards.length()+" / "+cards.length());
         if(has("這些分類已隱藏")) throw new IllegalStateException("Reset failed");
-        click("活動檢視：時間軸"); capture("category-filter-timeline");
+        click("活動檢視：時間軸"); reveal("活動檢視：時間軸，已選取"); capture("category-filter-timeline");
         click("後一天"); await("活動"); awaitSettled();
     }
     private void reveal(String label) {
