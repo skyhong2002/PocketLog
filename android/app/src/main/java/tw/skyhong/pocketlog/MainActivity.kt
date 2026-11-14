@@ -33,6 +33,14 @@ class MainActivity : Activity() {
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 40, 32, 32) }
         setContentView(ScrollView(this).apply { addView(root) })
         val status = text("開啟私人日誌…")
+        // Leave a recovery path visible if Keystore/credential loading fails.
+        button("重設本機資料與連線") {
+            AlertDialog.Builder(this).setTitle("重設本機資料？")
+                .setMessage("用於金鑰失效或連線資料損毀。會停止紀錄、刪除未同步資料與快取，然後重新設定連線。伺服器日誌不會被刪除。")
+                .setNegativeButton("取消", null).setPositiveButton("清除並重新設定") { _, _ ->
+                    task(status, { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this); CredentialStore(this).clear() } }) { credentials = null; setup() }
+                }.show()
+        }
         task(status, { synchronized(SyncEngine.lock) { CredentialStore(this).load() } }) {
             credentials = it
             if (it == null) setup() else { SyncEngine.schedule(this); home() }
