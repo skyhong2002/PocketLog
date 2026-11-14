@@ -34,3 +34,14 @@ product direction; PocketLog does not include Dayflow implementation code.
 Rust and Android dependencies are identified by `server/Cargo.lock` and the Android
 Gradle build files. Their upstream licenses continue to apply when distributing
 builds. The root MIT license does not replace those terms.
+
+## Web fonts
+
+The website bundles Noto Sans and Noto Sans TC variable fonts from Google Fonts,
+converted from upstream TTF to WOFF2 without changing glyphs or family names.
+Both retain SIL Open Font License 1.1; see
+[Latin notice](server/web/fonts/notosans-OFL.txt) and
+[Traditional Chinese notice](server/web/fonts/notosanstc-OFL.txt).
+Sources: https://github.com/google/fonts/tree/main/ofl/notosans and
+https://github.com/google/fonts/tree/main/ofl/notosanstc .
+Fonts are served from the same origin; no external font request is made.

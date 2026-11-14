@@ -85,6 +85,42 @@ pub(super) fn routes() -> Router<AppState> {
                 )
             }),
         )
+        .route(
+            "/fonts/notosans.woff2",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "font/woff2")],
+                    include_bytes!("../web/fonts/notosans.woff2").as_slice(),
+                )
+            }),
+        )
+        .route(
+            "/fonts/notosanstc.woff2",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "font/woff2")],
+                    include_bytes!("../web/fonts/notosanstc.woff2").as_slice(),
+                )
+            }),
+        )
+        .route(
+            "/fonts/notosans-OFL.txt",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                    include_bytes!("../web/fonts/notosans-OFL.txt").as_slice(),
+                )
+            }),
+        )
+        .route(
+            "/fonts/notosanstc-OFL.txt",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                    include_bytes!("../web/fonts/notosanstc-OFL.txt").as_slice(),
+                )
+            }),
+        )
         .route("/session", post(login).delete(logout))
 }
 #[derive(Deserialize)]

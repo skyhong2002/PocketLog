@@ -1,7 +1,7 @@
 # PocketLog interface guidelines
 
-PocketLog should feel like a warm personal notebook: a dimensional pocket-and-phone
-brand mark, warm beige accents, quiet dark surfaces, readable colored activity
+PocketLog should feel like a warm personal notebook: a rounded sewn pocket-and-phone
+brand mark, sage green accents, quiet green-tinted paper surfaces, readable colored activity
 cards and enough information to understand a day. Use the existing logo assets;
 do not replace them with an unrelated minimal mark or copy Dayflow artwork.
 
@@ -12,11 +12,14 @@ do not replace them with an unrelated minimal mark or copy Dayflow artwork.
 - Day begins at 04:00 in each client's system timezone; make this visible. Use actual
   start/end times and proportional interval cards. Never fill empty hours with
   invented activity. Overlapping intervals remain distinct selectable cards.
-- Use a charcoal canvas (#1c1d21), slightly lighter panels (#24252a), warm accent
-  (#dfbc92), muted text (#a9a7a2), and restrained pastel category colors. Category
+- The web uses a sage canvas (#f2f5ef), paper panels (#fcfdf9), green accent
+  (#52765f), dark text (#303a32), and restrained pastel category colors. Category
   names accompany color; focus/distraction roles are explicit, editable choices.
-- Prefer system fonts, 26–30 px page titles, 16–21 px section titles and 14–16 px
-  body text. Hour labels and metadata may be smaller in dense timelines. Labels,
+- The selected web direction C uses self-hosted Noto Sans + Noto Sans TC, with
+  real lowercase and regular 400 weight for the wordmark and primary headings.
+  Use 26–30 px page titles, 16–21 px section titles and 14–16 px body text.
+  Native Android uses the same sage palette and retains platform typography.
+  Hour labels and metadata may be smaller in dense timelines. Labels,
   keyboard focus indicators and an accessible activity list matter more than icons.
 - Onboarding explains value, privacy, goals and optional BYO AI in that order.
   Share completion/settings across clients. Ask for OS access at the point where
@@ -33,3 +36,10 @@ do not replace them with an unrelated minimal mark or copy Dayflow artwork.
 Current visual polish and native accessibility still need real-device review; the
 native hourly canvas has equivalent editable text cards for accessibility. The
 website respects reduced-motion preferences and has no autoplay/remote resources.
+
+Canonical logo source: `docs/assets/logo.svg`. Regenerate web, documentation and
+Android brand assets with `uv run --with pillow --with cairosvg --with fonttools
+--with brotli scripts/generate-icons.py`. Documentation wordmarks outline the
+selected Noto Sans 400 glyphs so the font does not depend on the viewer's system.
+Activity category colors remain distinct and user-editable; red still identifies
+destructive actions rather than serving as a brand accent.

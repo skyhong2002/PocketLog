@@ -1,3 +1,28 @@
+# First time here?
+
+PocketLog has two parts: your private website stores and reviews the journal;
+the Android app can optionally collect phone activity. Start on the website.
+AI and automatic recording are optional. A manual check-in works without either.
+
+1. The person who deployed the server holds its **owner key**, which is the
+   website password. The initializer creates it in `.secrets/owner_token` for
+   development or `.secrets/production_owner_token` for production. Open that
+   file privately on the server; never add its contents to a URL or screenshot.
+   If someone else deployed it, ask them for private access. Device keys cannot
+   sign into the owner website, and this single-owner service has no public signup.
+2. Open your server's trusted HTTPS address and sign in. Complete the welcome
+   steps, choose your goals, and leave AI off until you want it.
+3. In website Settings, issue a **journal device key** for the phone. Install
+   the APK and enter the same HTTPS address plus this device key. Keep the owner
+   key for recovery instead of sharing it across phones.
+4. Make a manual check-in first. Enable phone recording only if desired, granting
+   its separate Android permissions. Check the first activity after sync; Android
+   background scheduling can delay it. The browser does not collect phone activity.
+
+On the deployment machine, `./scripts/setup-status.sh production` checks local
+readiness and prints next steps without reading or revealing your key. Use
+`development` for the default Compose instance. Details follow below.
+
 # Run the development server
 
 Prerequisites: Docker Compose, OpenSSL, and a trusted HTTPS reverse proxy or

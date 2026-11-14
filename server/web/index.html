@@ -3,21 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f2f5ef" />
+    <meta name="referrer" content="no-referrer" />
     <title>PocketLog · 你的日常，有跡可循</title>
-    <link rel="icon" href="/logo.png" />
+    <link rel="icon" href="/logo.png?v=sage" />
     <link rel="stylesheet" href="/app.css" />
     <script src="/agent-import.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
+    <a class="skip" href="#main">跳到主要內容</a>
+    <div id="offline" role="status" hidden>
+      這台裝置目前離線。畫面上的內容可能不是最新的，新的修改要等恢復連線後才能儲存。
+    </div>
     <div id="app"></div>
-    <div id="notice" role="status" aria-live="polite"></div>
-    <dialog id="modal">
+    <noscript>
+      <p class="noscript">
+        PocketLog 的私人網站需要 JavaScript 才能登入與顯示日誌。這個頁面本身不含任何日誌內容。
+      </p>
+    </noscript>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <dialog id="modal" aria-labelledby="modal-title">
       <form method="dialog">
         <button class="close" aria-label="關閉">×</button>
       </form>
       <div id="modal-body"></div>
+    </dialog>
+    <dialog id="confirm" aria-labelledby="confirm-title">
+      <div id="confirm-body"></div>
     </dialog>
   </body>
 </html>

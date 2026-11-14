@@ -209,7 +209,7 @@ async fn private_headers(req: axum::extract::Request, next: Next) -> Response {
         (
             "content-security-policy",
             if is_page {
-                "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+                "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
             } else {
                 "default-src 'none'; frame-ancestors 'none'"
             },
