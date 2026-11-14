@@ -70,6 +70,9 @@ regressions run in CI. Docker smoke passed again on the final rebuilt image.
 
 Still pending: real browser zoom, screen readers, Firefox/Safari, reduced motion,
 connected native workflows, file-picker agent import, clipboard/download actions,
-and newly rewritten goals/categories/schedule mutation paths. Worker dev-proxy
-checks are recorded separately in WEB_IMPLEMENTATION.md. First successful Chat
-leaves its saved-history picker stale until navigation (tracked separately).
+and the newly rewritten schedule mutation path. Goals and a custom category/rule
+were saved and confirmed through API reads. A device key was created with64
+characters, one-time guidance and cleared dialog contents on close. Worker dev-proxy
+checks are recorded separately in WEB_IMPLEMENTATION.md. The first-answer Chat picker issue (#16) was fixed in c318cf3 and verified against
+the rebuilt image: the new conversation is selected, deletion is available and
+focus returns to the question. No external model was used.
