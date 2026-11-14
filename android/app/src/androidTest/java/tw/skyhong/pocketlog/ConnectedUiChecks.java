@@ -60,6 +60,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("replayOnly"))) { replayUnavailableCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
             for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
                 stage = "navigation " + page[0]; click(page[0]); await(page[1]); awaitSettled();
@@ -173,6 +174,38 @@ final class ConnectedUiChecks {
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void replayUnavailableCheck(PocketLogApi owner) throws Exception {
+        stage="replay stale resource recovery";
+        long now=System.currentTimeMillis();
+        String path="/v1/replay?from_ms="+(now-86400000)+"&to_ms="+now;
+        org.json.JSONArray images=owner.request(path,null,"GET").getJSONArray("images");
+        if(images.length()!=2) throw new IllegalStateException("Exactly two synthetic thumbnails required");
+        for(int i=0;i<2;i++) if(!images.getJSONObject(i).getString("id").startsWith("synthetic-replay-") || !images.getJSONObject(i).getString("app").equals("org.example.replayproof")) throw new IllegalStateException("Non-synthetic archive rejected");
+        java.lang.reflect.Method replay=MainActivity.class.getDeclaredMethod("replayPage");replay.setAccessible(true);
+        test.runOnMainSync(()->{try{replay.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});
+        await("短期縮圖回放");await("org.example.replayproof");awaitSettled();
+        owner.request("/v1/replay/"+images.getJSONObject(0).getString("id"),null,"DELETE");
+        click("org.example.replayproof");await("這張縮圖已到期或已被刪除");awaitSettled();
+        if(has("伺服器沒有這項功能")) throw new IllegalStateException("Missing image still suggests server upgrade");
+        final int[] rows={0};test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView && ((TextView)v).getText().toString().equals("org.example.replayproof"))rows[0]++;});
+        if(rows[0]!=1)throw new IllegalStateException("Stale replay row retained");
+        capture("replay-unavailable");
+        click("org.example.replayproof");awaitSettled();
+        Field owned=MainActivity.class.getDeclaredField("replayDialog");owned.setAccessible(true);
+        android.app.AlertDialog preview=(android.app.AlertDialog)owned.get(activity);
+        if(preview==null || !preview.isShowing())throw new IllegalStateException("Surviving thumbnail did not open");
+        final Bitmap[] shown={null};
+        test.runOnMainSync(()->{
+            if((preview.getWindow().getAttributes().flags&WindowManager.LayoutParams.FLAG_SECURE)==0)throw new IllegalStateException("Insecure replay dialog");
+            List<View> tree=new ArrayList<>();collect(preview.getWindow().getDecorView(),tree);
+            for(View v:tree)if(v instanceof android.widget.ImageView && ((android.widget.ImageView)v).getDrawable() instanceof android.graphics.drawable.BitmapDrawable)shown[0]=((android.graphics.drawable.BitmapDrawable)((android.widget.ImageView)v).getDrawable()).getBitmap();
+            preview.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        });
+        await("沒有可回放的縮圖");awaitSettled();
+        if(shown[0]==null || !shown[0].isRecycled() || owned.get(activity)!=null)throw new IllegalStateException("Delete did not release displayed media");
+        if(owner.request(path,null,"GET").getJSONArray("images").length()!=0)throw new IllegalStateException("Surviving image not deleted");
+        assertConsentOff();capture("replay-empty");
     }
     private void assertAuthentication(PocketLogApi owner,String id,boolean expected) throws Exception {
         org.json.JSONArray devices=owner.request("/v1/devices",null,"GET").getJSONArray("devices");

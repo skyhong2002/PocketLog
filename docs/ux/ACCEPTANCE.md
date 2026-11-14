@@ -643,3 +643,49 @@ compact native week layout and the removed manual mood/energy UI.
 - [Phone replay, final-item boundary](screenshots/web-replay-mobile.png)
 - [Recoverable image failure](screenshots/web-replay-image-error.png)
 - [Desktop synthetic thumbnail](screenshots/web-replay-desktop.png)
+
+## Native replay recovery and media ownership (#38)
+
+Astra's bounded read-only review found that resource404 used generic "update the
+server" guidance and left a stale thumbnail row, while successful decoded bitmaps
+were dropped without disposal after Activity destruction. Displayed dialogs also
+lacked explicit Activity ownership. These were source findings; root then executed
+the synthetic acceptance below. Dayflow's media-ready/fallback source remains the
+reference described for #37, not an executed macOS/Android parity claim.
+
+An unavailable native thumbnail now refreshes its list and explains expiry/deletion.
+Replay dialogs are explicitly owned and dismissed on Activity destruction. Their
+bitmap is released on dismissal and display failure; task results may provide a
+disposal callback for successful results delivered after finishing/destruction.
+Only replay opts into this callback. Image accessibility text now includes the
+timestamp. No image disk cache, capture cadence, credentials, consent or server
+API/retention changes.
+
+The emulator-only ownership harness calls the actual production media presentation
+method with a generated bitmap labelled synthetic/no personal data, checks secure
+window flags and release after dismissal, then recreates the Activity while open
+and verifies dismissal/release. A gated task returns a bitmap after finish; the
+production task delivery path disposes it and never invokes its UI callback. This
+is deterministic callback ownership verification, not a delayed real-network
+decode or garbage-collector/heap measurement claim.
+
+The separate connected harness uses real trusted HTTPS and two worker-validated
+synthetic JPEGs. After loading the list it deletes one through a second API client,
+taps the stale row, verifies accurate feedback/no upgrade instruction and exactly
+one remaining row, then opens the surviving real image in a secure dialog and
+deletes it. Its displayed bitmap is recycled and the empty state is shown. No
+capture consent is enabled. Normal and2×font runs of both harnesses pass; their
+View snapshots were inspected. FLAG_SECURE stays enabled throughout; these are
+View captures rather than compositor/keyboard or TalkBack evidence.
+
+Android37unit tests,assembleDebug,assembleDebugAndroidTest,lintDebug and full
+connected eight-page/HTTPS/offline queue/cache/brief-consent regression pass.
+Rustfmt/clippy-Dwarnings20unit/31integration,audit1509/185,web regression and
+Docker smoke of the unchanged server image pass. Version14/0.4.9-dev retains the
+existing signing certificate. Physical device/TalkBack/battery remain unverified.
+
+- [Secure native viewer](screenshots/native-replay-viewer.png)
+- [2×text viewer](screenshots/native-replay-viewer-large.png)
+- [Unavailable image recovery](screenshots/native-replay-unavailable.png)
+- [2×text recovery](screenshots/native-replay-unavailable-large.png)
+- [Empty archive](screenshots/native-replay-empty.png)

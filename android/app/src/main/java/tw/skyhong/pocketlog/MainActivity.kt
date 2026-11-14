@@ -98,6 +98,7 @@ class MainActivity : Activity() {
     private var workspace: JSONObject? = null
     private var day = TimelineMath.journalDay()
     private var loaded: JSONObject? = null
+    private var replayDialog: AlertDialog? = null
     private var reflectionInput: EditText? = null
     private var reflectionDrafts = EditorDrafts(29, 2000)
     private var questionDrafts = EditorDrafts(20, 1000)
@@ -359,14 +360,17 @@ class MainActivity : Activity() {
     }
 
     /** One mutation at a time; navigation waits so completion handlers always apply to their own page. */
-    private fun <T> task(message: String = "處理中…", work: () -> T, failed: ((Throwable) -> Unit)? = null, done: (T) -> Unit) {
+    private fun <T> task(message: String = "處理中…", work: () -> T, failed: ((Throwable) -> Unit)? = null, discard: ((T) -> Unit)? = null, done: (T) -> Unit) {
         if (busy) { notice("上一個操作尚在處理中", Kind.WARN); return }
         busy = true; showBusy(message)
         executor.execute {
             val result = runCatching(work)
             runOnUiThread {
                 busy = false; navRow.alpha = 1f; statusSpinner.visibility = View.GONE
-                if (isDestroyed || isFinishing) return@runOnUiThread
+                if (isDestroyed || isFinishing) {
+                    result.onSuccess { discard?.invoke(it) }
+                    return@runOnUiThread
+                }
                 val error = result.exceptionOrNull()
                 if (error != null) { notice(describe(error), Kind.ERROR); failed?.invoke(error); return@runOnUiThread }
                 val before = statusVersion; statusStrip.visibility = View.GONE
@@ -1831,7 +1835,7 @@ class MainActivity : Activity() {
             for (i in 0 until images.length()) {
                 val item = images.getJSONObject(i)
                 ui.row(card, item.getString("app"), stamp(item.getLong("at_ms"))) {
-                    task("解碼縮圖…", {
+                    task("解碼縮圖…", work = {
                         val response = api().request("/v1/replay/${item.getString("id")}")
                         val bytes = android.util.Base64.decode(response.getString("jpeg_base64"), android.util.Base64.DEFAULT)
                         try {
@@ -1841,14 +1845,50 @@ class MainActivity : Activity() {
                             require(bounds.outWidth in 1..480 && bounds.outHeight in 1..480)
                             requireNotNull(android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
                         } finally { bytes.fill(0) }
-                    }) { bitmap ->
-                        val image = ImageView(this@MainActivity).apply { setImageBitmap(bitmap); adjustViewBounds = true; contentDescription = "${item.getString("app")} 的已核准縮圖" }
-                        dialog().setTitle("已核准的短期縮圖").setView(image).setNegativeButton("關閉", null).setPositiveButton("刪除") { _, _ ->
-                            task("刪除縮圖…", { api().request("/v1/replay/${item.getString("id")}", method = "DELETE") }) { replayPage(); notice("已刪除縮圖") }
-                        }.create().apply { setOnDismissListener { image.setImageDrawable(null); bitmap.recycle() }; window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE); show() }
+                    }, failed = { replayUnavailable(it) }, discard = { it.recycle() }) { bitmap ->
+                        showReplayBitmap(bitmap, item)
                     }
                 }
             }
+        }
+    }
+
+    /** A missing image is normal under expiry or deletion by another client. */
+    private fun replayUnavailable(error: Throwable) {
+        if (error is ApiFailure && error.status == 404) {
+            replayPage()
+            notice("這張縮圖已到期或已被刪除；已重新讀取清單。", Kind.WARN)
+        }
+    }
+
+    private fun showReplayBitmap(bitmap: android.graphics.Bitmap, item: JSONObject) {
+        replayDialog?.dismiss()
+        val image = ImageView(this).apply {
+            setImageBitmap(bitmap)
+            adjustViewBounds = true
+            contentDescription = "${item.getString("app")} ${stamp(item.getLong("at_ms"))} 的已核准縮圖"
+        }
+        val preview = dialog().setTitle("已核准的短期縮圖").setView(image)
+            .setNegativeButton("關閉", null).setPositiveButton("刪除") { _, _ ->
+                task("刪除縮圖…", { api().request("/v1/replay/${item.getString("id")}", method = "DELETE") }, failed = { replayUnavailable(it) }) {
+                    replayPage(); notice("已刪除縮圖")
+                }
+            }.create()
+        preview.setOnDismissListener {
+            image.setImageDrawable(null)
+            if (!bitmap.isRecycled) bitmap.recycle()
+            if (replayDialog === preview) replayDialog = null
+        }
+        try {
+            preview.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            replayDialog = preview
+            preview.show()
+        } catch (error: Throwable) {
+            replayDialog = null
+            preview.dismiss()
+            image.setImageDrawable(null)
+            if (!bitmap.isRecycled) bitmap.recycle()
+            throw error
         }
     }
 
@@ -1896,6 +1936,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        replayDialog?.dismiss(); replayDialog = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
         executor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; credentials = null
