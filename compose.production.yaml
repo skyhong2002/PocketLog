@@ -1,0 +1,8 @@
+# Apply after compose.yaml; keeps the personal instance separate from development.
+name: pocketlog-production
+services:
+  server:
+    image: pocketlog:production
+secrets:
+  owner_token:
+    file: .secrets/production_owner_token
