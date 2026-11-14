@@ -849,13 +849,62 @@ class MainActivity : Activity() {
         ui.meta(content, "${clock(card.getLong("start_ms"))}–${clock(card.getLong("end_ms"))} · ${TimelineMath.duration(card.getLong("end_ms") - card.getLong("start_ms"))} · ${sourceLabel(card.optString("source"))}")
         if (card.optBoolean("pending_context")) ui.banner(content, "伺服器仍有內容等待處理。通常在活動結束至少 12 分鐘後處理，工作程序暫停或重試時可能更久；這不代表 AI 正在生成。請稍後重新整理。", Kind.INFO)
         val title = ui.field(content, "標題", "", Field.TEXT, card.optString("title"))
-        val summary = ui.field(content, "摘要", "", Field.MULTILINE, card.optString("summary"))
-        val category = ui.spinner(content, "分類", categories.map { label(it) }, categories.indexOf(card.getString("category")).coerceAtLeast(0))
+        val summary = ui.field(content, "摘要", "", Field.MULTILINE, card.optString("summary")).apply { maxLines = 6 }
+        // Keep the chooser and submitted IDs paired even if shared settings refresh.
+        val choices = (categories + card.getString("category")).distinct()
+        val category = ui.spinner(content, "分類", choices.map { label(it) }, choices.indexOf(card.getString("category")))
+        val lengthHint = ui.meta(content, "", top = 8)
+        fun updateLengths() {
+            val t = title.text.toString(); val s = summary.text.toString()
+            lengthHint.text = "標題 ${t.codePointCount(0, t.length)} / 200 字 · 摘要 ${s.codePointCount(0, s.length)} / 1000 字。超出時請自行縮短，內容不會被截掉。"
+        }
+        title.addTextChangedListener(watcher { title.error = null; updateLengths() })
+        summary.addTextChangedListener(watcher { summary.error = null; updateLengths() })
+        updateLengths()
         ui.meta(content, "你的修改優先於自動分類與 AI 摘要；離線時會加密保存並稍後同步。", top = 8)
-        dialog().setTitle("修改活動").setView(ScrollView(this@MainActivity).apply { addView(content) }).setNegativeButton("取消", null).setPositiveButton("儲存") { _, _ ->
-            val body = JSONObject().put("id", card.getString("id")).put("title", RecordingRules.cap(title.text.toString(), 200)).put("summary", RecordingRules.cap(summary.text.toString(), 1000)).put("category", categories[category.selectedItemPosition])
-            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/cards", body) }) { go(tab); notice("已儲存修改，等待同步。") }
-        }.showSecure()
+        val feedback = ui.meta(content, "", top = 8).apply {
+            visibility = View.GONE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        val editor = dialog().setTitle("修改活動").setView(ScrollView(this@MainActivity).apply { addView(content) })
+            .setNegativeButton("取消", null).setPositiveButton("儲存", null).showSecure()
+        fun report(message: String) {
+            feedback.text = message; feedback.visibility = View.VISIBLE
+            // Text and visibility change its measured height; scroll after the new layout.
+            feedback.post { if (editor.isShowing) feedback.requestRectangleOnScreen(android.graphics.Rect(0, 0, feedback.width, feedback.height), true) }
+        }
+        fun saving(value: Boolean) {
+            title.isEnabled = !value; summary.isEnabled = !value; category.isEnabled = !value
+            editor.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = !value
+            editor.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = !value
+            editor.setCancelable(!value); editor.setCanceledOnTouchOutside(!value)
+        }
+        editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val t = title.text.toString(); val s = summary.text.toString()
+            val titleError = when {
+                t.isBlank() -> "請填寫活動標題。"
+                t.codePointCount(0, t.length) > 200 -> "標題超過 200 字，請自行縮短。"
+                t.contains('\u0000') -> "標題含有無法儲存的字元。"
+                else -> null
+            }
+            val summaryError = when {
+                s.codePointCount(0, s.length) > 1000 -> "摘要超過 1000 字，請自行縮短。"
+                s.contains('\u0000') -> "摘要含有無法儲存的字元。"
+                else -> null
+            }
+            title.error = titleError; summary.error = summaryError
+            if (titleError != null || summaryError != null) {
+                (if (titleError != null) title else summary).requestFocus()
+                report("尚未儲存：請修正標示的欄位，輸入內容已保留。")
+                return@setOnClickListener
+            }
+            if (busy) { report("上一個操作尚在處理中，請稍後再儲存。輸入內容已保留。"); return@setOnClickListener }
+            val body = JSONObject().put("id", card.getString("id")).put("title", t).put("summary", s).put("category", choices[category.selectedItemPosition])
+            saving(true); report("正在加密儲存，請稍候…")
+            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/cards", body) }, failed = { error ->
+                if (editor.isShowing) { saving(false); report("未能完成儲存：${describe(error)}。輸入內容已保留，請重試。") }
+            }) { editor.dismiss(); go(tab); notice("已儲存修改，等待同步。") }
+        }
     }
 
     // ---------------------------------------------------------------- daily and weekly

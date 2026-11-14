@@ -842,3 +842,38 @@ behavior was not copied. Physical-device, screen-reader and battery limits remai
 - [Native saved-provider confirmation](screenshots/native-probe-consent.png)
 - [Native2×text confirmation](screenshots/native-probe-consent-large.png)
 - [Native2×text stale-provider recovery](screenshots/native-probe-changed-large.png)
+
+
+## Activity-edit draft preservation (#43)
+
+Native activity editing now checks a nonblank title, Unicode-scalar limits of
+200/1000 and NUL rejection before queueing. It displays live counts and retains
+all text instead of silently truncating. Choice labels/IDs are captured together.
+Busy and real enqueue failures keep the secure editor open with inline feedback;
+fields/cancel are locked during persistence and it dismisses only on success.
+The summary field has a bounded height. Feedback scrolls after layout; the first
+2× capture exposed clipping, fixed before final evidence and verified with full
+visible-bounds assertions at both font scales.
+
+The actual emulator editor at normal/2× font rejects 201-character titles,
+whitespace-only titles and 1001-character summaries without adding a queue item.
+A busy-state check retains both fields. Missing credentials force the production
+enqueue failure path; drafts remain and Retry persists exactly 200 emoji in the
+title and 1000 in the summary through the real Keystore/encrypted queue without
+UTF-16 truncation. Synthetic credentials target loopback port 1 and future worker
+backoff prevents networking; original backoff and empty credential/queue state
+are restored. Capture consent stays off. No claim about rotation persistence,
+physical gestures or TalkBack. The screenshot remains blocked at OS level; these
+are secure View bitmap captures.
+
+Android37unit/assembleDebug/assembleDebugAndroidTest/lintDebug, full connected
+HTTPS eight-page/offline queue/cache/brief-consent regression, Rust fmt/clippy
+warnings-denied/20unit32API6preview and audit pass. Web import/timeline regressions
+also pass; the server image and API contract are unchanged by this native fix.
+Dayflow's reference screenshot and Swift DayCategorySelectionEditor at2c79e161
+inform correction-in-context and explicit completion; this does not claim a
+matching macOS text editor or full feature parity.
+
+- [Title validation](screenshots/native-card-title-limit.png)
+- [Persistence failure retains draft](screenshots/native-card-save-failure.png)
+- [2× font complete recovery feedback](screenshots/native-card-save-failure-large.png)
