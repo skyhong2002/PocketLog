@@ -102,9 +102,11 @@ cd android
 ```
 
 Put the service behind a trusted HTTPS proxy or Tailscale Serve. Open its HTTPS
-origin in a browser for the private website and onboarding, then configure the app
-with its HTTPS origin and owner token. See [setup](docs/SETUP.md) for secret
-handling and deployment details. The new app does not connect to the old infovore
+origin in a browser and sign in with the owner key to complete onboarding. In
+Settings → Connection and devices, create a journal device key for your phone;
+enter that key and the same HTTPS origin in the Android app. Keep the owner key
+for website login and recovery. See [setup](docs/SETUP.md) for secret handling and
+deployment details. The new app does not connect to the old infovore
 phone API or migrate its history.
 
 ## Research

@@ -145,3 +145,16 @@ Replay opened successfully. No real session files or external model were used.
 
 Web syntax, timeline/import regressions, Rust fmt/clippy/tests and final-image
 Docker smoke passed; unchanged Android checks remain the33-test build above.
+
+## Web reflection save race (#22)
+
+Reproduced before the fix: a held save of A completed after typing B, incorrectly
+marked B saved and erased it after navigation. With the rebuilt image at390px,
+A saves while B stays marked unsaved, then B survives leaving and reopening Daily.
+A second held save was completed after leaving/rebuilding the page and deliberately
+clearing its editor; the empty newer draft stayed empty after another navigation.
+The server retained the submitted version, not the unsent newer edit.
+[Unsaved newer draft](screenshots/web-newer-reflection-draft.png). The temporary
+fixture-only fetch delay was restored before subsequent actions. No external AI
+or browser journal storage was used. Web regressions, Rust fmt/clippy/tests and
+final-image Docker smoke passed; native code/APK were unchanged.

@@ -1994,14 +1994,18 @@ async function reviewPage(parent, seq, kind) {
           "儲存反思",
           async () => {
             const [at] = windowFor(d.date);
+            const submitted = reflection.value;
             await api("/v1/reflections", {
               id: `reflection-${d.date}`,
               at_ms: Math.min(at + 8 * 3600000, Date.now()),
-              text: reflection.value,
+              text: submitted,
             });
-            delete drafts[d.date];
-            state.textContent = "已儲存";
-            notice("反思已儲存");
+            // A response acknowledges its submitted snapshot, not newer typing.
+            const newer = drafts[d.date] !== undefined && drafts[d.date] !== submitted;
+            if (!newer) delete drafts[d.date];
+            state.textContent = newer ? "有尚未儲存的修改" : "已儲存";
+            if (reflection.isConnected)
+              notice(newer ? "較早的版本已儲存；新的修改仍未儲存。" : "反思已儲存");
           },
           "primary",
         ),
