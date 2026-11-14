@@ -1327,14 +1327,11 @@ async function timelinePage(parent, seq) {
   const dates = mode === "week" ? visibleDates() : [day];
   const wantSetup = !checklistHidden() && !setupComplete(setupState);
   const week = visibleDates().filter((d) => d <= journalDate());
-  const [weekFrom] = windowFor(week[0] || day);
   const [days, control, setup, weekTotals] = await Promise.all([
     loadDays(dates, seq),
     soft("/v1/collection"),
     wantSetup ? loadSetup() : null,
-    soft(
-      `/v1/overview?from_ms=${Math.max(weekFrom, Date.now() - 29 * 86400000)}&to_ms=${Date.now()}`,
-    ),
+    mode === "week" ? null : loadDays(week, seq).catch((e) => { if (e === STALE) throw e; return null; }),
   ]);
   live(seq);
   if (setup && !setupComplete(setup)) add(parent, checklist(setup, false));
@@ -1513,9 +1510,10 @@ async function timelinePage(parent, seq) {
     btn("匯出 JSON", () => exportData(days)),
     btn("回放縮圖", replayDialog),
   );
-  if (weekTotals) {
-    const sum = weekTotals.categories.reduce((a, c) => a + c.duration_ms, 0);
-    add(foot, rich("span", "muted week-total", "本週已記錄 ", el("strong", duration(sum))));
+  const totalDays = mode === "week" ? days : weekTotals;
+  if (totalDays) {
+    const sum = totalDays.reduce((a, d) => a + metrics(d.cards).total, 0);
+    add(foot, rich("span", "muted week-total", "本週已載入的記錄 ", el("strong", duration(sum))));
   }
   add(left, foot);
   summary(aside, selected ? metrics(selected.cards) : metrics([]));
