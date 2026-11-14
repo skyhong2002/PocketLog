@@ -51,3 +51,13 @@ battery measurements; device pairing/revocation; encrypted backup/import/restore
 local-only mode; reminders; independent security review; owner-approved infovore
 publishing connector. Earlier milestones are product sequencing, not a claim that
 all of these remaining requirements shipped in this port.
+
+## Website and official Dayflow alignment (2026-11-14)
+
+Shared onboarding, owner-session browser UI, native/web day/week timelines,
+category presentation/roles, goals, explicit AI questions and private focus/agent
+summary records are implemented. See [the exact parity matrix](DAYFLOW_PARITY.md)
+and [UI guidelines](UI_GUIDELINES.md). This is not complete Dayflow parity: native
+provider protocols/CLI, arbitrary category rules, scheduled rich briefs, persistent
+Chat, automatic agent-session readers, recording/replay/redaction and the remote
+Flow service remain substantial work. Do not mark these complete from tab names.

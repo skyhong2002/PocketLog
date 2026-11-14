@@ -19,6 +19,7 @@ def main():
     image = os.environ.get("POCKETLOG_SMOKE_IMAGE", "pocketlog:implementation-check")
     suffix = secrets.token_hex(6)
     volume = "pocketlog-smoke-" + suffix
+    config_volume = volume + "-config"
     server = "pocketlog-smoke-api-" + suffix
     worker = "pocketlog-smoke-worker-" + suffix
     token = secrets.token_hex(32)
@@ -27,8 +28,9 @@ def main():
         token_file.write_text(token)
         token_file.chmod(0o444)  # Only this disposable random token, not production credentials.
         run("docker", "volume", "create", volume)
+        run("docker", "volume", "create", config_volume)
         try:
-            run("docker", "run", "-d", "--name", server, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "256m", "-p", "127.0.0.1::8080", "-v", volume + ":/data", "-v", str(token_file) + ":/run/secrets/owner_token:ro", image)
+            run("docker", "run", "-d", "--name", server, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "256m", "-p", "127.0.0.1::8080", "-v", volume + ":/data", "-v", config_volume + ":/config", "-e", "POCKETLOG_AI_CONFIG_DIR=/config", "-v", str(token_file) + ":/run/secrets/owner_token:ro", image)
             port = run("docker", "port", server, "8080/tcp").rsplit(":", 1)[1]
             origin = "http://127.0.0.1:" + port
 
@@ -55,6 +57,15 @@ def main():
                 raise AssertionError("unauthorized journal access")
             except urllib.error.HTTPError as error:
                 assert error.code == 401
+            settings = request("GET", "/v1/workspace")
+            settings["onboarding_version"] = 1
+            assert request("PUT", "/v1/workspace", settings)["revision"] == 1
+            assert request("GET", "/v1/ai")["available"]
+            # Save a disabled tombstone to exercise the worker's read-only config mount.
+            request("DELETE", "/v1/ai")
+            with urllib.request.urlopen(origin + "/", timeout=5) as page:
+                assert b"PocketLog" in page.read()
+                assert "frame-ancestors 'none'" in page.headers["Content-Security-Policy"]
             now = int(time.time() * 1000)
             activity = {"id": "smoke-session", "start_ms": now - 3_600_000, "end_ms": now - 1_800_000, "app": "org.example.reader", "category": "learning"}
             batch = {"activities": [activity]}
@@ -66,7 +77,7 @@ def main():
             assert overview["categories"][0]["duration_ms"] == 1_800_000
             request("POST", "/v1/checkins", {"id": "smoke-checkin", "at_ms": now - 1000, "mood": 3, "energy": 4})
             request("POST", "/v1/reflections", {"id": "smoke-reflection", "at_ms": now - 1000, "text": "Disposable reflection"})
-            run("docker", "run", "-d", "--name", worker, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "192m", "--entrypoint", "pocketlog-worker", "-v", volume + ":/data", image)
+            run("docker", "run", "-d", "--name", worker, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "192m", "--entrypoint", "pocketlog-worker", "-v", volume + ":/data", "-v", config_volume + ":/config:ro", "-e", "POCKETLOG_AI_CONFIG_DIR=/config", image)
             path = f"/v1/timeline?from_ms={now - 7_200_000}&to_ms={now}"
             for attempt in range(30):
                 data = request("GET", path)
@@ -103,7 +114,7 @@ def main():
         finally:
             for name in (worker, server):
                 subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, check=False)
+            subprocess.run(["docker", "volume", "rm", volume, config_volume], stdout=subprocess.DEVNULL, check=False)
 
 
 if __name__ == "__main__":

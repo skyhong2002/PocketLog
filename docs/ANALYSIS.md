@@ -17,8 +17,21 @@ contain private words; they are private journal data, not anonymized telemetry.
 ## Optional model
 
 No provider is configured by default and no provider key is borrowed from infovore.
-Set these environment variables **only on the worker** using a private Compose
-override, after reviewing the provider's retention policy:
+Use **Bring your own AI** in Android settings or the private website. Configure
+the full OpenAI-compatible Chat Completions URL, explicit model ID, API key,
+JSON Schema/JSON Object compatibility mode and whether the model supports images.
+Keys travel over HTTPS to the private server and live in a dedicated config volume,
+not SQLite, the phone or read responses. Saving does not call a model. The explicit
+connection test sends only fixed synthetic text.
+
+Each save creates a fresh provider identity; each phone must explicitly renew
+future-capture consent for that exact configuration. A missing key retains it only
+on the same endpoint; switching endpoints clears it unless a new key is provided.
+Disabling writes a tombstone that overrides legacy environment configuration.
+The API mounts settings read/write and the worker read-only, reloading each pass.
+
+Legacy deployments without a settings file may still set these variables **only
+on the worker** using a private Compose override after reviewing provider policy:
 
 - `POCKETLOG_AI_ENABLED=true`
 - `POCKETLOG_AI_URL`: full Chat Completions URL, for example a trusted local
@@ -57,5 +70,13 @@ epoch. Owner deletion invalidates in-flight work. Manual edits always take
 precedence over worker output. A model request already sent cannot be recalled
 from a provider; deletion does not erase provider copies, backups or exports.
 Changing providers requires the owner to review and renew their consent; the
-current single-owner configuration does not provide automatic provider-identity
-binding or a provider-side deletion API.
+configuration binds observation consent to provider identity. There is no
+provider-side deletion API. Existing legacy consent is not authorization for a
+new app-configured provider.
+
+## Interactive questions and recaps
+
+Native/web Chat and web daily/weekly recaps use the configured provider only after
+explicit per-request approval. The outgoing scope is derived cards only (up to 100,
+24 KB), never raw screen context or feelings/reflections. Questions are independent
+and replies are not stored. See [API](API.md) and [parity matrix](DAYFLOW_PARITY.md).

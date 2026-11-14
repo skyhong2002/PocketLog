@@ -49,6 +49,7 @@ class ContextService : AccessibilityService() {
                         val body = JSONObject()
                             .put("id", UUID.randomUUID().toString()).put("at_ms", now).put("app", pkg)
                             .put("text", text).put("analysis_consent", true).put("external_ai_consent", settings.externalAiConsent)
+                        if (settings.externalAiConsent) settings.aiProviderId?.let { body.put("provider_id", it) }
                         if (jpeg != null && settings.imagesEnabled) body.put("jpeg_base64", jpeg).put("image_consent", true)
                         JournalQueue(this@ContextService).enqueue(credentials, "/v1/observations", body)
                         SyncEngine.schedule(this@ContextService)

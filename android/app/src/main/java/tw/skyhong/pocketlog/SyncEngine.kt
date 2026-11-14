@@ -62,7 +62,7 @@ object SyncEngine {
         queue.counts().first == 0
     }
     fun clearLocal(context: Context) = synchronized(lock) {
-        RecordingSettings(context).apply { enabled = false; contextEnabled = false; imagesEnabled = false; analysisConsent = false; externalAiConsent = false; nextAttempt = 0 }
+        RecordingSettings(context).apply { enabled = false; contextEnabled = false; imagesEnabled = false; analysisConsent = false; externalAiConsent = false; aiProviderId = null; nextAttempt = 0 }
         WorkManager.getInstance(context).cancelAllWork()
         PrivateFiles(context).clear()
     }

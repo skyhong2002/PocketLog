@@ -25,6 +25,9 @@ class RecordingSettings(private val context: Context) {
     var externalAiConsent: Boolean
         get() = analysisConsent && prefs.getBoolean("external_ai", false)
         set(value) = update(prefs.edit().putBoolean("external_ai", value))
+    var aiProviderId: String?
+        get() = prefs.getString("ai_provider_id", null)
+        set(value) = update(prefs.edit().putString("ai_provider_id", value))
     var wifiOnly: Boolean
         get() = prefs.getBoolean("wifi", true)
         set(value) { check(prefs.edit().putBoolean("wifi", value).commit()) }

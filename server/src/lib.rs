@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
+mod ai_settings;
 mod analysis;
 mod journal;
+mod web;
+mod workspace;
 
 use axum::{
     Json, Router,
@@ -26,6 +29,9 @@ pub struct AppState {
     db: Arc<Mutex<Connection>>,
     token_hash: [u8; 32],
     db_slots: Arc<tokio::sync::Semaphore>,
+    ai_settings: Option<ai_settings::AiSettingsStore>,
+    ai_probe_slot: Arc<tokio::sync::Semaphore>,
+    sessions: Arc<Mutex<Vec<web::Session>>>,
 }
 
 #[derive(Debug)]
@@ -70,11 +76,35 @@ impl AppState {
           INSERT INTO journal_meta SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM journal_meta);
           CREATE TABLE IF NOT EXISTS analysis_jobs(id TEXT PRIMARY KEY, attempts INTEGER NOT NULL, next_ms INTEGER NOT NULL);
           CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, hash TEXT NOT NULL);").map_err(|_| "database setup failed")?;
+        workspace::migrate(&db).map_err(|_| "database setup failed")?;
+        let has_provider_id: bool = db
+            .prepare("PRAGMA table_info(observations)")
+            .map_err(|_| "database setup failed")?
+            .query_map([], |r| r.get::<_, String>(1))
+            .map_err(|_| "database setup failed")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|_| "database setup failed")?
+            .iter()
+            .any(|name| name == "provider_id");
+        if !has_provider_id {
+            db.execute("ALTER TABLE observations ADD COLUMN provider_id TEXT", [])
+                .map_err(|_| "database setup failed")?;
+        }
         Ok(Self {
             db: Arc::new(Mutex::new(db)),
             token_hash: Sha256::digest(token.as_bytes()).into(),
             db_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            ai_settings: None,
+            ai_probe_slot: Arc::new(tokio::sync::Semaphore::new(1)),
+            sessions: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+    pub fn with_ai_settings(
+        mut self,
+        directory: &std::path::Path,
+    ) -> std::result::Result<Self, &'static str> {
+        self.ai_settings = Some(ai_settings::AiSettingsStore::new(directory)?);
+        Ok(self)
     }
     async fn database<T: Send + 'static>(
         &self,
@@ -127,7 +157,7 @@ async fn authenticate(
         .and_then(|s| s.strip_prefix("Bearer "))
         .unwrap_or("");
     let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-    if !bool::from(state.token_hash.ct_eq(&hash)) {
+    if !bool::from(state.token_hash.ct_eq(&hash)) && !web::authorized(&state, &req) {
         return ApiError(StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     match tokio::time::timeout(std::time::Duration::from_secs(10), next.run(req)).await {
@@ -137,13 +167,21 @@ async fn authenticate(
 }
 async fn private_headers(req: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(req).await;
+    let is_page = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|v| v.to_str().unwrap_or("").starts_with("text/html"));
     for (key, value) in [
         ("cache-control", "no-store"),
         ("x-content-type-options", "nosniff"),
         ("x-robots-tag", "noindex, nofollow"),
         (
             "content-security-policy",
-            "default-src 'none'; frame-ancestors 'none'",
+            if is_page {
+                "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+            } else {
+                "default-src 'none'; frame-ancestors 'none'"
+            },
         ),
         ("referrer-policy", "no-referrer"),
     ] {
@@ -154,12 +192,14 @@ async fn private_headers(req: axum::extract::Request, next: Next) -> Response {
     }
     response.headers_mut().insert(
         header::VARY,
-        axum::http::HeaderValue::from_static("Authorization"),
+        axum::http::HeaderValue::from_static("Authorization, Cookie"),
     );
     response
 }
 pub fn router(state: AppState) -> Router {
     let private = journal::routes()
+        .merge(ai_settings::routes())
+        .merge(workspace::routes())
         .route("/v1/activities", post(ingest))
         .route("/v1/checkins", post(checkin))
         .route("/v1/timeline", get(timeline))
@@ -171,6 +211,7 @@ pub fn router(state: AppState) -> Router {
             get(|| async { Json(serde_json::json!({"status":"ok"})) }),
         )
         .merge(private)
+        .merge(web::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(middleware::from_fn(private_headers))
         .with_state(state)

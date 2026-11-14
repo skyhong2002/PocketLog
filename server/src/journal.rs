@@ -11,6 +11,11 @@ pub(super) fn routes() -> Router<AppState> {
 }
 
 pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
+    db.execute(
+        "DELETE FROM review_records WHERE at_ms <= ?",
+        [now - RETENTION],
+    )
+    .map_err(storage_error)?;
     db.execute("DELETE FROM observations WHERE at_ms <= ?", [now - DAY])
         .map_err(storage_error)?;
     db.execute("DELETE FROM receipts WHERE at_ms <= ?", [now - RETENTION])
@@ -33,6 +38,8 @@ pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
     Ok(())
 }
 pub(super) fn erase(db: &Connection) -> Result<()> {
+    db.execute("DELETE FROM review_records", [])
+        .map_err(storage_error)?;
     db.execute_batch("UPDATE journal_meta SET epoch=epoch+1; DELETE FROM analysis_jobs; DELETE FROM observations; DELETE FROM receipts; DELETE FROM notes; DELETE FROM reflections;").map_err(storage_error)
 }
 #[derive(Deserialize, Serialize)]
@@ -49,6 +56,8 @@ struct Observation {
     jpeg_base64: Option<String>,
     #[serde(default)]
     image_consent: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_id: Option<String>,
 }
 async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> Result<StatusCode> {
     let now = now_ms();
@@ -72,6 +81,9 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
         })
+        || o.provider_id
+            .as_ref()
+            .is_some_and(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
         || !o.analysis_consent
     {
         return Err(invalid());
@@ -116,14 +128,15 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                 )
                 .map_err(storage_error)?;
                 tx.execute(
-                    "INSERT INTO observations VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO observations VALUES (?,?,?,?,?,?,?)",
                     params![
                         o.id,
                         o.at_ms,
                         o.app,
                         o.text,
                         if o.external_ai_consent { 2 } else { 1 },
-                        o.jpeg_base64
+                        o.jpeg_base64,
+                        o.provider_id
                     ],
                 )
                 .map_err(storage_error)?;

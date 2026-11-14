@@ -8,7 +8,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token = std::fs::read_to_string(token_file).map_err(|_| "cannot read owner token file")?;
     let path =
         std::env::var("POCKETLOG_DATABASE").unwrap_or_else(|_| "/data/pocketlog.sqlite".into());
-    let state = AppState::new(rusqlite::Connection::open(path)?, token.trim())?;
+    let mut state = AppState::new(rusqlite::Connection::open(path)?, token.trim())?;
+    if let Ok(directory) = std::env::var("POCKETLOG_AI_CONFIG_DIR") {
+        state = state.with_ai_settings(std::path::Path::new(&directory))?;
+    }
     state.prune().await?;
     let cleanup = state.clone();
     tokio::spawn(async move {

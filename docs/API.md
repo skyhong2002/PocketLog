@@ -41,3 +41,46 @@ must be reviewed and never infers feelings. See [analysis](ANALYSIS.md).
 SQLite is plaintext inside the private volume. Use encrypted host storage and
 backups. SQL deletion cannot erase provider copies, exports, SSD history or
 snapshots. See [security boundaries](SECURITY.md).
+
+## Private browser and shared product setup
+
+`GET /` serves the same-origin responsive browser UI. `POST /session` accepts
+`{"token":"owner token"}` with `X-PocketLog: 1`, creating an eight-hour Secure,
+HttpOnly, SameSite=Strict host cookie. `DELETE /session` invalidates that cookie's
+session. No CORS; cross-site requests are rejected. Cookie-authenticated writes
+also require `X-PocketLog: 1`. Native bearer authentication remains unchanged.
+No tokens belong in URLs or localStorage. All API routes below require owner auth.
+
+- `GET /v1/workspace`: `revision`, `onboarding_version` (0/1), `focus_minutes`,
+  `distraction_minutes` (0–1440), and ten category styles `{id,name,color,role}`.
+  Names max40 characters; color #RRGGBB; role focus/neutral/distraction.
+- `PUT /v1/workspace`: full strict schema, including current revision; 409 on
+  stale revision. Returns incremented revision. Completing onboarding never
+  enables collection or authorizes AI. These preferences survive journal deletion.
+- `GET /v1/ai`: redacted provider config, `available`, `enabled`, `has_key`,
+  `provider_id`; API key never returned.
+- `PUT /v1/ai`: `{endpoint,model,api_key?,image_support?,response_format?}`;
+  response_format json_schema(default)/json_object; each save rotates provider_id.
+  Omitted key retains it only on same enabled endpoint; empty explicitly clears.
+- `DELETE /v1/ai`: removes key, writes disabled tombstone, invalidates analysis.
+- `POST /v1/ai/test`: fixed synthetic prompt only; no journal; one concurrent
+  test/chat request, eight-second model timeout; returns `{ok,journal_data_sent:false}`.
+- `POST /v1/ask`: `{question,from_ms,to_ms,provider_id,consent:true}`; question
+  max1000 chars, range max7days within retention. Sends up to100 derived cards,
+  max24,000 bytes of evidence. Returns `{answer,scope,stored:false}`. No history,
+  raw context, screenshots, feelings, reflection or model tools. Refuses stale
+  identity and invalidates output if journal deletion/provider epoch changes.
+- `POST /v1/reviews`: strict `{id,at_ms,kind,text,end_ms,rating,source}`; optional
+  fields may be null. kind review/flow/agent. Flow requires end_ms (at most24h,
+  not future); review requires rating focused/neutral/distracted; agent requires
+  source codex/claude. Text max4000 chars; at most500 stored records, 30-day TTL.
+  Stable IDs replace existing records, making retries safe.
+- `GET /v1/reviews?from_ms=...&to_ms=...`: private range up to30days; returns
+  `{records,truncated}`, at most100 records/470KiB of records. Journal deletion
+  removes all of these records. No raw observations are readable here.
+
+Observation ingestion additionally accepts optional `provider_id` (64 hex),
+binding per-observation model consent to saved provider configuration. Omitted
+IDs preserve legacy receipt hashes but cannot authorize a dynamically configured
+provider. Changing model settings invalidates pending model jobs/epoch; it does
+not erase source journal or retract requests already sent to the provider.

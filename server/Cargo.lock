@@ -756,6 +756,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "getrandom 0.4.3",
  "http-body-util",
  "image",
  "reqwest",

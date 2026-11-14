@@ -5,6 +5,9 @@ services:
       - "127.0.0.1:18748:8080"
     volumes:
       - journal:/data
+      - ai_settings:/config
+    environment:
+      POCKETLOG_AI_CONFIG_DIR: /config
     secrets:
       - owner_token
     read_only: true
@@ -21,9 +24,12 @@ services:
   worker:
     build: .
     entrypoint: ["pocketlog-worker"]
+    environment:
+      POCKETLOG_AI_CONFIG_DIR: /config
     depends_on: [server]
     volumes:
       - journal:/data
+      - ai_settings:/config:ro
     read_only: true
     tmpfs:
       - /tmp:size=16m,noexec,nosuid,nodev
@@ -39,4 +45,5 @@ secrets:
   owner_token:
     file: .secrets/owner_token
 volumes:
+  ai_settings:
   journal:

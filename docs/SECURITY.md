@@ -23,7 +23,8 @@ report suspected vulnerabilities privately through the repository owner.
   data from backups/device transfer, and blocks normal app screenshots. Screen
   security flags do not protect against a rooted device or a camera.
 - Container runs as UID/GID 10001, drops all capabilities, has a read-only root
-  filesystem and bounded resources. Only the journal volume is writable/persistent.
+  filesystem and bounded resources. The journal and dedicated AI settings volumes are writable/persistent for the API;
+  the worker mounts AI settings read-only.
   The HTTP host port binds to loopback, for a TLS proxy or Tailscale Serve.
 
 ## Trust and known limitations
@@ -65,8 +66,9 @@ report suspected vulnerabilities privately through the repository owner.
   are provided to a model. Output schema/length/categories are validated; user
   corrections win. No emotions are inferred. The worker has DB access and any
   explicitly mounted provider key; process separation is not a sandbox against a
-  compromised host or decoder. No provider identity binding or provider-side
-  deletion is implemented; review/renew consent before changing providers.
+  compromised host or decoder. Provider-bound consent prevents old queued captures from being sent to a new
+  configuration. Saving any model setting rotates its identity and requires renewed
+  capture consent. No provider-side deletion is implemented.
 - Pausing/removing allowlists or revoking consent clears pending local context,
   not already transmitted server/provider copies. Owner deletion invalidates jobs
   and in-flight results, but cannot retract requests already sent to a model. The
@@ -85,3 +87,39 @@ AndroidKeyStore and Doze; full-day battery benchmarks; backup+restore and import
 independent capture/worker threat review; and private integration scopes. Automated
 queue, retention, deletion-race and model/decoder tests do not replace these checks.
 See [port coverage](INFOVORE_PORT.md) and the roadmap.
+
+## Browser, workspace and BYO AI configuration
+
+The same-origin browser UI uses random, hashed, in-memory sessions (eight hours,
+32 maximum), Secure/HttpOnly/SameSite=Strict host cookies, no CORS and a required
+non-simple header on browser writes. Browser login also requires this header;
+cross-site Fetch Metadata is rejected. No owner token in URLs or browser storage.
+Session state is lost on restart, and owner-token rotation requires recreating the
+service. The owner token still grants all journal capabilities. Use a trusted
+HTTPS origin; a non-TLS remote site cannot use the secure session cookie.
+
+CSP restricts page scripts/styles/images/connections to the same origin and
+disallows framing, external base URLs and external form targets. User/model
+content is inserted as text, never interpreted as HTML, Markdown, links or tools.
+The public shell contains no journal. Authenticated responses remain no-store.
+
+BYO settings use a separate volume, directory 0700/file 0600 with atomic rename.
+Keys are plaintext to the host administrator, outside SQLite and exports, never
+read back by the API. Endpoint changes do not reuse a previous key; model changes
+on the same endpoint may retain it. Tombstones disable legacy env fallback. A
+failed/ambiguous save should be followed by a redacted settings read; filesystem
+rename and SQLite commit are not a single cross-resource transaction. Provider
+identity checks prevent old consent from authorizing a new configuration even
+if the database commit fails. An already sent request cannot be recalled.
+
+Chat requires consent on every request for the current provider identity. It
+sends at most 100 derived activity cards/24,000 bytes of evidence and a 1,000-char
+question, with no raw observations, images, reflections or check-ins. Requests
+are single-turn and responses are not persisted. Model calls use an 8-second
+request limit, a 64 KiB response bound and one concurrent explicit test/chat call.
+Deletion/provider epoch changes invalidate in-flight answers.
+
+Shared onboarding is not collection consent. User-started focus, review and agent
+summary records have quotas and 30-day retention and participate in journal
+deletion. Agent files are chosen explicitly and bounded; no desktop session tree
+is scanned, no shell command executes, and no agent session path is opened.

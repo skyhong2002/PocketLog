@@ -92,3 +92,26 @@ authenticated timeline/status, original record counts and both services afterwar
 The worker receives no owner-token secret. Do not enable a provider by merely
 adding a key; both the explicit server switch and per-capture client consent are
 required. No new production token is needed for this backward-compatible update.
+
+## Private website and bring your own AI
+
+Open the same trusted HTTPS origin used by Android. Sign in with the owner token;
+it becomes a Secure/HttpOnly eight-hour session cookie, never a query parameter
+or localStorage value. The public shell has no journal. Restart logs browsers out.
+Complete onboarding in either client; the other reads its shared completion,
+goals and category settings. Each phone still needs its own OS permissions and
+separate capture/image/model consent. Browser use does not start screen capture.
+
+The base Compose config mounts `ai_settings:/config` writable for the API and
+read-only for the worker, setting `POCKETLOG_AI_CONFIG_DIR=/config` on both.
+Configure an OpenAI-compatible Chat Completions endpoint/model via Settings.
+Use the synthetic test, then explicitly approve future phone context for that
+provider. Local models are addressed from the server/container network, not the
+phone; verified HTTPS or literal loopback HTTP only. Native Anthropic/Gemini APIs
+and CLI model processes are not implemented. See [analysis](ANALYSIS.md).
+
+Back up both private volumes on encrypted storage. The config volume contains the
+plaintext provider key (directory0700/file0600); do not publish it or include it in
+source archives. Journal deletion preserves workspace/provider setup; disable AI
+separately to remove its key. Neither operation can remove copied exports/backups
+or requests already delivered to an AI provider.
