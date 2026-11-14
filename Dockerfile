@@ -7,6 +7,7 @@ RUN cargo build --release --locked
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 RUN groupadd --gid 10001 pocketlog && useradd --uid 10001 --gid 10001 --no-create-home pocketlog && mkdir /data && chown 10001:10001 /data
 COPY --from=build /build/target/release/pocketlog-server /usr/local/bin/pocketlog-server
+COPY --from=build /build/target/release/pocketlog-worker /usr/local/bin/pocketlog-worker
 USER 10001:10001
 ENV POCKETLOG_LISTEN=0.0.0.0:8080
 EXPOSE 8080

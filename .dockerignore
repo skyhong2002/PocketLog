@@ -7,3 +7,6 @@ docs
 data
 
 server/.cargo
+
+output
+compose.private*.yaml

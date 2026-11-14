@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod analysis;
+mod journal;
+
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Query, State},
@@ -54,8 +57,19 @@ impl AppState {
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA secure_delete=ON;
           CREATE TABLE IF NOT EXISTS activities(id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, category TEXT NOT NULL);
           CREATE INDEX IF NOT EXISTS activities_end ON activities(end_ms);
+          CREATE INDEX IF NOT EXISTS activities_app ON activities(app,start_ms,end_ms);
           CREATE TABLE IF NOT EXISTS checkins(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, mood INTEGER NOT NULL, energy INTEGER NOT NULL);
-          CREATE INDEX IF NOT EXISTS checkins_at ON checkins(at_ms);").map_err(|_| "database setup failed")?;
+          CREATE INDEX IF NOT EXISTS checkins_at ON checkins(at_ms);
+          CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, category TEXT NOT NULL, edited INTEGER NOT NULL DEFAULT 0);
+          CREATE TABLE IF NOT EXISTS reflections(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, text TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS reflections_at ON reflections(at_ms);
+          CREATE TABLE IF NOT EXISTS observations(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, app TEXT NOT NULL, text TEXT NOT NULL, consent INTEGER NOT NULL, jpeg_base64 TEXT);
+          CREATE INDEX IF NOT EXISTS observations_at ON observations(at_ms);
+          CREATE INDEX IF NOT EXISTS observations_app ON observations(app,at_ms);
+          CREATE TABLE IF NOT EXISTS journal_meta(epoch INTEGER NOT NULL);
+          INSERT INTO journal_meta SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM journal_meta);
+          CREATE TABLE IF NOT EXISTS analysis_jobs(id TEXT PRIMARY KEY, attempts INTEGER NOT NULL, next_ms INTEGER NOT NULL);
+          CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, hash TEXT NOT NULL);").map_err(|_| "database setup failed")?;
         Ok(Self {
             db: Arc::new(Mutex::new(db)),
             token_hash: Sha256::digest(token.as_bytes()).into(),
@@ -97,6 +111,7 @@ fn prune(db: &Connection, now: i64) -> Result<()> {
     .map_err(storage_error)?;
     db.execute("DELETE FROM checkins WHERE at_ms <= ?", [now - RETENTION])
         .map_err(storage_error)?;
+    journal::prune(db, now)?;
     Ok(())
 }
 
@@ -144,7 +159,7 @@ async fn private_headers(req: axum::extract::Request, next: Next) -> Response {
     response
 }
 pub fn router(state: AppState) -> Router {
-    let private = Router::new()
+    let private = journal::routes()
         .route("/v1/activities", post(ingest))
         .route("/v1/checkins", post(checkin))
         .route("/v1/timeline", get(timeline))
@@ -180,6 +195,9 @@ pub enum Category {
     Entertainment,
     LifeAdmin,
     Rest,
+    SocialMedia,
+    NewsReading,
+    Idle,
 }
 impl Activity {
     fn valid(&self, now: i64) -> bool {
@@ -281,6 +299,8 @@ struct Timeline {
     activities: Vec<Activity>,
     checkins: Vec<Checkin>,
     truncated: bool,
+    cards: Vec<journal::Card>,
+    reflections: Vec<journal::Reflection>,
 }
 async fn timeline(
     State(state): State<AppState>,
@@ -305,13 +325,25 @@ async fn timeline(
         let mut checkins = statement.query_map([w.from_ms,w.to_ms], |r| Ok(Checkin {id:r.get(0)?,at_ms:r.get(1)?,mood:r.get(2)?,energy:r.get(3)?})).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         let truncated = activities.len() > 1000 || checkins.len() > 1000;
         activities.truncate(1000); checkins.truncate(1000);
-        Ok(Json(Timeline { activities, checkins, truncated }))
+        let cards = journal::cards(db, &activities)?;
+        let reflections = journal::reflections(db, w.from_ms, w.to_ms)?;
+        let mut result = Timeline { activities, checkins, truncated, cards, reflections };
+        // Bound serialized responses to the client limit even for multibyte user notes.
+        while serde_json::to_vec(&result).map_err(storage_error)?.len() > 480 * 1024 {
+            result.truncated = true;
+            if !result.cards.is_empty() { result.cards.truncate(result.cards.len() / 2); }
+            else if !result.reflections.is_empty() { result.reflections.truncate(result.reflections.len() / 2); }
+            else if !result.activities.is_empty() { result.activities.truncate(result.activities.len() / 2); }
+            else { result.checkins.truncate(result.checkins.len() / 2); }
+        }
+        Ok(Json(result))
     }).await
 }
 async fn erase(State(state): State<AppState>) -> Result<StatusCode> {
     state
         .database(|db| {
             let tx = db.transaction().map_err(storage_error)?;
+            journal::erase(&tx)?;
             tx.execute("DELETE FROM activities", [])
                 .map_err(storage_error)?;
             tx.execute("DELETE FROM checkins", [])
@@ -324,3 +356,9 @@ async fn erase(State(state): State<AppState>) -> Result<StatusCode> {
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+pub fn process_pending(db: &mut Connection) -> std::result::Result<usize, &'static str> {
+    analysis::process_with_provider(db, None)
+}
+
+pub use analysis::{Provider, process_with_provider};

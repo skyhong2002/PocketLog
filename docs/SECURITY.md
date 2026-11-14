@@ -5,7 +5,7 @@ report suspected vulnerabilities privately through the repository owner.
 
 ## Implemented
 
-- No analytics, crash uploads, public journal endpoint, external inference, shell
+- No analytics, crash uploads, public journal endpoint, implicit external inference, shell
   execution, URL fetching, WebView or cross-origin API permission.
 - One owner token, 32 random bytes encoded as 64 hex characters, supplied in a
   mounted secret file. The process retains a SHA-256 digest; comparison uses a
@@ -44,20 +44,44 @@ report suspected vulnerabilities privately through the repository owner.
 - Deletion uses SQL secure_delete and a WAL checkpoint; backups, snapshots,
   flash wear leveling and copied exports may still retain data. Retention is
   enforced while the service runs, not while a host is powered off.
-- No automatic collection, raw image/text ingestion or AI is implemented here.
-  Before those features ship, enforce exclusion before capture, encrypt bounded
-  queues, isolate image decoding/inference, reject oversized/decompression-bomb
-  payloads and enforce raw-data TTLs even on failed jobs.
-- AI input is untrusted evidence, never instructions. Planned workers get no
-  tools, outbound browsing, shell, token access or authority to act. Validate
-  structured output, label uncertainty and allow user correction. Raw screen
-  content must never enter logs, exception reports, public exports or infovore.
+- Automatic collection defaults off. App usage consent, context consent, image
+  consent and model consent are separate. Context requires an explicit app
+  allowlist; exclusions override it. Structural password/editable-field checks run
+  before any screenshot/text capture; incomplete traversal fails closed. Locked
+  screens and secure-window screenshot failures reject capture. OS/AppOps behavior
+  and permission revocation still require physical-device validation.
+- Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
+  filename AAD. Queue max 24 h / 32 MiB / 4,096 entries, including quarantine;
+  timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
+  app/workers execute, not while powered off. Key loss can make local records
+  unrecoverable; corrupt files are discarded with a visible drop count.
+- Raw context is private, max 24 hours, never readable/exportable by API. Receipts
+  retain only payload hashes/IDs for 30-day deduplication. Consumed raw records are
+  deleted after derived notes commit. Cleanup occurs per request/worker pass and
+  hourly; stopped workers/hosts can delay physical cleanup. The API never decodes
+  JPEGs. Worker JPEG decoding bounds dimensions, encoded bytes and allocation.
+- Optional model requests require server configuration and per-observation consent.
+  Text/images are untrusted evidence; no tools, browsing, shell or API owner token
+  are provided to a model. Output schema/length/categories are validated; user
+  corrections win. No emotions are inferred. The worker has DB access and any
+  explicitly mounted provider key; process separation is not a sandbox against a
+  compromised host or decoder. No provider identity binding or provider-side
+  deletion is implemented; review/renew consent before changing providers.
+- Pausing/removing allowlists or revoking consent clears pending local context,
+  not already transmitted server/provider copies. Owner deletion invalidates jobs
+  and in-flight results, but cannot retract requests already sent to a model. The
+  Android delete action first disables capture and clears local queue/cache.
+  Failed server deletion must be retried; other installations can still upload
+  with the shared owner token. Rotate/revoke that token when necessary.
+- Raw screen content never belongs in logs or infovore. Daily exports contain
+  private derived content and are outside app encryption/retention after export.
 - Dependency auditing is a development check, not proof of safety. SQLite/native
   libraries and transitive dependencies remain within the supply-chain boundary.
 
 ## Required acceptance checks before routine personal use
 
-Device pairing and revocation; encrypted/bounded offline queues; consent/pause and
-sensitive-app exclusions; battery benchmarks on an actual phone; backup+restore
-and deletion tests; capture/worker threat review; export/import; private integration
-scopes; and dependency vulnerability review. These are tracked in the roadmap.
+Device pairing and revocation; physical-device verification of consent, exclusions,
+AndroidKeyStore and Doze; full-day battery benchmarks; backup+restore and import;
+independent capture/worker threat review; and private integration scopes. Automated
+queue, retention, deletion-race and model/decoder tests do not replace these checks.
+See [port coverage](INFOVORE_PORT.md) and the roadmap.

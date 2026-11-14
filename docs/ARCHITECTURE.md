@@ -16,7 +16,7 @@ AI must not diagnose mental health or equate entertainment with unhealthy behavi
 |---|---|---|
 | Android | Kotlin, platform APIs; Compose UI planned | Consent, low-cost sampling, pre-capture exclusions, encrypted bounded queue, sync, cached timeline, check-ins |
 | API/storage | Rust, Axum, Tokio, SQLite | Authentication, validation, limits, retention, private history and derived records |
-| Analysis worker (planned) | Separate Rust process and configurable inference provider | Deduplication, segmentation, classification, summaries and daily reflection |
+| Analysis worker | Separate Rust process and configurable inference provider | Deduplication, segmentation, classification, summaries and daily reflection |
 | Deployment | Docker Compose, HTTPS proxy/Tailscale | Single-owner service, persistent encrypted host storage, explicit ingress |
 | infovore (planned) | Restricted outbound connector | Owner-approved projection only; never direct access to PocketLog's DB |
 
@@ -31,8 +31,7 @@ the private server. Provider keys stay server-side. No default provider exists.
 Recommended full mode: one self-hosted backend per person, on their own computer,
 NAS, or VPS. A server is a process, not necessarily a separately rented machine.
 Docker makes setup reproducible; it does not make a host confidential or secure
-by itself. Start with SQLite and one service; split API/worker when inference is
-added. Add PostgreSQL or a broker only when real concurrency needs justify it.
+by itself. SQLite remains sufficient; API and worker run as separate services. Add PostgreSQL or a broker only when real concurrency needs justify it.
 
 A future lightweight local mode should support app durations, rules, check-ins,
 and cached review without a server. It should not promise automatic semantic
@@ -45,7 +44,7 @@ profile, local-only basics later, and advanced storage/provider settings with sa
 defaults. A centrally hosted offering would require a new multi-tenant threat
 model, independent device identities, account recovery, abuse limits and audits.
 
-## Data lifecycle (target, not all implemented)
+## Data lifecycle (implementation and remaining targets)
 
 1. System events establish app sessions. UsageStats collection must be incremental
    and measured; Android does not provide a free continuous push feed for all app
@@ -59,13 +58,13 @@ model, independent device identities, account recovery, abuse limits and audits.
    accessibility traversal also cost battery, even with no on-phone AI.
 4. Phone queues are bounded and encrypted with a Keystore-protected key. Initial
    target for context is max 24 h / 32 MiB, whichever comes first, with visible
-   drop/backlog status. Acknowledged uploads are removed. No such queue is shipped yet.
+   drop/backlog status. Acknowledged uploads are removed. This queue is implemented; physical-device recovery is not yet validated.
 5. Upload in batches with stable IDs, exponential backoff and explicit Wi-Fi /
    metered / charging preferences. WorkManager timing is inexact; review freshness
    and battery cost need a measured tradeoff. Do not promise five-minute delivery.
-6. Server raw context has a short TTL (target <=24 h) and is removed after derived
+6. Server raw context has a short TTL (24 h) and is removed after derived
    cards commit. Summaries and optional user notes have independent retention.
-   Current service stores only app intervals/check-ins for 30 days; no raw context.
+   Implemented raw TTL is 24 hours; derived cards and check-ins retain 30 days.
 7. Phone caches derived records with a size/time budget and supports offline
    reading. Small structured summaries need not consume excessive phone storage;
    screenshots and indefinite retention are the main avoidable growth sources.

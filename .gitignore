@@ -12,3 +12,5 @@
 .DS_Store
 
 **/.cargo/
+
+compose.private*.yaml

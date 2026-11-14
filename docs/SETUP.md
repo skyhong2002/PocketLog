@@ -25,7 +25,8 @@ the journal volume. `docker compose down -v` permanently removes that volume.
 ## Personal production instance
 
 This runs the current development implementation as a persistent single-owner
-service. It does not add automatic capture, device pairing or AI. See
+service with API and worker. Capture remains off until enabled on Android, and
+no model provider is configured by default. Device pairing is still planned. See
 [security boundaries](SECURITY.md) for the remaining acceptance work.
 
 ```sh
@@ -51,3 +52,43 @@ Never add `-v` to a production shutdown. SQLite is not application-encrypted;
 host encryption and independently protected, tested backups remain the owner's
 deployment responsibilities.
 
+
+## Enable phone recording
+
+Install the new APK over the existing app to retain its Keystore connection.
+Open **紀錄、排除與同步設定**, consent to app usage recording, and grant Android's
+Usage Access permission. Only activity after consent is eligible; no infovore
+history is imported. The collector runs at most once per 15 minutes when work is
+scheduled. Android controls actual timing, especially under Doze.
+
+For context, choose a small app allowlist (installed launcher apps can be selected
+without granting broad package visibility), save the exclusion/allow lists, read
+and accept the separate context notice, then enable the PocketLog Accessibility
+service in Android settings. Thumbnail capture and model processing each have
+additional opt-ins. Sensitive/excluded apps take precedence over allowlists.
+Image capture is experimental until a full-day device battery run is recorded.
+Do not enable banking, authentication or private messaging apps just to increase
+coverage. Review [capture limits](INFOVORE_PORT.md) and [analysis setup](ANALYSIS.md).
+
+The default networking policy is unmetered only, not necessarily Wi-Fi. You can
+explicitly permit metered mobile data. Pending/rejected counts, expiry drops,
+manual retry and deletion are visible in settings. Queues expire after 24 hours,
+including rejected records; preserve important manual notes by syncing in time.
+Changing servers requires the local-clear action, which stops capture and discards
+pending uploads/cache before entering another endpoint/token.
+
+## Update and verify
+
+Back up the SQLite database using SQLite's online backup API into protected,
+encrypted storage before an upgrade; do not copy a live database file without its
+WAL. Keep backups outside Git/APK shares. Run the Rust and Android checks and
+`python3 scripts/smoke-private.py` against a freshly built
+`pocketlog:implementation-check` image. The smoke test creates/removes its own
+random Docker volume and credentials, never the production volume.
+
+Update production using the existing Compose project and volume. The schema adds
+tables/indexes without rewriting existing activities/check-ins. Verify health,
+authenticated timeline/status, original record counts and both services afterward.
+The worker receives no owner-token secret. Do not enable a provider by merely
+adding a key; both the explicit server switch and per-capture client consent are
+required. No new production token is needed for this backward-compatible update.

@@ -248,3 +248,222 @@ async fn retention_removes_old_records_and_errors_do_not_echo_secrets() {
     drop(inspect);
     std::fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn private_context_requires_consent_is_idempotent_and_never_read_back() {
+    let app = app();
+    let now = chrono::Utc::now().timestamp_millis();
+    let observation = json!({"id":"context-1","at_ms":now-1000,"app":"org.example.reader","text":"PRIVATE CONTEXT","analysis_consent":true});
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", "/v1/observations", observation.clone(), true)
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    let mut conflict = observation.clone();
+    conflict["text"] = json!("other");
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", conflict, true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let mut denied = observation.clone();
+    denied["analysis_consent"] = json!(false);
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", denied, true).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    let mut expired = observation.clone();
+    expired["at_ms"] = json!(now - 86_400_001);
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", expired, true)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    let mut large = observation;
+    large["text"] = json!("x".repeat(2001));
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", large, true).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    let path = format!("/v1/timeline?from_ms={}&to_ms={}", now - 3600000, now);
+    let data = call(&app, "GET", &path, Value::Null, true).await.1;
+    assert!(!data.to_string().contains("PRIVATE CONTEXT"));
+    assert_eq!(
+        call(&app, "GET", "/v1/status", Value::Null, true).await.1["pending_context"],
+        1
+    );
+    call(&app, "DELETE", "/v1/journal", Value::Null, true).await;
+    assert_eq!(
+        call(&app, "GET", "/v1/status", Value::Null, true).await.1["pending_context"],
+        0
+    );
+}
+
+#[tokio::test]
+async fn corrections_reflections_and_export_window_are_private_and_deletable() {
+    let app = app();
+    let activity = event("edit-me");
+    let now = chrono::Utc::now().timestamp_millis();
+    call(
+        &app,
+        "POST",
+        "/v1/activities",
+        json!({"activities":[activity]}),
+        true,
+    )
+    .await;
+    let edit = json!({"id":"edit-me","title":"我的活動","summary":"我自己的修正","category":"social_media"});
+    assert_eq!(
+        call(&app, "POST", "/v1/cards", edit, true).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let reflection = json!({"id":"reflection-today","at_ms":now-1000,"text":"今天很充實"});
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", "/v1/reflections", reflection.clone(), true)
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    let path = format!("/v1/timeline?from_ms={}&to_ms={}", now - 3600000, now);
+    let data = call(&app, "GET", &path, Value::Null, true).await.1;
+    assert_eq!(data["cards"][0]["source"], "user");
+    assert_eq!(data["cards"][0]["category"], "social_media");
+    assert_eq!(data["reflections"].as_array().unwrap().len(), 1);
+    call(
+        &app,
+        "POST",
+        "/v1/reflections",
+        json!({"id":"reflection-today","at_ms":now-1000,"text":""}),
+        true,
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &path, Value::Null, true).await.1["reflections"],
+        json!([])
+    );
+    call(&app, "DELETE", "/v1/journal", Value::Null, true).await;
+    assert_eq!(
+        call(&app, "GET", &path, Value::Null, true).await.1["cards"],
+        json!([])
+    );
+}
+
+#[tokio::test]
+async fn new_routes_authenticate_before_parsing() {
+    let app = app();
+    for (method, path) in [
+        ("POST", "/v1/observations"),
+        ("POST", "/v1/cards"),
+        ("POST", "/v1/reflections"),
+        ("GET", "/v1/status"),
+    ] {
+        assert_eq!(
+            call(
+                &app,
+                method,
+                path,
+                json!({"secret":"not valid schema"}),
+                false
+            )
+            .await
+            .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+}
+
+#[tokio::test]
+async fn image_input_requires_independent_consent_and_size_bound() {
+    let app = app();
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut image = json!({"id":"image-1","at_ms":now-1000,"app":"org.example.reader","text":"","analysis_consent":true,"jpeg_base64":"AAAA"});
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", image.clone(), true)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    image["image_consent"] = json!(true);
+    // The API stores bounded opaque input. JPEG decoding belongs only to the separate worker.
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", image.clone(), true)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    image["jpeg_base64"] = json!("A".repeat(32769));
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", image, true).await.0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn overview_clips_intervals_and_respects_corrected_categories() {
+    let app = app();
+    let a = event("overview-me");
+    let from = a["start_ms"].as_i64().unwrap() + 60_000;
+    let to = a["end_ms"].as_i64().unwrap() - 60_000;
+    call(
+        &app,
+        "POST",
+        "/v1/activities",
+        json!({"activities":[a]}),
+        true,
+    )
+    .await;
+    call(&app,"POST","/v1/cards",json!({"id":"overview-me","title":"閱讀文件","summary":"private note","category":"news_reading"}),true).await;
+    let path = format!("/v1/overview?from_ms={from}&to_ms={to}");
+    assert_eq!(
+        call(&app, "GET", &path, Value::Null, false).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let data = call(&app, "GET", &path, Value::Null, true).await.1;
+    assert_eq!(data["categories"][0]["category"], "news_reading");
+    assert_eq!(data["categories"][0]["duration_ms"], to - from);
+    assert_eq!(data["title_keywords"][0][0], "閱讀文件");
+    assert!(!data.to_string().contains("private note"));
+}
+
+#[tokio::test]
+async fn multibyte_notes_cannot_exceed_the_android_response_budget() {
+    let path = std::env::temp_dir().join(format!(
+        "pocketlog-response-bound-{}-{}.sqlite",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    let state = AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN).unwrap();
+    let mut inspect = rusqlite::Connection::open(&path).unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    let tx = inspect.transaction().unwrap();
+    for i in 0..1000 {
+        let id = format!("card-{i}");
+        tx.execute(
+            "INSERT INTO activities VALUES (?,?,?,'org.example.reader','\"learning\"')",
+            rusqlite::params![id, now - 600000, now - 300000],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO notes VALUES (?,?,?,'\"learning\"',1)",
+            rusqlite::params![id, "漢".repeat(200), "字".repeat(1000)],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    let app = router(state);
+    let url = format!("/v1/timeline?from_ms={}&to_ms={now}", now - 3600000);
+    let (status, data) = call(&app, "GET", &url, Value::Null, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(data["truncated"], true);
+    assert!(serde_json::to_vec(&data).unwrap().len() <= 480 * 1024);
+    drop(app);
+    drop(inspect);
+    std::fs::remove_file(path).unwrap();
+}

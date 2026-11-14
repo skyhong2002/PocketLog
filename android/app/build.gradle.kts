@@ -9,8 +9,8 @@ android {
         applicationId = "tw.skyhong.pocketlog"
         minSdk = 34
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1-dev"
+        versionCode = 3
+        versionName = "0.2.0-dev"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -19,4 +19,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }
 }
-dependencies { testImplementation("junit:junit:4.13.2") }
+dependencies {
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") }

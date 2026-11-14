@@ -13,6 +13,16 @@ also reproduced in [docs/licenses/gradle-wrapper-LICENSE.txt](docs/licenses/grad
 
 Source: https://github.com/gradle/gradle/tree/v8.11.1
 
+## infovore behavior reference
+
+The phone journal port was independently implemented after reviewing infovore at
+commit `cd2bb4b7548ca3050ca65f65c24d6890b4e6a8e6`. Behavioral references include
+`ScreenLogic.kt`, `ScreenActivityService.kt`, `ObservationQueue.kt`, upload engine
+and worker, and `src/dayflow/phone-{store,worker,summarize,routes}.ts`. This port
+uses PocketLog's own Kotlin/Rust implementation, encrypted storage and private API;
+it does not bundle infovore's TypeScript service or Android collector source.
+See [port coverage](docs/INFOVORE_PORT.md) for differences.
+
 ## Research references
 
 The comparison documents link to other projects for research. They do not bundle

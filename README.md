@@ -18,8 +18,9 @@
 </div>
 
 > **Early development.** The timeline reader, mood check-ins, and self-hosted API
-> have initial implementations. Automatic capture, AI summaries, and daily reviews
-> are planned. There is no stable release yet.
+> now include opt-in app/context capture, encrypted offline sync, editable activity
+> cards, daily reflection and optional model processing. Real-device capture and
+> full-day battery validation are still required. There is no stable release yet.
 
 ## Your Day, in Context
 
@@ -28,7 +29,7 @@ or reading the news. PocketLog aims to turn those fragments into a timeline you
 can review, categorize, and correct.
 
 <p align="center">
-  <img src="docs/assets/overview.svg" alt="Product direction: capture activity, understand context, and reflect on feelings. Capture and AI understanding are planned; mood check-ins have an initial implementation." width="100%">
+  <img src="docs/assets/overview.svg" alt="Product direction: capture activity, understand context, and reflect on feelings. Optional capture, private processing, and explicit mood journaling; illustration is a product concept." width="100%">
   <br><sub>Product concept, not a screenshot of the current app.</sub>
 </p>
 
@@ -42,22 +43,26 @@ Feelings are self-reported; screen time alone cannot tell us how you feel.
 
 | Feature | Status |
 | --- | --- |
-| Daily timeline reader | Initial implementation; requires activity data in the API |
-| Mood and energy check-ins | Initial implementation |
-| Private Android connection | HTTPS and Keystore-protected credentials |
-| Self-hosted storage | Rust API, SQLite, Docker Compose; 30-day retention and deletion API |
-| Automatic activity and context capture | Planned, with sensitive-app exclusions and battery budgets |
-| AI summaries, editable categories, and daily reflection | Planned |
-| Encrypted offline queue and cached review | Planned |
-| Device pairing, revocation, export, and infovore integration | Planned |
+| Daily timeline and overview | Date navigation, 04:00 day boundary, daily/week/month category totals, top apps and title keywords |
+| Mood, energy, and daily reflection | Explicit check-ins, editable daily reflection; offline queue |
+| Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
+| Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; quotas, retention and deletion |
+| App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
+| Text and optional image context | Separate opt-ins, explicit app allowlist, event-driven capture, secure-window gate |
+| Activity cards and summaries | App-only/excerpt fallback; editable categories; optional server-configured model with separate consent |
+| Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
+| Export | Private daily JSON via Android document picker |
+| Device pairing, import and infovore publishing | Planned; no shared database or automatic publishing |
 
-See the [roadmap](docs/ROADMAP.md) for development order.
+See the [infovore port coverage](docs/INFOVORE_PORT.md), [analysis setup](docs/ANALYSIS.md),
+and [roadmap](docs/ROADMAP.md) for exact boundaries and remaining work.
 
 ## Privacy
 
 PocketLog separates a lightweight Android client from a server you control.
-Heavier analysis is intended to run off the phone. No external AI provider,
-analytics, or public journal endpoint is enabled in the current implementation.
+Heavier analysis runs in a separate server worker. No external AI provider is
+configured by default; model processing requires independent per-capture consent
+and explicit server setup. There are no analytics or public journal endpoints.
 
 Credentials are protected by Android Keystore. The API authenticates journal
 requests and limits input size, storage, and retention. The current server is

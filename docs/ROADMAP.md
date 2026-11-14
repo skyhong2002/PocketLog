@@ -2,7 +2,7 @@
 
 ## Milestone 0 — foundation (this commit)
 
-Private repository, Kotlin app identity, HTTPS connection setup, Keystore-backed
+Public MIT repository, Kotlin app identity, HTTPS connection setup, Keystore-backed
 credentials, daily history reader, mood/energy check-in, Rust authenticated API,
 SQLite persistence, idempotent ingest, limits/retention/delete, hardened Compose,
 and tests. No production migration or automatic capture is claimed.
@@ -36,3 +36,18 @@ Encrypted backups with restore tests, JSON export/import and verified deletion
 through the pipeline. Lightweight local-only mode. Optional infovore connector
 with dedicated scopes and explicit, previewable public projections. No raw content
 or full timeline exposed by default. Migration is separately reviewed.
+
+## Implementation update — 2026-11-14
+
+The infovore phone feature port now implements opt-in app sessions, separate
+allowlisted text/image capture, pre-capture exclusions, pause, encrypted bounded
+queue/cache, WorkManager sync/retries/quarantine, isolated server processing,
+optional structured-output AI with per-capture consent, editable cards, daily
+reflection, category overview and daily JSON export. See
+[exact coverage and limitations](INFOVORE_PORT.md).
+
+Still pending: physical-device permission/capture/Keystore/Doze tests and full-day
+battery measurements; device pairing/revocation; encrypted backup/import/restore;
+local-only mode; reminders; independent security review; owner-approved infovore
+publishing connector. Earlier milestones are product sequencing, not a claim that
+all of these remaining requirements shipped in this port.

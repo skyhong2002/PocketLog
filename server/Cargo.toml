@@ -6,6 +6,9 @@ rust-version = "1.90"
 publish = false
 
 [dependencies]
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rusqlite = { version = "0.42", features = ["bundled"] }

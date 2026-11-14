@@ -3,6 +3,8 @@ name: pocketlog-production
 services:
   server:
     image: pocketlog:production
+  worker:
+    image: pocketlog:production
 secrets:
   owner_token:
     file: .secrets/production_owner_token
