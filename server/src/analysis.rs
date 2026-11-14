@@ -487,7 +487,8 @@ fn run(db: &mut Connection, provider: Option<&Provider>) -> Result<usize> {
             continue;
         }
         // Corrections always win, including edits made while a model request was in flight.
-        tx.execute("INSERT INTO notes SELECT id,?,?,?,? FROM activities WHERE id=? ON CONFLICT(id) DO UPDATE SET title=excluded.title,summary=excluded.summary,category=excluded.category,edited=excluded.edited WHERE notes.edited<>1",params![title,summary,category,source,id]).map_err(storage_error)?;
+        // Late local-only evidence must not downgrade an established model summary.
+        tx.execute("INSERT INTO notes SELECT id,?,?,?,? FROM activities WHERE id=? ON CONFLICT(id) DO UPDATE SET title=excluded.title,summary=excluded.summary,category=excluded.category,edited=excluded.edited WHERE notes.edited<>1 AND (notes.edited<>2 OR excluded.edited=2)",params![title,summary,category,source,id]).map_err(storage_error)?;
         for (observation, _, _, _, _) in contexts {
             tx.execute("DELETE FROM observations WHERE id=?", [observation])
                 .map_err(storage_error)?;
@@ -578,6 +579,60 @@ mod pipeline_tests {
         assert_eq!(process_with_provider(&mut db, None).unwrap(), 0);
     }
     #[test]
+    fn late_local_context_preserves_model_and_user_notes_but_refreshes_local_notes() {
+        for source in [0, 1, 2] {
+            for consent in [1, 2] {
+                let mut db = database();
+                seed(&db, consent);
+                db.execute(
+                    "INSERT INTO notes VALUES ('activity','existing title','existing summary','\"work\"',?)",
+                    [source],
+                )
+                .unwrap();
+                // A provider identity mismatch exercises local fallback without any model call.
+                let mut provider =
+                    Provider::new("http://127.0.0.1:1/v1/chat/completions", "test", "").unwrap();
+                provider.id = Some("current-provider".into());
+                assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 1);
+                let note = db
+                    .query_row("SELECT title,summary,category,edited FROM notes", [], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, i64>(3)?,
+                        ))
+                    })
+                    .unwrap();
+                if source == 0 {
+                    assert_eq!(
+                        note,
+                        (
+                            "org.example.reader".into(),
+                            "UNTRUSTED private evidence".into(),
+                            "\"learning\"".into(),
+                            0
+                        )
+                    );
+                } else {
+                    assert_eq!(
+                        note,
+                        (
+                            "existing title".into(),
+                            "existing summary".into(),
+                            "\"work\"".into(),
+                            source
+                        )
+                    );
+                }
+                assert_eq!(count(&db, "observations"), 0);
+                assert_eq!(count(&db, "analysis_jobs"), 0);
+                assert_eq!(count(&db, "receipts"), 1);
+                assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 0);
+            }
+        }
+    }
+    #[test]
     fn failed_unmatched_jobs_expire_without_fabricating_activity() {
         let mut db = database();
         seed(&db, 1);
@@ -628,9 +683,20 @@ mod pipeline_tests {
     fn opted_in_model_output_is_validated_and_labeled() {
         let mut db = database();
         seed(&db, 2);
+        db.execute(
+            "INSERT INTO notes VALUES ('activity','older model title','older model summary','\"work\"',2)",
+            [],
+        )
+        .unwrap();
         let (provider, handle) = provider(valid_output(), None);
         assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 1);
         handle.join().unwrap();
+        assert_eq!(
+            db.query_row("SELECT title FROM notes", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "閱讀資料"
+        );
+        assert_eq!(count(&db, "analysis_jobs"), 0);
         assert_eq!(
             db.query_row("SELECT edited FROM notes", [], |r| r.get::<_, i64>(0))
                 .unwrap(),

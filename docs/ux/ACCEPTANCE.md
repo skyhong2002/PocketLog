@@ -256,3 +256,19 @@ label; corrected to the real label before final successful runs.
 
 Secure emulator View snapshots and programmatic actions; physical horizontal
 swipe/TalkBack focus remain unverified. The web/server UI is unchanged.
+
+## Stable summaries after late context (#27)
+
+Source audit found a late local-only observation could replace an existing AI
+summary/category after earlier raw evidence was consumed. The atomic notes UPSERT
+now protects AI notes from local fallback, while allowing valid model refreshes,
+local-to-local refreshes and preserving user edits. No schema, consent or retention
+change; processed raw observations and jobs are still removed.
+
+In-memory synthetic pipeline tests cover existing local/user/AI notes with missing
+consent or mismatched provider identity, cleanup/receipt preservation and repeat
+processing. A local stub verifies valid model output can replace an older AI note.
+Rust fmt/clippy-Dwarnings and all14 unit/31 integration tests passed. Standalone
+cargo audit passed1509 advisories/185 dependencies with the local index warning;
+no external model or real journal used. This is classification consistency work,
+not proof of Android screenshot capture on a physical device.
