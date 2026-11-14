@@ -1001,8 +1001,8 @@ progress.over::-moz-progress-bar {
   margin: 0;
 }
 .donut {
-  width: 176px;
-  height: 176px;
+  width: min(176px, 100%);
+  aspect-ratio: 1;
   border-radius: 50%;
   margin: 8px auto 18px;
   display: grid;
@@ -1012,8 +1012,8 @@ progress.over::-moz-progress-bar {
 .donut > div {
   border-radius: 50%;
   background: var(--panel);
-  width: 124px;
-  height: 124px;
+  width: 70.45%;
+  aspect-ratio: 1;
   display: grid;
   place-content: center;
   text-align: center;
@@ -1383,10 +1383,13 @@ summary:focus-visible,
     margin-bottom: 14px;
   }
   .top-controls {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0;
   }
   .date-nav {
-    flex: 1;
+    flex: 1 1 200px;
+    max-width: 100%;
     min-width: 0;
   }
   .date-nav input[type="date"] {
@@ -1549,6 +1552,21 @@ summary:focus-visible,
     min-height: 22px;
   }
 }
+@media (max-width: 440px) {
+  .chart-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+  }
+  .chart-row .bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .chart-row small {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   button,
   .event,
