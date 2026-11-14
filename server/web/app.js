@@ -2421,8 +2421,10 @@ async function chatPage(parent, seq) {
       question.value = chatDraft = "";
       question.disabled = true;
       renderLog();
+      let refreshStored = false;
       try {
         const result = await api("/v1/ask", pendingAsk.body);
+        refreshStored = result.stored === true;
         pendingAsk = null;
         chat.push({ role: "assistant", text: result.answer });
         chat = chat.slice(-20);
@@ -2436,6 +2438,10 @@ async function chatPage(parent, seq) {
         question.disabled = false;
         renderLog();
         question.focus();
+      }
+      if (refreshStored && seq === renderSeq) {
+        focusKey = "chat-question";
+        await shell();
       }
     },
     "primary",
