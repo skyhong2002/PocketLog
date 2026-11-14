@@ -22,8 +22,6 @@ let prefs,
   // Only choose at initial load so resizing never overrides an explicit switch.
   view = inBrowser && matchMedia("(max-width: 860px)").matches ? "list" : "grid",
   filter = null,
-  current = [],
-  reviewRows = [],
   chat = [],
   flow = null,
   timerHandle,
@@ -468,7 +466,7 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState };
+  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays };
 
 /* ---------- dialogs ---------- */
 function modal(title, build) {
@@ -534,8 +532,6 @@ function resetPrivateState() {
   if ($("#confirm").open) $("#confirm").close();
   if ($("#modal").open) $("#modal").close();
   $("#modal-body").replaceChildren();
-  current = [];
-  reviewRows = [];
   chat = [];
   flow = null;
   setupState = null;
@@ -1294,9 +1290,7 @@ async function loadDays(dates, seq) {
   const [, to] = windowFor(last);
   const reviews = (await api(`/v1/reviews?from_ms=${from}&to_ms=${to}`)).records;
   live(seq);
-  current = days.flatMap((d) => d.cards);
-  reviewRows = reviews;
-  return days;
+  return { days, cards: days.flatMap((d) => d.cards), reviews };
 }
 function truncatedNote(parent, days) {
   if (days.some((d) => d.truncated))
@@ -1318,13 +1312,14 @@ async function timelinePage(parent, seq) {
   const dates = mode === "week" ? visibleDates() : [day];
   const wantSetup = !checklistHidden() && !setupComplete(setupState);
   const week = visibleDates().filter((d) => d <= journalDate());
-  const [days, control, setup, weekTotals] = await Promise.all([
+  const [range, control, setup, weekTotals] = await Promise.all([
     loadDays(dates, seq),
     soft("/v1/collection"),
     wantSetup ? loadSetup() : null,
     mode === "week" ? null : loadDays(week, seq).catch((e) => { if (e === STALE) throw e; return null; }),
   ]);
   live(seq);
+  const { days, cards, reviews } = range;
   if (setup && !setupComplete(setup)) add(parent, checklist(setup, false));
   const tools = el("div", null, "toolbar");
   add(
@@ -1405,7 +1400,7 @@ async function timelinePage(parent, seq) {
   aside.setAttribute("aria-label", "所選日摘要");
   add(grid, left, aside);
   add(parent, grid);
-  const shown = current.filter((c) => !filter || c.category === filter);
+  const shown = cards.filter((c) => !filter || c.category === filter);
   const selected = days.find((d) => d.date === day) || days[0];
   add(
     left,
@@ -1417,7 +1412,7 @@ async function timelinePage(parent, seq) {
   );
   const pendingCount = days.reduce((n, d) => n + d.cards.filter((c) => c.pending_context === true).length, 0);
   if (pendingCount) add(left, el("p", `${pendingCount} 張活動有待處理內容。${pendingContextHelp}`, "muted"));
-  if (!current.length && mode === "day") {
+  if (!cards.length && mode === "day") {
     const isToday = day === journalDate();
     add(
       left,
@@ -1498,17 +1493,17 @@ async function timelinePage(parent, seq) {
   const foot = el("div", null, "panel-foot");
   add(
     foot,
-    btn("複製時間軸", copyTimeline),
-    btn("匯出 JSON", () => exportData(days)),
+    btn("複製時間軸", () => copyTimeline(cards)),
+    btn("匯出 JSON", () => exportData(days, reviews)),
     btn("回放縮圖", replayDialog),
   );
-  const totalDays = mode === "week" ? days : weekTotals;
+  const totalDays = mode === "week" ? days : weekTotals?.days;
   if (totalDays) {
     const sum = totalDays.reduce((a, d) => a + metrics(d.cards).total, 0);
     add(foot, rich("span", "muted week-total", "本週已載入的記錄 ", el("strong", duration(sum))));
   }
   add(left, foot);
-  installTimelineInspector(aside, left, selected ? metrics(selected.cards) : metrics([]), days.flatMap((d) => d.cards));
+  installTimelineInspector(aside, left, selected ? metrics(selected.cards) : metrics([]), cards, reviews);
 }
 function cardKey(c) {
   return `card-${c.id}-${c.start_ms}`;
@@ -1519,7 +1514,7 @@ function openCard(c) {
     else timelineInspector.open(c, true);
   } else editCard(c);
 }
-function installTimelineInspector(aside, left, totals, cards) {
+function installTimelineInspector(aside, left, totals, cards, reviews) {
   const context = `${day}:${mode}:${filter || ""}`;
   const mark = (key) => {
     left.querySelectorAll('button[data-key^="card-"]').forEach((b) => {
@@ -1538,7 +1533,7 @@ function installTimelineInspector(aside, left, totals, cards) {
     aside.classList.remove("inspecting");
     aside.setAttribute("aria-label", "所選日摘要");
     aside.replaceChildren();
-    summary(aside, totals);
+    summary(aside, totals, reviews);
     if (focus) restoreFocus(origin, true);
   };
   const open = (c, focus) => {
@@ -1743,7 +1738,7 @@ function donut(parent, m) {
   if (!entries.length)
     add(parent, el("p", "這天沒有可統計的活動。", "muted center"));
 }
-function summary(parent, m) {
+function summary(parent, m, reviews) {
   add(parent, el("p", `所選日 · ${dayTitle(day)}`, "eyebrow"));
   const goal = el("section");
   add(
@@ -1758,7 +1753,7 @@ function summary(parent, m) {
   donut(shape, m);
   add(parent, shape);
   const mine = panel("我的回顧");
-  const last = reviewRows.find((r) => r.id === `review-${day}`);
+  const last = reviews.find((r) => r.id === `review-${day}`);
   const names = { distracted: "分心", neutral: "平衡", focused: "專注" };
   add(
     mine,
@@ -1888,7 +1883,7 @@ function categoryBars(parent, m) {
     add(parent, el("p", "這個範圍沒有活動資料；空白不會被推測或填補。", "muted"));
 }
 async function reviewPage(parent, seq, kind) {
-  const days = await loadDays(kind === "weekly" ? visibleDates() : [day], seq);
+  const { days, cards, reviews } = await loadDays(kind === "weekly" ? visibleDates() : [day], seq);
   const [briefFrom] = windowFor(days[0].date);
   const [, briefTo] = windowFor(
     days.filter((d) => d.date <= journalDate()).at(-1)?.date || days[0].date,
@@ -1896,7 +1891,7 @@ async function reviewPage(parent, seq, kind) {
   const saved = await soft(`/v1/briefs?from_ms=${briefFrom}&to_ms=${briefTo}`);
   live(seq);
   truncatedNote(parent, days);
-  const m = metrics(current);
+  const m = metrics(cards);
   add(
     parent,
     add(
@@ -2065,9 +2060,9 @@ async function reviewPage(parent, seq, kind) {
     );
     add(parent, write);
   }
-  briefs(parent, days, kind, saved, briefFrom, briefTo);
+  briefs(parent, days, kind, saved, briefFrom, briefTo, reviews);
 }
-function briefs(parent, days, kind, saved, from, to) {
+function briefs(parent, days, kind, saved, from, to, reviews) {
   const box = panel(kind === "weekly" ? "AI 每週回顧（選用）" : "AI 每日回顧（選用）");
   const name = kind === "weekly" ? "每週" : "每日";
   if (!ai.enabled)
@@ -2165,7 +2160,7 @@ function briefs(parent, days, kind, saved, from, to) {
   add(parent, box);
   add(
     parent,
-    row(btn("匯出這個範圍的 JSON", () => exportData(days))),
+    row(btn("匯出這個範圍的 JSON", () => exportData(days, reviews))),
   );
 }
 async function briefScheduleDialog() {
@@ -3865,9 +3860,9 @@ function link(text, url) {
   add(a, el("span", "（在新分頁開啟）", "sr"));
   return a;
 }
-async function copyTimeline() {
-  if (!current.length) throw Error("這個範圍沒有可複製的活動");
-  const text = current
+async function copyTimeline(cards) {
+  if (!cards.length) throw Error("這個範圍沒有可複製的活動");
+  const text = cards
     .map(
       (c) => `${time(c.start_ms)}–${time(c.end_ms)} ${c.title}\n${c.summary}`,
     )
@@ -3875,7 +3870,7 @@ async function copyTimeline() {
   await navigator.clipboard.writeText(text);
   notice("已複製私人時間軸；貼上後請留意剪貼簿內容");
 }
-async function exportData(days) {
+async function exportData(days, reviews) {
   if (
     !(await ask(
       "匯出這個範圍的私人日誌？",
@@ -3885,7 +3880,7 @@ async function exportData(days) {
   )
     return;
   const blob = new Blob(
-    [JSON.stringify({ version: 1, days, reviews: reviewRows }, null, 2)],
+    [JSON.stringify({ version: 1, days, reviews }, null, 2)],
     { type: "application/json" },
   );
   const url = URL.createObjectURL(blob);

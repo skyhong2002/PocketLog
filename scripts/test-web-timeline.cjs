@@ -76,3 +76,51 @@ const state=deviceConnectionState({devices:[key('collector',now+1,{last_authenti
 assert.deepEqual(state,{keys:1,authenticated:false,lastAuthenticatedMs:null},'collector and expired keys do not prove journal pairing');
 assert.deepEqual(deviceConnectionState({devices:[key('journal',now+1,{last_authenticated_ms:60000}),key('journal',now+1,{last_authenticated_ms:120000})]},now),{keys:2,authenticated:true,lastAuthenticatedMs:120000});
 console.log('Device setup distinguishes issued, unknown and authenticated journal keys');
+
+// The footer must never replace the primary range, regardless of response order.
+(async () => {
+  const { loadDays } = require('../server/web/app.js');
+  const savedFetch = global.fetch;
+  try {
+    for (const weekFirst of [false, true]) {
+      const waiting = {};
+      let arrived;
+      const bothArrived = new Promise(resolve => { arrived = resolve; });
+      global.fetch = async (path) => {
+        const u = new URL(path, 'http://synthetic.invalid');
+        const from = Number(u.searchParams.get('from_ms'));
+        const to = Number(u.searchParams.get('to_ms'));
+        const response = value => ({ ok: true, status: 200, json: async () => value });
+        if (u.pathname === '/v1/reviews') {
+          const scope = to - from > 86400000 ? 'week' : 'day';
+          const result = new Promise(resolve => { waiting[scope] = () => resolve(response({ records: [{ id: scope }] })); });
+          if (waiting.day && waiting.week) arrived();
+          return result;
+        }
+        const emptyDayStart = fullDayBounds('2026-11-10')[0];
+        return response({ cards: from === emptyDayStart ? [] : [{ id: 'other-day', start_ms: from, end_ms: from + 60000 }], reflections: [], checkins: [] });
+      };
+      const dayRange = loadDays(['2026-11-10'], 0);
+      const weekRange = loadDays(['2026-11-09','2026-11-10'], 0);
+      await bothArrived;
+      waiting[weekFirst ? 'week' : 'day']();
+      const first = await (weekFirst ? weekRange : dayRange);
+      const firstSnapshot = JSON.stringify(first);
+      waiting[weekFirst ? 'day' : 'week']();
+      const [day, week] = await Promise.all([dayRange, weekRange]);
+      assert.equal(JSON.stringify(first), firstSnapshot, 'later response must not change the earlier snapshot');
+      assert.equal(day.cards.length, 0, 'selected empty day stays empty');
+      assert.equal(week.cards.length, 1, 'footer retains other-day activity');
+      assert.deepEqual(day.reviews, [{ id: 'day' }]);
+      assert.deepEqual(week.reviews, [{ id: 'week' }]);
+      assert.equal(day.days.length, 1);
+      const previousFetch = global.fetch;
+      global.fetch = async path => {
+        if (path.startsWith('/v1/reviews')) return { ok: true, status: 200, json: async () => ({ records: [] }) };
+        return previousFetch(path);
+      };
+      await assert.rejects(loadDays(['2026-11-10'], 1), error => String(error) === 'Symbol(stale render)');
+    }
+  } finally { global.fetch = savedFetch; }
+  console.log('Independent day/week snapshots survive both response orders and stale renders');
+})().catch(error => { console.error(error); process.exitCode = 1; });

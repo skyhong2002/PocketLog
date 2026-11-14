@@ -562,3 +562,38 @@ Screen-reader behavior beyond semantic DOM/focus checks remains unverified.
 - [Desktop selected activity](screenshots/web-desktop-activity-inspector.png)
 - [Long title and summary](screenshots/web-desktop-inspector-long.png)
 - [Mobile retains activity dialog](screenshots/web-mobile-activity-dialog.png)
+
+## Independent day and week request ranges (#36)
+
+Built-image synthetic reproduction delayed the weekly reviews response400ms. An
+empty selected day lost its empty explanation; Copy copied1260characters from
+other days, and one-day JSON export contained27reviews from the week. This was
+a shared mutable snapshot race, not absent phone data. The official Dayflow
+`TimelineActivityLoader.swift:50–68` (SHA2c79e161) returns a selected-day payload
+and separately loads week activities. The supplied screenshot's date and weekly
+footer hierarchy is consistent with keeping these scopes separate; it cannot
+prove asynchronous behavior.
+
+PocketLog loaders now return independent `{days,cards,reviews}` snapshots.
+Timeline copy/export/empty states/sidebar use the primary displayed range; the
+weekly footer only uses its separate range. Daily and Weekly metrics/exports
+receive their own snapshots. The unused shared journal globals are removed. No
+API/schema/capture/AI consent/retention changes or additional requests.
+
+Final built-image browser verification passed both delayed response orders:
+empty day keeps its explanation, Copy reports no activity without writing, and
+one-day export has zero out-of-day reviews. A populated day copied exactly the
+matching API's9cards and exported its19reviews. Week exported7days/13cards with
+matching27reviews; Daily exported1day with matching reviews; Weekly exported7days.
+Rapid navigation to Support while delayed requests finished remained on Support.
+390px empty state has no horizontal document overflow. Real download-confirmation
+buttons were used; captured synthetic Blobs were inspected for range equality.
+No owner journal was used.
+
+The CI timeline script now exercises independent ranges in both completion orders
+with explicit response gates and stale-render rejection. Rustfmt/clippy-Dwarnings,
+20unit/31integration, audit1509/185, web regression and final Docker smoke pass.
+Android production unchanged from #34's validated build; no APK republish.
+
+- [Empty day beside independent weekly footer](screenshots/web-independent-day-empty.png)
+- [390px empty day](screenshots/web-independent-day-mobile.png)
