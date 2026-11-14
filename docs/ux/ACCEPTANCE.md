@@ -299,3 +299,12 @@ callbacks or physical capture. Those still require a separate capture fixture.
 - [2× text failure explanation](screenshots/native-capture-failure-large.png)
 
 Secure emulator View snapshots; no physical gestures/TalkBack/battery claim.
+
+## Actual synthetic OS capture and classification
+
+The separate [capture acceptance](CAPTURE_ACCEPTANCE.md) verifies the actual OS
+screenshot path, input exclusion, journal-device upload/revocation, isolated
+worker/local excerpt/private replay and explicitly consented loopback-model
+classification. This adds runtime evidence beyond injected diagnostic states in
+#28. Only fixed synthetic content was used; no production data or external AI.
+Physical-device and full-day battery checks remain open.

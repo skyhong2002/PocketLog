@@ -16,3 +16,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "PocketLog"
 include(":app")
+
+// Explicit synthetic capture fixture only; never part of normal APK/CI tasks.
+if (providers.gradleProperty("captureFixture").orNull == "true") include(":capture-fixture")
