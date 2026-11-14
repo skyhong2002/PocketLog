@@ -158,3 +158,30 @@ The server retained the submitted version, not the unsent newer edit.
 fixture-only fetch delay was restored before subsequent actions. No external AI
 or browser journal storage was used. Web regressions, Rust fmt/clippy/tests and
 final-image Docker smoke passed; native code/APK were unchanged.
+
+## Native Daily reading/writing loop (#23), 0.4.3-dev
+
+Daily now uses the same reflection editor, day-keyed in-memory draft and encrypted
+queue as Timeline. Current-day check-ins can be recorded there; historical dates
+show recorded feelings plus a return-to-today action instead of an entry form.
+This follows the official Daily source's editable draft workflow; PocketLog keeps
+its explicit save and never generates or sends reflection text to AI.
+
+Connected synthetic emulator checks passed at normal and2× font scale:
+Daily→Timeline draft continuity, Daily save→Timeline→Daily reload, historical
+reflection editing, absence of the current check-in form on past days, and return
+to today preserving the correct day's editor. Prior pairing/rating/Chat/Flow and
+queue checks also passed. The normal-font run additionally repeated real offline
+cache/queued update/deletion checks. All capture/model consents stayed off.
+
+- [Current Daily editor](screenshots/native-daily-editor.png)
+- [Historical-day guidance](screenshots/native-daily-historical.png)
+- [2× text, scrolled save action](screenshots/native-daily-large-actions.png)
+
+These are secure emulator View snapshots, not compositor captures. The runner
+uses View actions and programmatic scrolling, not physical touch or TalkBack.
+Astra independently reviewed the native diff and found no concrete issue; that
+review was source-only. Android33 unit tests, assembleDebug, instrumentation build
+and lintDebug passed (0 lint errors/8 existing warnings). Service source/APK
+network/collection logic are unchanged; Rust/web/Docker checks passed earlier in
+this wave. Physical device/keyboard/permission/battery validation remains pending.

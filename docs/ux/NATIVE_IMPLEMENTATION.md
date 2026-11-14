@@ -220,3 +220,12 @@ and stable current-day encrypted cache identities. See ACCEPTANCE.md for actual
 connected/offline emulator checks and their limits. Daily rating read failures show
 a retry state without hiding the cached activity overview. A truncated rating list
 without the matching record is treated as unknown, not as an unanswered review.
+
+## Daily loop follow-up (0.4.3-dev)
+
+Issue #23 replaces read-only Daily reflections with the existing shared editor and
+adds current-moment check-ins. Historical dates in both Daily and Timeline show a
+return-to-today action rather than a check-in form. Existing recorded feelings
+remain readable, and historical reflection editing remains available. No capture
+or model consent changes. Connected normal/2× text and Astra source review are
+recorded in ACCEPTANCE.md.

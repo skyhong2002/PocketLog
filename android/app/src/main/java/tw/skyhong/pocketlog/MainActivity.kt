@@ -732,8 +732,14 @@ class MainActivity : Activity() {
 
     private fun feelingsCard(parent: ViewGroup): LinearLayout {
         val card = ui.card(parent)
+        if (day != journalDay()) {
+            ui.heading(card, "這天的感受")
+            ui.meta(card, "感受只記錄當下，不會補填到過去的日期。下方仍可閱讀這天的紀錄。")
+            ui.button(card, "回到今天記感受", Tone.TONAL) { day = journalDay(); go(tab) }
+            return ui.column(card)
+        }
         ui.heading(card, "現在感覺如何？")
-        ui.meta(card, "1 = 很低，5 = 很高。只記錄你填寫的感受，系統不會推測。", bottom = 4)
+        ui.meta(card, "1 = 很低，5 = 很高。記錄時間是現在；只保存你填寫的感受，系統不會推測。", bottom = 4)
         ui.text(card, "心情", 14f, bold = true, top = 8, bottom = 6)
         val mood = ui.segmented(card, listOf("1", "2", "3", "4", "5"), 2, "心情")
         ui.text(card, "精神", 14f, bold = true, top = 12, bottom = 6)
@@ -749,7 +755,7 @@ class MainActivity : Activity() {
         val card = ui.card(parent)
         ui.heading(card, "每日反思")
         val draftKey = day.toString()
-        val field = ui.field(card, "今天有什麼值得記下？", "哪件事讓你恢復精神？", Field.MULTILINE, reflectionDrafts[draftKey] ?: "", help = "最多 2,000 字。未儲存的文字只在本次開啟 app 期間保留；儲存後會加密排入同步。留白儲存會刪除這一天的反思。")
+        val field = ui.field(card, "這一天有什麼值得記下？", "哪件事讓你恢復精神？", Field.MULTILINE, reflectionDrafts[draftKey] ?: "", help = "最多 2,000 字。未儲存的文字只在本次開啟 app 期間保留；儲存後會加密排入同步。留白儲存會刪除這一天的反思。")
         field.filters = arrayOf(android.text.InputFilter.LengthFilter(2000))
         field.addTextChangedListener(watcher { if (!bindingReflection) reflectionDrafts.put(draftKey, it) })
         reflectionInput = field
@@ -838,6 +844,7 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- daily and weekly
 
     private fun dailyReview() {
+        reflectionInput = null
         val body = screen("每日回顧", "${dateTitle(day)} · ${relative(day)}", Tab.DAILY)
         dateNav(body) { day = it; dailyReview() }
         val slot = ui.column(body)
@@ -877,13 +884,9 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            ui.card(slot).apply {
-                ui.heading(this, "感受與反思")
-                val checkins = data.optJSONArray("checkins") ?: JSONArray(); val reflections = data.optJSONArray("reflections") ?: JSONArray()
-                for (i in 0 until checkins.length()) { val c = checkins.getJSONObject(i); ui.body(this, "${clock(c.getLong("at_ms"))} · 心情 ${c.getInt("mood")}/5 · 精神 ${c.getInt("energy")}/5") }
-                for (i in 0 until reflections.length()) ui.body(this, reflections.getJSONObject(i).getString("text"), top = 6)
-                if (checkins.length() + reflections.length() == 0) ui.meta(this, "這天沒有感受紀錄或反思。可在時間軸頁面新增。")
-            }
+            val checkins = feelingsCard(slot)
+            val reflections = reflectionCard(slot)
+            renderFeelings(checkins, reflections, data)
             ui.card(slot, padding = 8).apply {
                 ui.row(this, "每日 AI 回顧與排程", "只在你明確同意時傳送活動卡") { briefsPage(false) }
                 ui.row(this, "複製這天的私人時間軸", "標題與摘要；只貼到你信任的位置") {

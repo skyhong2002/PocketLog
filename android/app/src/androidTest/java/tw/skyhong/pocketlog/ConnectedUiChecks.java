@@ -62,6 +62,27 @@ final class ConnectedUiChecks {
             if (recreated == null) throw new IllegalStateException("Activity did not recreate");
             activity = recreated; await("已記錄"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic retained reflection");
+            stage = "Daily editor shares timeline draft and saves without leaving";
+            click("每日"); await("時間分配"); awaitSettled();
+            assertEditor("哪件事讓你恢復精神？", "Synthetic retained reflection");
+            setEditor("哪件事讓你恢復精神？", "Synthetic Daily editor draft");
+            click("時間軸"); await("已記錄"); awaitSettled();
+            assertEditor("哪件事讓你恢復精神？", "Synthetic Daily editor draft");
+            click("每日"); await("時間分配"); awaitSettled();
+            setEditor("哪件事讓你恢復精神？", "Synthetic Daily saved reflection");
+            click("儲存這一天的反思"); await("反思已加密加入佇列"); awaitSettled();
+            click("時間軸"); await("已記錄"); awaitSettled();
+            assertEditor("哪件事讓你恢復精神？", "Synthetic Daily saved reflection");
+            click("每日"); await("時間分配"); awaitSettled();
+            revealEditor("哪件事讓你恢復精神？"); capture("daily-editor");
+            revealAction("儲存這一天的反思"); capture("daily-editor-actions");
+            stage = "historical day cannot create misleading check-in";
+            click("前一天"); await("回到今天記感受"); awaitSettled();
+            if(has("記下此刻（可離線）")) throw new IllegalStateException("Historical check-in form was shown");
+            setEditor("哪件事讓你恢復精神？", "Synthetic historical reflection draft");
+            revealEditor("哪件事讓你恢復精神？"); capture("daily-historical-editor");
+            click("回到今天記感受"); await("記下此刻（可離線）"); awaitSettled();
+            assertEditor("哪件事讓你恢復精神？", "Synthetic Daily saved reflection");
             stage = "question draft navigation and scope isolation";
             click("Chat"); await("你想問什麼？"); awaitSettled();
             setEditor("例如：今天哪段時間最專注？", "Synthetic day question");
@@ -107,6 +128,20 @@ final class ConnectedUiChecks {
             for(View v:views()) if(v.getContentDescription()!=null && label.contentEquals(v.getContentDescription())) {
                 v.requestRectangleOnScreen(new android.graphics.Rect(0,0,v.getWidth(),v.getHeight()), true); return;
             }
+        }); test.waitForIdleSync();
+    }
+    private void revealAction(String label) {
+        test.runOnMainSync(() -> {
+            for(View v:views()) if(v instanceof TextView && label.contentEquals(((TextView)v).getText())) {
+                v.requestRectangleOnScreen(new android.graphics.Rect(0,0,v.getWidth(),v.getHeight()),true); return;
+            }
+            throw new IllegalStateException("Action to reveal absent");
+        }); test.waitForIdleSync();
+    }
+    private void revealEditor(String hint) {
+        test.runOnMainSync(() -> {
+            EditText e=editor(hint);
+            e.requestRectangleOnScreen(new android.graphics.Rect(0,0,e.getWidth(),e.getHeight()),true);
         }); test.waitForIdleSync();
     }
     private void shell(String command) throws Exception {
