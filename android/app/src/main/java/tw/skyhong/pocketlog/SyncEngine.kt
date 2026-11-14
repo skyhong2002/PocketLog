@@ -91,24 +91,32 @@ object SyncEngine {
     fun readTimeline(context: Context, path: String): JSONObject = synchronized(lock) {
         val credentials = requireNotNull(CredentialStore(context).load())
         val files = PrivateFiles(context)
-        val name = "cache_" + RecordingRules.digest(JournalQueue.destination(credentials) + path)
+        val scope = TimelineCacheScope.forPath(path)
+        val name = "cache_" + RecordingRules.digest(JournalQueue.destination(credentials) + scope.key)
         files.names("cache_").forEach { old ->
             val bytes = runCatching { files.read(old) }.getOrNull()
             try { if (bytes == null || System.currentTimeMillis() - JSONObject(String(bytes)).getLong("at") >= 30L * RecordingRules.RAW_TTL) files.remove(old) }
             catch (_: Exception) { files.remove(old) } finally { bytes?.fill(0) }
         }
         while (files.names("cache_").size > 29 || files.names("cache_").sumOf { files.size(it) } > 2 * 1024 * 1024) files.remove(files.names("cache_").first())
-        try {
+        val base = try {
             val data = PocketLogApi(credentials).request(path)
-            val bytes = JSONObject().put("at", System.currentTimeMillis()).put("data", data).toString().toByteArray()
+            val bytes = JSONObject().put("at", System.currentTimeMillis()).put("data", data)
+                .apply { scope.to?.let { put("requested_to_ms", it) } }.toString().toByteArray()
             try { files.write(name, bytes) } finally { bytes.fill(0) }
             data
         } catch (failure: Exception) {
             // Authentication errors must never silently fall back to a cached journal.
             if (failure is ApiFailure) throw failure
             val bytes = files.read(name) ?: throw failure
-            try { JSONObject(String(bytes)).getJSONObject("data").put("offline", true) } finally { bytes.fill(0) }
+            try {
+                val cached = JSONObject(String(bytes))
+                val cachedTo = if (cached.has("requested_to_ms")) cached.getLong("requested_to_ms") else null
+                if (!scope.accepts(cachedTo)) throw failure
+                cached.getJSONObject("data").put("offline", true)
+            } finally { bytes.fill(0) }
         }
+        PendingReflections.overlay(base, path, JournalQueue(context).pendingReflections(credentials))
     }
 }
 class JournalWorker(context: Context, params: WorkerParameters) : Worker(context, params) {

@@ -29,6 +29,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (args == null || !"yes".equals(args.getString("synthetic"))) throw new IllegalStateException("Explicit synthetic=yes required");
+            if ("yes".equals(args.getString("connected"))) {
+                new ConnectedUiChecks(this, args).run();
+                result.putString("stream", "Connected synthetic HTTPS view/API checks passed; capture consent remained off.\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
             if (new CredentialStore(getTargetContext()).load() != null) throw new IllegalStateException("Refusing snapshots on a connected installation");
             folder = new File(getTargetContext().getExternalFilesDir(null), "ux-snapshots");
             if (!folder.isDirectory() && !folder.mkdirs()) throw new IllegalStateException("Snapshot directory unavailable");
@@ -50,7 +55,7 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + ("yes".equals(args.getString("connected")) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }

@@ -97,6 +97,11 @@ class MainActivity : Activity() {
     private var day = TimelineMath.journalDay()
     private var loaded: JSONObject? = null
     private var reflectionInput: EditText? = null
+    private var reflectionDrafts = EditorDrafts(29, 2000)
+    private var questionDrafts = EditorDrafts(20, 1000)
+    private data class RetainedEditors(val reflections: EditorDrafts, val questions: EditorDrafts, val conversation: String, val weekly: Boolean, val request: JSONObject?, val requestWeekly: Boolean)
+    private var bindingReflection = false
+    private fun clearDrafts() { reflectionDrafts.clear(); questionDrafts.clear() }
     private var exportBytes: ByteArray? = null
     private var agentImportSource = "codex"
     private var pendingAsk: JSONObject? = null
@@ -114,6 +119,10 @@ class MainActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        (lastNonConfigurationInstance as? RetainedEditors)?.let {
+            reflectionDrafts = it.reflections; questionDrafts = it.questions; conversationId = it.conversation
+            chatWeekly = it.weekly; pendingAsk = it.request; pendingAskWeekly = it.requestWeekly
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         window.setDecorFitsSystemWindows(false)
         ui = Ui(this)
@@ -123,6 +132,8 @@ class MainActivity : Activity() {
         buildShell()
         boot()
     }
+
+    override fun onRetainNonConfigurationInstance(): Any = RetainedEditors(reflectionDrafts, questionDrafts, conversationId, chatWeekly, pendingAsk, pendingAskWeekly)
 
     override fun onSaveInstanceState(out: Bundle) {
         super.onSaveInstanceState(out)
@@ -462,7 +473,7 @@ class MainActivity : Activity() {
     private fun confirmReset(title: String = "重設本機資料？", message: String = "用於金鑰失效或連線資料損毀。會停止紀錄、刪除未同步資料與快取，然後重新設定連線。伺服器日誌不會被刪除。") {
         dialog().setTitle(title).setMessage(message).setNegativeButton("取消", null).setPositiveButton("清除並重新設定") { _, _ ->
             task("清除這支手機的資料…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); CredentialStore(this@MainActivity).clear() } }) {
-                credentials = null; workspace = null; loaded = null; setup(); notice("已清除這支手機的連線與待傳資料；伺服器日誌仍保留。", Kind.INFO)
+                clearDrafts(); credentials = null; workspace = null; loaded = null; setup(); notice("已清除這支手機的連線與待傳資料；伺服器日誌仍保留。", Kind.INFO)
             }
         }.showSecure()
     }
@@ -508,7 +519,7 @@ class MainActivity : Activity() {
                     UsageCollector(this@MainActivity).reset()
                 }
             }, failed = { fail(describe(it)) }) {
-                credentials = candidate; token.text.clear(); SyncEngine.schedule(this@MainActivity); notice("已連線到 ${host()}"); enterWorkspace()
+                clearDrafts(); credentials = candidate; token.text.clear(); SyncEngine.schedule(this@MainActivity); notice("已連線到 ${host()}"); enterWorkspace()
             }
         }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
         ui.meta(form, "金鑰以 Android Keystore 加密保存在這支手機，只放在 HTTPS 標頭、不會出現在網址。驗證時只讀取今天的時間軸。", top = 8)
@@ -626,6 +637,7 @@ class MainActivity : Activity() {
         loaded = data
         if (data.optBoolean("offline")) ui.banner(slot, "離線：顯示加密快取，可能未包含最新修改。", Kind.WARN)
         if (data.optBoolean("truncated")) ui.banner(slot, "這天資料已達顯示上限，統計可能不完整。", Kind.WARN)
+        if (data.optBoolean("pending_reflections")) ui.banner(slot, "反思有加密保存的變更等待同步；這裡先顯示手機上的版本。", Kind.INFO)
         val list = cardsOf(data); val items = list.map(::item)
         val card = ui.card(slot)
         ui.heading(card, "活動")
@@ -736,12 +748,16 @@ class MainActivity : Activity() {
     private fun reflectionCard(parent: ViewGroup): LinearLayout {
         val card = ui.card(parent)
         ui.heading(card, "每日反思")
-        val field = ui.field(card, "今天有什麼值得記下？", "哪件事讓你恢復精神？", Field.MULTILINE, help = "時間軸載入後會帶入既有反思。留白儲存會刪除這一天的反思。")
+        val draftKey = day.toString()
+        val field = ui.field(card, "今天有什麼值得記下？", "哪件事讓你恢復精神？", Field.MULTILINE, reflectionDrafts[draftKey] ?: "", help = "最多 2,000 字。未儲存的文字只在本次開啟 app 期間保留；儲存後會加密排入同步。留白儲存會刪除這一天的反思。")
+        field.filters = arrayOf(android.text.InputFilter.LengthFilter(2000))
+        field.addTextChangedListener(watcher { if (!bindingReflection) reflectionDrafts.put(draftKey, it) })
         reflectionInput = field
         ui.button(card, "儲存這一天的反思", Tone.TONAL) {
             val at = minOf(day.atTime(12, 0).atZone(zone).toInstant().toEpochMilli(), System.currentTimeMillis())
-            val body = JSONObject().put("id", "reflection-$day").put("at_ms", at).put("text", RecordingRules.cap(field.text.toString(), 2000))
-            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/reflections", body) }) { notice(if (field.text.isBlank()) "已排入刪除這天的反思。" else "反思已加密加入佇列。") }
+            val submitted = field.text.toString()
+            val body = JSONObject().put("id", "reflection-$day").put("at_ms", at).put("text", submitted)
+            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/reflections", body) }) { reflectionDrafts.removeIfUnchanged(draftKey, submitted); notice(if (submitted.isBlank()) "已排入刪除這天的反思。" else "反思已加密加入佇列。") }
         }
         return ui.column(card)
     }
@@ -753,7 +769,10 @@ class MainActivity : Activity() {
         val reflections = data.optJSONArray("reflections") ?: JSONArray()
         for (i in 0 until reflections.length()) {
             val reflection = reflections.getJSONObject(i)
-            if (reflection.getString("id") == "reflection-$day") { if (reflectionInput?.text.isNullOrBlank()) reflectionInput?.setText(reflection.getString("text")) }
+            if (reflection.getString("id") == "reflection-$day") { if (reflectionDrafts[day.toString()] == null) {
+                bindingReflection = true
+                try { reflectionInput?.setText(reflection.getString("text")) } finally { bindingReflection = false }
+            } }
             else ui.meta(reflectionSlot, "其他反思：${reflection.getString("text")}", top = 8)
         }
     }
@@ -822,9 +841,14 @@ class MainActivity : Activity() {
         val body = screen("每日回顧", "${dateTitle(day)} · ${relative(day)}", Tab.DAILY)
         dateNav(body) { day = it; dailyReview() }
         val slot = ui.column(body)
-        load(slot, "整理這一天…", { SyncEngine.readTimeline(this@MainActivity, dayPath()) }) { data ->
+        load(slot, "整理這一天…", {
+            val data = SyncEngine.readTimeline(this@MainActivity, dayPath())
+            val (from, to) = range(day)
+            data to runCatching { api().request("/v1/reviews?from_ms=$from&to_ms=$to") }.getOrNull()
+        }) { (data, reviews) ->
             if (data.optBoolean("offline")) ui.banner(slot, "離線：顯示加密快取。", Kind.WARN)
             if (data.optBoolean("truncated")) ui.banner(slot, "資料達顯示上限，統計可能不完整。", Kind.WARN)
+            if (data.optBoolean("pending_reflections")) ui.banner(slot, "反思的手機版本等待同步。", Kind.INFO)
             val list = cardsOf(data)
             goals(ui.card(slot), list)
             ui.card(slot).apply {
@@ -833,12 +857,24 @@ class MainActivity : Activity() {
             }
             ui.card(slot).apply {
                 ui.heading(this, "我的回顧")
-                ui.meta(this, "整體來說，這一天偏向？只保存你的選擇。")
-                val options = listOf("distracted" to "分心", "neutral" to "平衡", "focused" to "專注")
-                ui.actions(this, *options.map { it.second to Tone.TONAL }.toTypedArray()) { index ->
-                    val (rating, name) = options[index]
-                    val body = recordBody("review-$day", TimelineMath.dayStart(day, zone), "review", "").put("rating", rating)
-                    task("儲存回顧…", { api().request("/v1/reviews", body) }) { notice("已記下你的回顧：$name") }
+                val records = reviews?.optJSONArray("records")
+                val saved = records?.let { rows -> (0 until rows.length()).map { rows.getJSONObject(it) }.firstOrNull { it.optString("id") == "review-$day" && it.optString("kind") == "review" } }
+                if (reviews == null || (reviews.optBoolean("truncated") && saved == null)) {
+                    ui.empty(this, "尚無法確認已儲存的回顧", if (reviews == null) "請連線後重試；其他已快取的活動仍可閱讀。" else "回顧清單已達顯示上限，這裡不會把未知的選擇當作尚未填寫。", "重新讀取回顧") { dailyReview() }
+                } else {
+                    ui.meta(this, "整體來說，這一天偏向？只保存你的選擇。")
+                    val selected = saved?.optString("rating")
+                    val options = listOf("distracted" to "分心", "neutral" to "平衡", "focused" to "專注")
+                    val buttons = ui.actions(this, *options.map { (id, name) -> (if (id == selected) "✓ $name" else name) to if (id == selected) Tone.PRIMARY else Tone.TONAL }.toTypedArray()) { index ->
+                        val (rating, name) = options[index]
+                        val body = recordBody("review-$day", TimelineMath.dayStart(day, zone), "review", "").put("rating", rating)
+                        task("儲存回顧…", { api().request("/v1/reviews", body) }) { dailyReview(); notice("已記下你的回顧：$name") }
+                    }
+                    buttons.forEachIndexed { index, button ->
+                        val (id, name) = options[index]
+                        button.isSelected = id == selected
+                        button.contentDescription = "$name，${if (id == selected) "已選擇" else "未選擇"}"
+                    }
                 }
             }
             ui.card(slot).apply {
@@ -1028,7 +1064,10 @@ class MainActivity : Activity() {
         if (saved != null) accept(saved, false) else draw()
         if (enabled) {
             val composer = ui.card(slot)
-            val question = ui.field(composer, "你想問什麼？", "例如：今天哪段時間最專注？", Field.MULTILINE)
+            val draftKey = "$conversationId|$day|$chatWeekly"
+            val question = ui.field(composer, "你想問什麼？", "例如：今天哪段時間最專注？", Field.MULTILINE, questionDrafts[draftKey] ?: "", help = "問題草稿只在本次開啟 app 期間保留；切換範圍後需重新同意傳送。")
+            question.filters = arrayOf(android.text.InputFilter.LengthFilter(1000))
+            question.addTextChangedListener(watcher { questionDrafts.put(draftKey, it) })
             val consent = ui.checkbox(composer, "同意這次將活動卡、問題與最近 6 輪對話送到這個提供者，並在私人伺服器保存問答 30 天，承擔 API 費用。")
             ui.button(composer, "傳送這次提問") {
                 if (question.text.isBlank()) { notice("請輸入問題", Kind.WARN); return@button }
@@ -1039,7 +1078,10 @@ class MainActivity : Activity() {
                 val request = pendingAsk?.takeIf { pendingAskWeekly == chatWeekly && it.optString("conversation_id") == conversationId && it.optString("question") == fresh.getString("question") && it.optLong("from_ms") == from && it.optString("provider_id") == config.getString("provider_id") } ?: fresh.also { pendingAsk = it; pendingAskWeekly = chatWeekly }
                 consent.isChecked = false
                 task("等待模型回覆…", { api().request("/v1/ask", request) }) {
-                    pendingAsk = null; question.text.clear()
+                    pendingAsk = null
+                    if (question.text.toString() == request.getString("question")) {
+                        question.text.clear(); questionDrafts.removeIfUnchanged(draftKey, "")
+                    }
                     turns += JSONObject().put("question", request.getString("question")).put("answer", it.getString("answer")); draw()
                     scroll.post { scroll.smoothScrollTo(0, thread.bottom) }
                     notice("已收到回答，請核對。")
@@ -1369,7 +1411,7 @@ class MainActivity : Activity() {
             ui.button(this, "永久刪除伺服器上的全部日誌", Tone.DANGER) {
                 dialog().setTitle("永久刪除所有日誌？").setMessage("刪除活動、感受、反思與原始文字，同時停止紀錄並清除本機佇列與快取。無法復原。")
                     .setNegativeButton("取消", null).setPositiveButton("刪除全部") { _, _ ->
-                        task("刪除伺服器日誌…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); api().request("/v1/journal", method = "DELETE") } }) { settings(); notice("已刪除伺服器上的全部日誌，紀錄已停止。", Kind.INFO) }
+                        task("刪除伺服器日誌…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); api().request("/v1/journal", method = "DELETE") } }) { clearDrafts(); settings(); notice("已刪除伺服器上的全部日誌，紀錄已停止。", Kind.INFO) }
                     }.showSecure()
             }
         }
@@ -1777,7 +1819,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
-        executor.shutdown(); exportBytes?.fill(0); pendingAsk = null; credentials = null
+        executor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; credentials = null
         super.onDestroy()
     }
 }

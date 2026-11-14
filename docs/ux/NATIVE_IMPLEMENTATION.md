@@ -211,3 +211,12 @@ has been visually verified on a device. Production `FLAG_SECURE` was not weakene
 ## Integrator follow-up
 
 See [ACCEPTANCE.md](ACCEPTANCE.md) for emulator View snapshots, first-run and large-text corrections, DST handling and lifecycle-gated Flow callbacks. The original no-screenshot statement above describes the worker run; integration now has synthetic emulator View captures, with connected API and actual TalkBack limitations recorded separately.
+
+## Connected follow-up (0.4.2-dev)
+
+Issues #17–#20 add bounded in-memory editor drafts retained through configuration
+changes, pending encrypted reflection overlays, persisted daily rating selection
+and stable current-day encrypted cache identities. See ACCEPTANCE.md for actual
+connected/offline emulator checks and their limits. Daily rating read failures show
+a retry state without hiding the cached activity overview. A truncated rating list
+without the matching record is treated as unknown, not as an unanswered review.

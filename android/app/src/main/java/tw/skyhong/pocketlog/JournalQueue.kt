@@ -19,14 +19,18 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
         try { files.write(name, clear) } finally { clear.fill(0) }
         prune(now)
     }
-    fun entries(credentials: Credentials): List<Entry> {
+    fun entries(credentials: Credentials): List<Entry> = readEntries(credentials, 256)
+    // Timeline reads need all retained writes, including edits behind the upload batch.
+    internal fun pendingReflections(credentials: Credentials): List<Entry> =
+        readEntries(credentials, 4096, "/v1/reflections")
+    private fun readEntries(credentials: Credentials, limit: Int, path: String? = null): List<Entry> {
         prune()
-        return files.names("q_").take(256).mapNotNull { name ->
+        return files.names("q_").take(limit).mapNotNull { name ->
             val bytes = runCatching { files.read(name) }.getOrNull()
             if (bytes == null) { files.remove(name); dropped(); return@mapNotNull null }
             try {
                 val data = JSONObject(String(bytes, Charsets.UTF_8))
-                if (data.getString("destination") == destination(credentials)) Entry(name, data) else null
+                if (data.getString("destination") == destination(credentials) && (path == null || data.optString("path") == path)) Entry(name, data) else null
             } catch (_: Exception) { files.remove(name); dropped(); null } finally { bytes.fill(0) }
         }
     }
