@@ -36,7 +36,11 @@ report suspected vulnerabilities privately through the repository owner.
   configuration. Only SHA-256 digests are stored, and keys are returned once. Owner
   rotation invalidates all device keys on service startup. Rotate the owner token
   by replacing the secret file with a fresh random value and recreating the
-  container; update each client. Keep the generated token private.
+  container; update each client. Keep the generated token private. The owner-only
+  device list includes one best-effort latest permitted-authentication timestamp,
+  coarsened to a minute. It records no paths, IPs, request history or content and
+  does not establish upload/capture success. It survives journal deletion with
+  device configuration and is removed when the key is revoked/pruned or rotated.
 - No built-in TLS termination or public-internet abuse protection. Keep behind
   Tailscale ACLs or an authenticated/private HTTPS ingress. Do not expose raw
   container networking as a public service. Host firewall and proxy request/header,

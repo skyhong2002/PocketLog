@@ -27,12 +27,23 @@ final class ConnectedUiChecks {
     private String stage = "fixture setup";
     ConnectedUiChecks(Instrumentation test, Bundle args) { this.test = test; this.args = args; }
     void run() throws Exception {
+        if (!java.util.Set.of("ranchu","goldfish").contains(android.os.Build.HARDWARE))
+            throw new IllegalStateException("Disposable emulator required");
         String endpoint = args.getString("endpoint", "");
         if (!endpoint.matches("https://[a-z0-9.-]+\\.ts\\.net:18447"))
             throw new IllegalArgumentException("Dedicated tailnet fixture origin on18447 required");
         if (new CredentialStore(test.getTargetContext()).load() != null)
             throw new IllegalStateException("Refusing a connected installation");
+        String connectionToken="a".repeat(64);
+        String pairingId=null;
+        boolean pairingPassed=false;
+        PocketLogApi fixtureOwner=new PocketLogApi(new Credentials(endpoint,connectionToken));
         try {
+            if ("yes".equals(args.getString("pairingOnly"))) {
+                JSONObject issued=fixtureOwner.request("/v1/devices",new JSONObject().put("label","Synthetic native journal pairing").put("scope","journal").put("days",1),"POST");
+                pairingId=issued.getString("id");connectionToken=issued.getString("token");
+                assertAuthentication(fixtureOwner,pairingId,false);
+            }
             activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await("驗證並連線");
             stage = "short key validation";
@@ -40,8 +51,15 @@ final class ConnectedUiChecks {
             stage = "rejected key recovery";
             fillConnection(endpoint, "b".repeat(64)); click("驗證並連線"); await("伺服器拒絕這把金鑰");
             stage = "valid synthetic connection";
-            fillConnection(endpoint, "a".repeat(64)); click("驗證並連線"); await("手機紀錄未開啟"); await("活動"); awaitSettled();
+            fillConnection(endpoint, connectionToken); click("驗證並連線"); await("手機紀錄未開啟"); await("活動"); awaitSettled();
             assertConsentOff(); capture("timeline");
+            if (pairingId!=null) {
+                assertAuthentication(fixtureOwner,pairingId,true);
+                if(!has("尚無活動")) throw new IllegalStateException("Expected empty connected synthetic journal");
+                File evidence=new File(test.getTargetContext().getExternalFilesDir(null),"ux-connected/pairing-id.txt");
+                try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+                pairingPassed=true;return;
+            }
             if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
             for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
                 stage = "navigation " + page[0]; click(page[0]); await(page[1]); awaitSettled();
@@ -151,7 +169,22 @@ final class ConnectedUiChecks {
                 SyncEngine.INSTANCE.clearLocal(test.getTargetContext());
                 new CredentialStore(test.getTargetContext()).clear();
             }
+            // Keep only the successful synthetic key's metadata for the web evidence;
+            // root revokes it after capture. No token is written to artifacts.
+            if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void assertAuthentication(PocketLogApi owner,String id,boolean expected) throws Exception {
+        org.json.JSONArray devices=owner.request("/v1/devices",null,"GET").getJSONArray("devices");
+        for(int i=0;i<devices.length();i++) {
+            JSONObject device=devices.getJSONObject(i);
+            if(id.equals(device.getString("id"))) {
+                boolean present=!device.isNull("last_authenticated_ms");
+                if(present!=expected || present && device.getLong("last_authenticated_ms")%60_000!=0) throw new IllegalStateException("Authentication metadata mismatch");
+                return;
+            }
+        }
+        throw new IllegalStateException("Synthetic pairing device absent");
     }
     private void captureStatusCheck() throws Exception {
         CaptureDiagnostics.INSTANCE.clear();

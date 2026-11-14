@@ -143,7 +143,16 @@ management, which requires owner token/browser session. Body limit remains 64 Ki
   Journal scope accesses private APIs except device management; collector scope
   only POSTs activities/observations and GETs collection/AI configuration. Neither
   can log into owner browser sessions. Revocation affects new requests; rotation
-  of the owner token invalidates all device keys at service startup.
+  of the owner token invalidates all device keys at service startup. Owner GET
+  also returns nullable `last_authenticated_ms`: latest permitted device-key
+  authentication, rounded down to a minute and updated at most once/minute/key
+  on a best-effort basis. Null means no record since this metadata was introduced;
+  absent means an older server. It does not imply request success, upload, current
+  connectivity or capture consent. No request/path/IP/content history is stored.
+  The timestamp is credential metadata, erased with revocation/expiry cleanup or
+  owner rotation; ordinary journal deletion preserves device configuration.
+  Metadata uses a separate table with deletion cleanup, keeping the credential
+  schema compatible with older binaries during rollback.
 
 AI configuration adds optional `protocol:"openai"|"anthropic"|"gemini"` (default
 openai for compatibility). Missing keys are retained only for the same endpoint

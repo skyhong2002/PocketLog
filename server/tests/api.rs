@@ -1741,6 +1741,21 @@ async fn device_credentials_are_scoped_secret_once_expiring_revocable_and_owner_
     assert_eq!(journal.0, StatusCode::OK);
     let token = journal.1["token"].as_str().unwrap();
     assert_eq!(token.len(), 64);
+    let initial = call(&app, "GET", "/v1/devices", json!({}), true).await.1;
+    assert!(
+        initial["devices"][0]
+            .get("last_authenticated_ms")
+            .unwrap()
+            .is_null()
+    );
+    assert_eq!(
+        call_token(&app, "GET", &timeline, json!({}), "malformed")
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let still_unused = call(&app, "GET", "/v1/devices", json!({}), true).await.1;
+    assert!(still_unused["devices"][0]["last_authenticated_ms"].is_null());
     assert_eq!(
         call_token(&app, "GET", &timeline, json!({}), token).await.0,
         StatusCode::OK
@@ -1765,6 +1780,11 @@ async fn device_credentials_are_scoped_secret_once_expiring_revocable_and_owner_
     );
     let list = call(&app, "GET", "/v1/devices", json!({}), true).await.1;
     assert_eq!(list["devices"].as_array().unwrap().len(), 1);
+    let authenticated = list["devices"][0]["last_authenticated_ms"]
+        .as_i64()
+        .unwrap();
+    assert_eq!(authenticated % 60_000, 0);
+    assert!(authenticated >= now - 60_000);
     assert!(!list.to_string().contains(token));
     assert!(!list.to_string().contains("hash"));
     let response = app

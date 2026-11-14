@@ -2,7 +2,12 @@
 
 PocketLog has two parts: your private website stores and reviews the journal;
 the Android app can optionally collect phone activity. Start on the website.
-AI and automatic recording have separate consent. No mood entry is required.
+AI and automatic recording have separate consent. Manual mood entry is removed.
+After entering a journal device key on Android, press「驗證並連線」. Back on the
+website,「重新檢查連線」shows whether an active journal key has ever passed
+verification. This is separate from first activity arrival and phone recording
+permissions; an offline phone or delayed Android sync may still have a past
+verification timestamp.
 
 1. The person who deployed the server holds its **owner key**, which is the
    website password. The initializer creates it in `.secrets/owner_token` for

@@ -464,7 +464,7 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks };
+  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState };
 
 /* ---------- dialogs ---------- */
 function modal(title, build) {
@@ -954,6 +954,16 @@ function setChecklistHidden(hidden) {
     /* Private browsing: the checklist simply stays visible. */
   }
 }
+function deviceConnectionState(devices, now) {
+  if (!devices) return { keys: null, authenticated: null, lastAuthenticatedMs: null };
+  const active = devices.devices.filter((d) => d.scope === "journal" && d.expires_ms > now);
+  const times = active.map((d) => d.last_authenticated_ms).filter((at) => Number.isFinite(at) && at > 0);
+  return {
+    keys: active.length,
+    authenticated: times.length > 0 ? true : active.every((d) => Object.hasOwn(d, "last_authenticated_ms")) ? false : null,
+    lastAuthenticatedMs: times.length ? Math.max(...times) : null,
+  };
+}
 async function loadSetup() {
   const now = Date.now();
   const [devices, overview] = await Promise.all([
@@ -961,9 +971,7 @@ async function loadSetup() {
     soft(`/v1/overview?from_ms=${now - 29 * 86400000}&to_ms=${now}`),
   ]);
   setupState = {
-    keys: devices
-      ? devices.devices.filter((d) => d.scope === "journal" && d.expires_ms > now).length
-      : null,
+    ...deviceConnectionState(devices, now),
     activity: overview ? overview.categories.length > 0 : null,
   };
   return setupState;
@@ -974,7 +982,7 @@ function setupComplete(s) {
 function checklist(s, onPage) {
   const box = panel(null, "checklist");
   const head = el("div", null, "checklist-head");
-  const unknown = s.keys === null || s.activity === null;
+  const unknown = s.keys === null || s.authenticated === null || s.activity === null;
   const steps = [
     {
       done: true,
@@ -986,7 +994,7 @@ function checklist(s, onPage) {
       title: "為手機建立裝置金鑰",
       text:
         s.keys > 0
-          ? `已發出 ${s.keys} 把日誌裝置金鑰。在 Android app 填入下方網址與金鑰即可連線。`
+          ? `已發出 ${s.keys} 把日誌裝置金鑰。在 Android app 填入這個網站的網址與裝置金鑰，再按「驗證並連線」。`
           : "手機不使用 Owner 金鑰。建立一把可單獨撤銷、會到期的裝置金鑰，只顯示一次。",
       extra: rich("p", "muted", "手機要填的網址：", code(location.origin)),
       action: btn(
@@ -994,6 +1002,19 @@ function checklist(s, onPage) {
         devicesDialog,
         s.keys > 0 || s.activity === true ? "" : "primary",
       ),
+    },
+    {
+      done: s.authenticated === true,
+      title: "在手機驗證裝置金鑰",
+      showCompletedDetail: true,
+      text: s.authenticated === true
+        ? `有效的日誌裝置金鑰最近曾在 ${stamp(s.lastAuthenticatedMs)} 通過驗證（時間約到分鐘）。這不代表手機目前在線、同步成功或錄製權限已開啟。`
+        : s.authenticated === null
+          ? "目前無法確認金鑰是否曾通過驗證；舊版伺服器可能沒有這項狀態。可在手機檢查連線提示，再分開確認下一步是否收到活動。"
+          : s.keys > 0
+            ? "尚無連線驗證紀錄。在 Android app 填入伺服器網址與日誌裝置金鑰，按「驗證並連線」，再回這裡重新檢查。金鑰遺失時可撤銷並重建。"
+            : "先建立日誌裝置金鑰，再到 Android app 填入網址與金鑰，按「驗證並連線」。",
+      action: btn("重新檢查連線", shell),
     },
     {
       done: s.activity === true,
@@ -1056,7 +1077,7 @@ function checklist(s, onPage) {
     const body = el("div");
     const name = el("h3", step.title);
     if (step.optional) add(name, el("span", "可略過", "tag"));
-    add(body, name, el("p", step.text, step.done ? "muted" : ""));
+    add(body, name, el("p", step.text, `${step.done ? "muted" : ""}${step.showCompletedDetail ? " completed-detail" : ""}`));
     if (!step.done && step.extra) add(body, step.extra);
     add(li, mark, body);
     if (step.action) add(li, add(el("div", null, "step-action"), step.action));
@@ -2996,6 +3017,12 @@ async function agentsPage(parent, seq) {
 }
 
 /* ---------- devices, settings and support ---------- */
+function deviceAuthenticationLabel(device) {
+  if (!Object.hasOwn(device, "last_authenticated_ms")) return "伺服器尚未提供連線驗證狀態。";
+  return Number.isFinite(device.last_authenticated_ms) && device.last_authenticated_ms > 0
+    ? `最近通過驗證：${stamp(device.last_authenticated_ms)}（約到分鐘；不代表同步或錄製成功）`
+    : "尚無連線驗證紀錄。";
+}
 async function devicesDialog() {
   const data = await api("/v1/devices");
   modal("裝置金鑰", (p) => {
@@ -3024,6 +3051,7 @@ async function devicesDialog() {
             "p",
             `${d.scope === "journal" ? "日誌" : "僅收集"} · ${d.expires_ms < Date.now() ? "已到期" : "到期"} ${stamp(d.expires_ms)}`,
           ),
+          el("p", deviceAuthenticationLabel(d), "muted"),
           btn("撤銷這把金鑰", async () => {
             if (
               !(await ask(
@@ -3078,6 +3106,7 @@ async function devicesDialog() {
                 "在手機安裝並開啟 PocketLog app。",
                 ["伺服器網址填：", code(location.origin)],
                 "裝置金鑰填下面這一串。關閉後無法再次讀取；遺失時撤銷並重建即可。",
+                "在手機按「驗證並連線」後，回到網站的開始使用清單，按「重新檢查連線」。錄製與畫面擷取仍要在手機另外同意。",
               ]),
             );
             const secret = field(body, "裝置金鑰", result.token, "password");

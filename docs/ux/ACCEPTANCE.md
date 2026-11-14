@@ -371,3 +371,49 @@ Missing/false web fields show no marker. Final Docker smoke and web regressions 
 
 No external AI or real journal used. False does not prove capture or processing
 success: phone-local queues/exclusions/expired evidence remain outside this flag.
+
+## Device pairing readiness (#31)
+
+Dayflow official source at2c79e161 separates onboarding progress
+(`OnboardingFlow.swift`) from screen permission rows
+(`ScreenRecordingPermissionView.swift:214–235`). This is a source observation;
+macOS Dayflow cannot run on this Linux host. PocketLog separates issued journal
+keys, a past permitted authentication and first activity arrival. Past validation
+never means online now, uploaded successfully or recording consent granted.
+The manual refresh action introduces no polling or automatic collection.
+
+Owner-only device reads expose nullable minute-coarsened `last_authenticated_ms`.
+Absent older-server fields remain unknown. Collector/expired keys do not establish
+journal pairing. The diagnostic write is best-effort and cannot deny an otherwise
+permitted request. No IP, request path, content or event history is retained.
+The separate metadata table keeps the released six-column credential schema;
+a DELETE trigger cleans it even when a rollback binary revokes/prunes a key.
+An actual previous production image created/authenticated/revoked keys on the
+migrated disposable DB, and metadata cleanup was verified. No production schema
+was changed for this test, and no journal restore is needed for binary rollback.
+
+Rust fmt/clippy-Dwarnings,20unit/31integration and cargo audit pass (1509
+advisories/185dependencies; local registry-index warning). Web regression tests
+cover absent/null/valid metadata, expiry, scope and newest timestamp. Final built
+Docker smoke passes. Android37unit/build/lint/instrumentationbuild pass; the
+emulator-only pairing runner then issued a journal key, recovered from malformed
+and rejected keys, connected the actual MainActivity over HTTPS, verified the
+minute timestamp and empty timeline, and asserted all collection consents off.
+It cleared local credentials/queue afterward. Native image is a secure View
+snapshot, not a compositor capture or physical-device acceptance.
+
+Built-image390px and1440px web captures show validated connection with first
+activity still incomplete. The initial mobile completed-row CSS hid the new
+status explanation; corrected and recaptured with timestamp and limits visible.
+No document overflow. Issuing a masked once-only key was also checked: no token
+in URL/browser storage and dialog secret removed from DOM after closing. All
+fixtures and images are synthetic; the successful test key is revoked afterward.
+
+- [Issued, not yet validated](screenshots/web-pairing-issued.png)
+- [Validated mobile, waiting for activity](screenshots/web-pairing-validated.png)
+- [Desktop checklist](screenshots/web-pairing-desktop.png)
+- [Per-key status](screenshots/web-pairing-device-status.png)
+- [Actual native empty journal after pairing](screenshots/native-pairing-empty.png)
+
+No Android production source change or new APK required for this issue. Physical
+phone, TalkBack and full-day battery validation remain outstanding.

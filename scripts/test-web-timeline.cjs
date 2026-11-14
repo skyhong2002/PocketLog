@@ -63,3 +63,16 @@ assert.equal(JSON.stringify(cards),before);
 assert.equal(metrics([],()=> 'neutral').total,0);
 assert.equal(metrics([{start_ms:-30,end_ms:-10,category:'work'}],()=> 'focus').longest,20);
 console.log('Elapsed and role totals merge overlaps; category attribution remains explicit');
+
+// Key issuance, validation and capture readiness are distinct facts.
+const { deviceConnectionState } = require('../server/web/app.js');
+const now = 180000;
+const key = (scope, expires_ms, metadata = {}) => ({scope,expires_ms,...metadata});
+assert.deepEqual(deviceConnectionState(null,now),{keys:null,authenticated:null,lastAuthenticatedMs:null});
+assert.deepEqual(deviceConnectionState({devices:[]},now),{keys:0,authenticated:false,lastAuthenticatedMs:null});
+assert.equal(deviceConnectionState({devices:[key('journal',now+1)]},now).authenticated,null,'old server stays unknown');
+assert.equal(deviceConnectionState({devices:[key('journal',now+1,{last_authenticated_ms:null})]},now).authenticated,false,'issued is not authenticated');
+const state=deviceConnectionState({devices:[key('collector',now+1,{last_authenticated_ms:120000}),key('journal',now,{last_authenticated_ms:120000}),key('journal',now+1,{last_authenticated_ms:null})]},now);
+assert.deepEqual(state,{keys:1,authenticated:false,lastAuthenticatedMs:null},'collector and expired keys do not prove journal pairing');
+assert.deepEqual(deviceConnectionState({devices:[key('journal',now+1,{last_authenticated_ms:60000}),key('journal',now+1,{last_authenticated_ms:120000})]},now),{keys:2,authenticated:true,lastAuthenticatedMs:120000});
+console.log('Device setup distinguishes issued, unknown and authenticated journal keys');
