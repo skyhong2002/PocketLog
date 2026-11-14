@@ -437,12 +437,21 @@ async function shell() {
     page === "weekly" ||
     (page === "timeline" && mode === "week") ||
     (page === "chat" && chatScope === "week")
-      ? weekDates().filter(
-          (d) => d <= journalDate() && d >= shift(journalDate(), -28),
-        )
+      ? weekDates().filter((d) => d >= shift(journalDate(), -28))
       : [day];
   const days = await Promise.all(
-    dates.map(async (date) => ({ date, ...(await api(pathFor(date))) })),
+    dates.map(async (date) => ({
+      date,
+      ...(date > journalDate()
+        ? {
+            cards: [],
+            activities: [],
+            checkins: [],
+            reflections: [],
+            truncated: false,
+          }
+        : await api(pathFor(date))),
+    })),
   );
   current = days.flatMap((d) => d.cards);
   const [from] = windowFor(dates[0]);

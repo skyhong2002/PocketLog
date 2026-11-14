@@ -565,3 +565,10 @@ button:not(.event):not(.chip) {
   top: 7px;
   font-size: 10px;
 }
+
+.dashboard > section {
+  min-width: 0;
+}
+.scroll {
+  max-width: 100%;
+}
