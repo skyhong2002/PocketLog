@@ -1765,6 +1765,10 @@ class MainActivity : Activity() {
         val rules = draft.optJSONArray("rules") ?: JSONArray().also { draft.put("rules", it) }
         val capture = mutableListOf<() -> Unit>()
         fun remember() = capture.forEach { it() }
+        ui.button(body, "試算規則（不儲存）", Tone.TONAL) {
+            remember()
+            rulePreview(JSONObject(draft.toString())) { categoryRulesEditor(draft) }
+        }
         val roles = listOf("focus", "neutral", "distraction")
         ui.groupLabel(body, "分類")
         for (i in 0 until styles.length()) {
@@ -1814,6 +1818,64 @@ class MainActivity : Activity() {
             if (index == 0) { sharedSettings(); return@actions }
             remember()
             task("儲存分類與規則…", { api().request("/v1/workspace", draft, "PUT") }) { workspace = it; sharedSettings(); notice("已儲存並同步到網站") }
+        }
+    }
+
+    private fun rulePreview(draft: JSONObject, back: () -> Unit) {
+        val body = screen("試算分類規則", "先確認結果，再返回儲存", tab = Tab.SETTINGS, back = back)
+        val token = generation
+        ui.banner(body, "使用目前尚未儲存的規則試算範例。不會加入日誌、儲存設定或呼叫 AI；手動修改的活動永遠保留原分類。")
+        val styles = draft.getJSONArray("categories")
+        val ids = (0 until styles.length()).map { styles.getJSONObject(it).getString("id") }
+        val form = ui.card(body)
+        val app = ui.field(form, "範例 app 套件名稱", "例如 org.mozilla.firefox", Field.TEXT, help = "需與規則完全相同，區分大小寫。")
+        val title = ui.field(form, "範例活動標題", "例如 閱讀 Kotlin 文件", Field.TEXT, help = "標題關鍵字忽略大小寫；可留白。")
+        app.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+        app.filters = arrayOf(android.text.InputFilter.LengthFilter(200))
+        title.filters = arrayOf(android.text.InputFilter.LengthFilter(200))
+        val baseline = ui.spinner(form, "沒有命中規則時的分類", (0 until styles.length()).map { styles.getJSONObject(it).getString("name") }, ids.indexOf("unsorted").coerceAtLeast(0))
+        val result = ui.body(form, "", top = 12).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+        var epoch = 0
+        fun invalidate() {
+            epoch++
+            if (result.text.isNotEmpty()) result.text = "範例已變更，請重新試算。"
+        }
+        app.addTextChangedListener(watcher { app.error = null; invalidate() })
+        title.addTextChangedListener(watcher { title.error = null; invalidate() })
+        baseline.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) = invalidate()
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = invalidate()
+        }
+        ui.button(form, "試算規則", Tone.PRIMARY) {
+            if (busy) { notice("上一個試算尚在處理中", Kind.INFO); return@button }
+            val sampleApp = app.text.toString().trim()
+            val sampleTitle = title.text.toString()
+            if (!Regex("[A-Za-z0-9._-]{1,200}").matches(sampleApp)) {
+                app.error = "請填完整 app 套件名稱，只含英數字、點、底線或連字號。"; app.requestFocus(); return@button
+            }
+            if (sampleTitle.any { it.isISOControl() }) { title.error = "標題不能包含控制字元。"; title.requestFocus(); return@button }
+            (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(app.windowToken, 0)
+            val request = JSONObject().put("workspace", JSONObject(draft.toString())).put("sample", JSONObject()
+                .put("app", sampleApp).put("title", sampleTitle).put("category", ids[baseline.selectedItemPosition]).put("edited", false))
+            val revision = ++epoch
+            result.text = "正在試算目前規則…"
+            task("試算規則…", { api().request("/v1/workspace/preview", request, "POST") }, failed = { error ->
+                if (token == generation && revision == epoch) result.text = when {
+                    error is ApiFailure && error.status == 404 -> "伺服器尚未支援規則試算，請更新伺服器。分類仍可照常儲存。"
+                    error is ApiFailure && error.status == 400 -> "規則或範例尚未完整，請檢查 app、關鍵字與分類後重試。"
+                    else -> "試算未完成；請檢查連線後重新試算。"
+                }
+            }) { response ->
+                if (token != generation || revision != epoch) return@task
+                val category = response.getString("category")
+                val name = (0 until styles.length()).map { styles.getJSONObject(it) }.firstOrNull { it.getString("id") == category }?.getString("name") ?: category
+                val rules = draft.optJSONArray("rules") ?: JSONArray()
+                val matched = response.optString("matched_rule_id")
+                val index = (0 until rules.length()).firstOrNull { rules.getJSONObject(it).getString("id") == matched }
+                val why = index?.let { "命中第 ${it + 1} 條規則；後面的規則不再套用。" } ?: "沒有命中已啟用的規則，使用範例原分類。"
+                result.text = "範例將分類為「$name」\n$why\n這是尚未儲存的試算；請返回編輯頁儲存，才會同步設定。"
+                result.post { if (token == generation && revision == epoch) result.requestRectangleOnScreen(android.graphics.Rect(0, 0, result.width, result.height), false) }
+            }
         }
     }
 

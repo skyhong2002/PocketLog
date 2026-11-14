@@ -8,6 +8,7 @@ projection. Responses use `Cache-Control: no-store`; bodies are capped at 64 KiB
 |---|---|---|
 | POST | `/v1/activities` | `{activities:[{id,start_ms,end_ms,app,category}]}`, max 100; stable IDs, conflicting replay 409 and atomic rollback |
 | POST | `/v1/checkins` | `{id,at_ms,mood,energy}`, mood/energy 1–5; same ID replaces |
+| POST | `/v1/workspace/preview` | `{workspace,sample:{app,title,category,edited?}}`; test an unsaved draft with the server classifier, no persistence/model call |
 | POST | `/v1/observations` | `{id,at_ms,app,text,analysis_consent,external_ai_consent?,jpeg_base64?,image_consent?}`; private processing consent required; model/image consent independently default false |
 | POST | `/v1/cards` | `{id,title,summary,category}`; existing activity required; title 1–200 characters, summary ≤1,000; user edit wins over worker |
 | POST | `/v1/reflections` | `{id,at_ms,text}`, ≤2,000 characters; same ID replaces, blank text deletes |
@@ -162,3 +163,21 @@ Journal deletion includes all new content tables, disables brief schedules and
 invalidates results. Workspace/provider/device configuration remains; other trusted
 devices can still upload until paused or revoked. Exports are private derived data,
 not a complete backup of every new content type.
+
+### Draft classification preview
+
+`POST /v1/workspace/preview` accepts the same strict workspace object as PUT,
+plus one `sample`: app1–200 ASCII letters/digits/`._-`, title0–200 Unicode
+characters without controls, a category present in the proposed workspace, and
+optional `edited` (defaultfalse). It returns `{category,matched_rule_id,manual_override}`.
+The first enabled rule whose exact case-sensitive app and case-insensitive title
+conditions both match wins. With no match, the sample category remains; an edited
+sample always retains its category and returns null matched rule.
+
+Owner/browser-session and journal-device access only; collector keys denied.
+Normal authentication-before-parsing,64KiB body limit and no-store behavior apply.
+The handler evaluates only supplied data, with no database/provider operations,
+retention cleanup, saved preferences or journal mutations. Existing authentication
+metadata for journal keys remains unchanged. Draft validation is shared with Save;
+save-only revision/category-in-use conflicts are checked only when saving. A
+successful preview does not reserve a revision or guarantee a subsequent Save.

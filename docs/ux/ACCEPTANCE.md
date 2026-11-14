@@ -689,3 +689,46 @@ existing signing certificate. Physical device/TalkBack/battery remain unverified
 - [Unavailable image recovery](screenshots/native-replay-unavailable.png)
 - [2×text recovery](screenshots/native-replay-unavailable-large.png)
 - [Empty archive](screenshots/native-replay-empty.png)
+
+## Draft classification preview (#39)
+
+Web and native category editors now offer an explicit unsaved rule trial. The
+private `POST /v1/workspace/preview` validates the proposed workspace with the
+same structural validator used by Save and evaluates the production matcher.
+It requires no database or provider access and does not store samples or change
+journal cards. Normal authentication metadata still applies. Exact app matching
+remains case-sensitive; title substrings ignore case; the first enabled AND rule
+wins. Manually edited activities keep their category.
+
+Official Dayflow `DayCategorySelectionEditor.swift` at source2c79e161 informed
+the shared category editing reference. The supplied actual timeline screenshots
+inform the surrounding hierarchy. This trial tool is a PocketLog extension,
+not a claim that Dayflow ships this exact UI; macOS was not executed here.
+
+Built-image browser checks used only the disposable synthetic fixture: disabled
+first rule, case-insensitive title match, exact app match, uppercase app fallback,
+empty app validity, and unsaved rule reordering. Settings reads remained unchanged.
+Editing a sample invalidated the displayed result; a held response could not
+replace newer input or populate a reopened modal. Injected offline and old-server
+404 responses showed useful guidance and a successful retry. The top shortcut
+focuses the sample field. At1440px and390px, the form/result are readable with no
+document or modal horizontal overflow. These are Chromium checks, not screen
+reader or mobile Safari verification.
+
+Native connected normal and2×font checks use the real editor and trusted HTTPS
+fixture endpoint, verifying matching, priority, case, invalid input, draft return,
+and unchanged saved workspace/consent. Inspected View snapshots retain
+FLAG_SECURE; they are not compositor, physical-device or TalkBack evidence.
+Full connected eight-page/offline queue/cache/brief-consent regression passes.
+
+Required checks: Rustfmt/clippy-Dwarnings,20unit+31existingAPI+6preview integration
+tests, cargo audit1509advisories/185crates, web syntax/import/timeline regressions,
+Android37unit/assembleDebug/assembleDebugAndroidTest/lintDebug, and final Docker
+smoke. Audit reports its existing local crates.io-index warning. Preview API tests
+cover authentication/scope, strict bounds, production matching parity, unchanged
+table snapshots including expired rows, and operation without database tables.
+
+- [Desktop draft result](screenshots/web-rule-preview-desktop.png)
+- [Phone web result](screenshots/web-rule-preview-mobile.png)
+- [Native result](screenshots/native-rule-preview.png)
+- [Native2×text result](screenshots/native-rule-preview-large.png)

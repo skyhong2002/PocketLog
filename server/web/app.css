@@ -1643,3 +1643,7 @@ summary:focus-visible,
 }
 .replay-stage img[hidden] { display: none; }
 .replay-error { display: grid; gap: 10px; }
+
+.rule-preview { margin-top: 20px; border: 1px solid var(--accent); }
+.rule-preview-result { overflow-wrap: anywhere; }
+.preview-outcome { font-weight: 700; color: var(--accent); }

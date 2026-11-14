@@ -3516,7 +3516,9 @@ function goalsDialog() {
   });
 }
 function categoriesDialog() {
-  modal("分類、顏色與專注角色", (p) => {
+  modal("分類、顏色與專注角色", (container) => {
+    const p = el("div");
+    add(container, p);
     add(
       p,
       el(
@@ -3524,7 +3526,12 @@ function categoriesDialog() {
         "這些名稱、顏色與角色會在手機和網站共用。可新增分類與自動規則；已被活動使用的分類需先重新分類才能移除。",
       ),
     );
+    add(p, btn("試算規則（不儲存）", () => {
+      preview.scrollIntoView({ block: "start", inline: "nearest" });
+      sampleApp.focus({ preventScroll: true });
+    }, "quiet"));
     const draft = structuredClone(prefs);
+    let invalidatePreview = () => {};
     draft.rules ||= [];
     const categoryList = el("div");
     add(p, categoryList);
@@ -3599,6 +3606,7 @@ function categoriesDialog() {
     const ruleList = el("div");
     add(p, ruleList);
     function renderRules() {
+      invalidatePreview();
       ruleList.replaceChildren();
       if (!draft.rules.length)
         add(ruleList, el("p", "還沒有自動規則。", "muted"));
@@ -3658,6 +3666,52 @@ function categoriesDialog() {
         renderRules();
       }),
     );
+    const preview = panel("先試算，再儲存", "rule-preview");
+    add(p, preview);
+    add(preview, el("p", "輸入一個範例，看看目前規則會如何分類。不會加入日誌、儲存設定或呼叫 AI；手動修改的活動永遠保留原分類。", "muted"));
+    const sampleApp = field(preview, "範例 app 套件名稱", "", "text", "例如 org.mozilla.firefox；需與規則完全相同，區分大小寫。");
+    sampleApp.maxLength = 200;
+    const sampleTitle = field(preview, "範例活動標題", "", "text", "標題關鍵字忽略大小寫；可留白。");
+    sampleTitle.maxLength = 200;
+    const baseline = select(preview, "沒有命中規則時的分類", draft.categories.map((c) => [c.id, c.name]), "unsorted");
+    const result = el("div", null, "rule-preview-result");
+    result.setAttribute("role", "status");
+    let epoch = 0;
+    invalidatePreview = () => {
+      epoch++;
+      if (result.textContent) result.replaceChildren(el("p", "設定或範例已變更，請重新試算。", "muted"));
+      const selected = baseline.value;
+      baseline.replaceChildren(...draft.categories.map((c) => { const option = el("option", c.name); option.value = c.id; return option; }));
+      baseline.value = draft.categories.some((c) => c.id === selected) ? selected : "unsorted";
+    };
+    p.addEventListener("input", invalidatePreview);
+    p.addEventListener("change", invalidatePreview);
+    add(preview, btn("試算規則", async () => {
+      if (!/^[A-Za-z0-9._-]{1,200}$/.test(sampleApp.value.trim())) {
+        sampleApp.setCustomValidity("請填完整 app 套件名稱，只含英數字、點、底線或連字號。");
+        sampleApp.reportValidity();
+        sampleApp.oninput = () => sampleApp.setCustomValidity("");
+        return;
+      }
+      const token = ++epoch;
+      const payload = { workspace: structuredClone(draft), sample: { app: sampleApp.value.trim(), title: sampleTitle.value, category: baseline.value, edited: false } };
+      result.replaceChildren(el("p", "正在試算目前規則…", "muted"));
+      try {
+        const response = await api("/v1/workspace/preview", payload);
+        if (!preview.isConnected || token !== epoch) return;
+        const name = draft.categories.find((c) => c.id === response.category)?.name || response.category;
+        const index = draft.rules.findIndex((r) => r.id === response.matched_rule_id);
+        result.replaceChildren(
+          el("p", `範例將分類為「${name}」`, "preview-outcome"),
+          el("p", index >= 0 ? `命中第 ${index + 1} 條規則；後面的規則不再套用。` : "沒有命中已啟用的規則，使用範例原分類。"),
+          el("p", "這是尚未儲存的試算；請按「儲存分類」才會同步設定。", "muted"),
+        );
+        result.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } catch (error) {
+        if (!preview.isConnected || token !== epoch) return;
+        result.replaceChildren(el("p", error.status === 404 ? "伺服器尚未支援規則試算，請更新伺服器。分類仍可照常儲存。" : error.status === 400 ? "規則或範例尚未完整，請檢查 app、關鍵字與分類後重試。" : error.message || "試算未完成，請重試。", "callout warn"));
+      }
+    }), result);
     add(
       p,
       add(

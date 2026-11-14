@@ -60,6 +60,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("previewOnly"))) { rulePreviewCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("replayOnly"))) { replayUnavailableCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
             for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
@@ -174,6 +175,27 @@ final class ConnectedUiChecks {
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void rulePreviewCheck(PocketLogApi owner) throws Exception {
+        stage="unsaved rule preview";
+        JSONObject before=owner.request("/v1/workspace",null,"GET"), draft=new JSONObject(before.toString());
+        org.json.JSONArray rules=new org.json.JSONArray()
+            .put(new JSONObject().put("id","synthetic-disabled").put("category","work").put("app","org.example.reader").put("title_contains",JSONObject.NULL).put("enabled",false))
+            .put(new JSONObject().put("id","synthetic-title").put("category","learning").put("app",JSONObject.NULL).put("title_contains","kotlin").put("enabled",true))
+            .put(new JSONObject().put("id","synthetic-app").put("category","work").put("app","org.example.reader").put("title_contains",JSONObject.NULL).put("enabled",true));
+        draft.put("rules",rules);
+        java.lang.reflect.Method editor=MainActivity.class.getDeclaredMethod("categoryRulesEditor",JSONObject.class);editor.setAccessible(true);
+        test.runOnMainSync(()->{try{editor.invoke(activity,draft);}catch(Exception e){throw new RuntimeException(e);}});
+        await("分類與自動規則");click("試算規則（不儲存）");await("試算分類規則");
+        setEditor("例如 org.mozilla.firefox","org.example.reader");setEditor("例如 閱讀 Kotlin 文件","Learn KOTLIN");
+        click("試算規則");await("範例將分類為「學習」");await("命中第 2 條規則");awaitSettled();capture("rule-preview-match");
+        setEditor("例如 閱讀 Kotlin 文件","Planning");await("範例已變更，請重新試算");
+        click("試算規則");await("範例將分類為「工作」");await("命中第 3 條規則");awaitSettled();
+        setEditor("例如 org.mozilla.firefox","ORG.EXAMPLE.READER");click("試算規則");await("範例將分類為「未分類」");await("沒有命中已啟用的規則");awaitSettled();capture("rule-preview-no-match");
+        setEditor("例如 org.mozilla.firefox","");click("試算規則");
+        test.runOnMainSync(()->{if(editor("例如 org.mozilla.firefox").getError()==null)throw new IllegalStateException("Missing sample validation");});
+        if(!before.toString().equals(owner.request("/v1/workspace",null,"GET").toString()))throw new IllegalStateException("Preview saved draft preferences");
+        assertConsentOff();
     }
     private void replayUnavailableCheck(PocketLogApi owner) throws Exception {
         stage="replay stale resource recovery";

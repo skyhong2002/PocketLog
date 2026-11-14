@@ -57,18 +57,21 @@ impl Preferences {
         if edited {
             return category;
         }
-        let title = title.to_lowercase();
-        self.rules
-            .iter()
-            .find(|r| {
-                r.enabled
-                    && r.app.as_ref().is_none_or(|s| s == app)
-                    && r.title_contains
-                        .as_ref()
-                        .is_none_or(|s| title.contains(&s.to_lowercase()))
-            })
-            .map(|r| r.category.clone())
+        self.matching_rule(app, title)
+            .map(|rule| rule.category.clone())
             .unwrap_or(category)
+    }
+
+    fn matching_rule(&self, app: &str, title: &str) -> Option<&CategoryRule> {
+        let title = title.to_lowercase();
+        self.rules.iter().find(|rule| {
+            rule.enabled
+                && rule.app.as_ref().is_none_or(|s| s == app)
+                && rule
+                    .title_contains
+                    .as_ref()
+                    .is_none_or(|s| title.contains(&s.to_lowercase()))
+        })
     }
 }
 pub(super) fn ensure_category(db: &Connection, category: &Category) -> Result<()> {
@@ -127,16 +130,16 @@ pub(super) fn load(db: &Connection) -> Result<Preferences> {
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/workspace", get(read).put(save))
+        .route("/v1/workspace/preview", post(preview))
         .route("/v1/reviews", get(records).post(record))
         .route("/v1/ask", post(ask))
 }
 async fn read(State(state): State<AppState>) -> Result<Json<Preferences>> {
     state.database(|db| Ok(Json(load(db)?))).await
 }
-async fn save(
-    State(state): State<AppState>,
-    Json(mut prefs): Json<Preferences>,
-) -> Result<Json<Preferences>> {
+// Draft validation is shared with saving; persisted revision and category-use
+// conflicts belong only to save's transaction and are not preview operations.
+fn validate(prefs: &Preferences) -> Result<()> {
     if prefs.onboarding_version > 1
         || prefs.focus_minutes > 1440
         || prefs.distraction_minutes > 1440
@@ -183,6 +186,70 @@ async fn save(
             return Err(invalid());
         }
     }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreviewRequest {
+    workspace: Preferences,
+    sample: PreviewSample,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreviewSample {
+    app: String,
+    title: String,
+    category: Category,
+    #[serde(default)]
+    edited: bool,
+}
+#[derive(Serialize)]
+struct PreviewResult {
+    category: Category,
+    matched_rule_id: Option<String>,
+    manual_override: bool,
+}
+async fn preview(Json(request): Json<PreviewRequest>) -> Result<Json<PreviewResult>> {
+    validate(&request.workspace)?;
+    let sample = request.sample;
+    if sample.app.is_empty()
+        || sample.app.len() > 200
+        || !sample
+            .app
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        || sample.title.chars().count() > 200
+        || sample.title.chars().any(char::is_control)
+        || !request
+            .workspace
+            .categories
+            .iter()
+            .any(|c| c.id == sample.category)
+    {
+        return Err(invalid());
+    }
+    // Deliberately no state extractor: the authenticated sample is evaluated
+    // solely against this draft, without reading or retaining journal content.
+    let rule = if sample.edited {
+        None
+    } else {
+        request.workspace.matching_rule(&sample.app, &sample.title)
+    };
+    Ok(Json(PreviewResult {
+        category: rule
+            .map(|rule| rule.category.clone())
+            .unwrap_or(sample.category),
+        matched_rule_id: rule.map(|rule| rule.id.clone()),
+        manual_override: sample.edited,
+    }))
+}
+
+async fn save(
+    State(state): State<AppState>,
+    Json(mut prefs): Json<Preferences>,
+) -> Result<Json<Preferences>> {
+    validate(&prefs)?;
     state.database(move |db| {
         let tx=db.transaction().map_err(storage_error)?;
         super::prune(&tx,now_ms())?;
