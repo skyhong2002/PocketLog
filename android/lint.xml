@@ -1,0 +1,6 @@
+<lint>
+    <!-- Adaptive backgrounds intentionally fill the tile; Android applies its mask. -->
+    <issue id="IconLauncherShape">
+        <ignore path="app/src/main/res/drawable-nodpi/ic_launcher_art.png" />
+    </issue>
+</lint>
