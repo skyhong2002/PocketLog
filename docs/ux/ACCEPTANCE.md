@@ -44,5 +44,32 @@ permission acceptance remain separate work.
 
 ## Web
 
-Built-image desktop/mobile screenshots and integrated workflow verification are
-pending. See WEB_IMPLEMENTATION.md for the worker's dev-proxy checks and limits.
+Root verified the embedded files in a rebuilt `pocketlog:ux-check` container,
+using an isolated synthetic journal on loopback18751 and a local fake model on18752.
+No production data or external model was involved.
+
+| Configuration / flow | Evidence / observed result |
+| --- | --- |
+| Desktop1440×1000 first run | [Welcome and key help](screenshots/web-first-run.png), [shared onboarding](screenshots/web-onboarding.png) |
+| Desktop1440×1000 populated day | [Timeline](screenshots/web-desktop-timeline.png): overlapping cards remain separate; merged total120min, focus75min; category attribution145min is labelled |
+| Mobile390×844 populated day | [Timeline](screenshots/web-mobile-timeline.png): labelled bottom navigation, separate overlap lanes, no document overflow |
+| Explicit AI brief consent | [Destination and scope](screenshots/web-ai-consent.png); local fake model answer saved after confirmation |
+
+Root walked the four onboarding steps, skipped AI, saved a first check-in, and
+confirmed that manual journaling completes setup without a phone. Reflection save
+and reload, successful Chat and saved daily brief using the local fake model,
+session expiry after server restart and re-login were exercised. All eight pages
+loaded at390px without document overflow. The fake model checks UI/request flow,
+not real model quality or vendor interoperability.
+
+A CSS200% zoom stress check at390px exposed fixed date-control/chart widths (#15).
+The repair was checked through individual DOM style properties, preserving CSP;
+rebuilt-image confirmation is still pending. CSS zoom is not browser text zoom.
+The screenshots predate that responsive repair. Layout arithmetic and overlap/DST
+regressions run in CI. Docker smoke passed on the runtime preceding the CSS repair.
+
+Still pending: real browser zoom, screen readers, Firefox/Safari, reduced motion,
+connected native workflows, file-picker agent import, clipboard/download actions,
+and newly rewritten goals/categories/schedule mutation paths. Worker dev-proxy
+checks are recorded separately in WEB_IMPLEMENTATION.md. First successful Chat
+leaves its saved-history picker stale until navigation (tracked separately).
