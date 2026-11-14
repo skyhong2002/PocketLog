@@ -1,0 +1,15 @@
+<resources>
+    <style name="Theme.PocketLog" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#52765F</item>
+        <item name="android:colorControlActivated">#52765F</item>
+        <item name="android:colorButtonNormal">#DDE8DA</item>
+        <item name="android:windowBackground">#F2F5EF</item>
+        <item name="android:colorBackground">#F2F5EF</item>
+        <item name="android:textColorPrimary">#303A32</item>
+        <item name="android:textColorSecondary">#626F63</item>
+        <item name="android:statusBarColor">#F2F5EF</item>
+        <item name="android:navigationBarColor">#F2F5EF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>
