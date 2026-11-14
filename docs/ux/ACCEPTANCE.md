@@ -272,3 +272,30 @@ Rust fmt/clippy-Dwarnings and all14 unit/31 integration tests passed. Standalone
 cargo audit passed1509 advisories/185 dependencies with the local index warning;
 no external model or real journal used. This is classification consistency work,
 not proof of Android screenshot capture on a physical device.
+
+## Content-free capture diagnostics (#28), 0.4.6-dev
+
+Settings and Support now link to a native capture status page with a manual
+refresh action. It distinguishes privacy/system/encoding/processing failures from
+successful local queue writes; queue success never means server receipt. One
+in-memory result and last queue time contain no app names, content or exception
+strings, are never uploaded/persisted, and reset on process/connection reset.
+Attempt identities ignore stale callbacks. All existing capture gates and the
+five-minute event-driven cap remain unchanged. The page explicitly describes
+whole-window input-field exclusion and the lack of periodic same-app capture.
+
+Four new unit tests cover failure versus queue success, preserving last success
+when a later attempt fails, stale/reset callbacks and partial-success states.
+Android37 unit tests, build/instrumentation build and lint passed. Connected
+normal/2× text checks verified Settings/Support navigation, manual refresh,
+whole-window guidance and failure preserving previous queue time. Normal also
+repeated actual offline/cache/queue checks and previous category/brief/Chat/Flow
+checks; recording consents remained off. Diagnostic outcomes were injected
+synthetic fixtures: this verifies presentation/state, not actual OS screenshot
+callbacks or physical capture. Those still require a separate capture fixture.
+
+- [Whole-window exclusion](screenshots/native-capture-exclusion-status.png)
+- [Failure with prior local queue success](screenshots/native-capture-failure-status.png)
+- [2× text failure explanation](screenshots/native-capture-failure-large.png)
+
+Secure emulator View snapshots; no physical gestures/TalkBack/battery claim.

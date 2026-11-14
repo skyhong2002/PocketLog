@@ -1358,6 +1358,7 @@ class MainActivity : Activity() {
         ui.row(card, "伺服器收集", if (s.remotePaused) "所有裝置已暫停；恢復不會改變本機同意" else "未暫停", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { settings() }
         ui.row(card, "畫面文字", "允許清單 ${s.allowed.size} 個 app · 排除 ${s.exclusions.size} 個", (if (s.contextEnabled) "開啟" else "關閉") to s.contextEnabled) { settings() }
         if (s.contextEnabled) accessibilityServiceOn().let { on -> ui.row(card, "輔助使用服務", "畫面文字需要 PocketLog 的輔助使用服務", (if (on) "已開啟" else "未開啟") to on) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } }
+        ui.row(card, "擷取狀態與排除原因", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { supportPage() } }
         ui.row(card, "最近同步", s.status(), onClick = null)
         val queue = ui.column(card)
         load(queue, "讀取離線佇列…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).counts() } }) { (pending, rejected) ->
@@ -1371,6 +1372,30 @@ class MainActivity : Activity() {
         ui.card(body).apply {
             ui.meta(this, "尚未移植官方 Dayflow 雲端 Flow、桌面 CLI 自動追蹤、錄影回放與 OCR 遮罩。手機採擷取前排除，請不要允許敏感 app。實機權限與全天電池量測仍需驗證。")
             ui.button(this, "使用文件與原始碼（GitHub）", Tone.OUTLINE) { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/skyhong2002/PocketLog"))) }
+        }
+    }
+
+    private fun captureDiagnostics(back: () -> Unit) {
+        val body = screen("擷取狀態", "本機狀態，不含畫面內容", tab, back = back, action = Triple(R.drawable.ic_sync, "重新檢查擷取狀態", { captureDiagnostics(back) }), refresh = { captureDiagnostics(back) })
+        val settings = RecordingSettings(this)
+        if (!settings.contextEnabled) callout(body, "畫面文字未開啟；此頁不會啟用任何紀錄。", Kind.INFO, "查看設定") { settings() }
+        else if (!accessibilityServiceOn() || !settings.hasUsagePermission())
+            callout(body, "系統權限未齊全，請檢查使用情況存取權與輔助使用服務。", Kind.WARN, "查看設定") { settings() }
+        val state = CaptureDiagnostics.snapshot()
+        ui.card(body).apply {
+            ui.heading(this, "最近結果")
+            ui.text(this, state.outcome.title, 19f, bold = true, top = 8)
+            ui.meta(this, state.atMs?.let { stamp(it) } ?: "本次執行尚無結果", top = 4)
+            ui.body(this, state.outcome.detail, top = 12)
+            ui.heading(this, "最近排入本機佇列", top = 16)
+            ui.body(this, state.lastQueuedMs?.let { stamp(it) } ?: "尚無成功排入的情境", top = 6)
+            ui.meta(this, "排入佇列不代表已同步；請到設定檢查同步狀態。", top = 6)
+        }
+        ui.card(body).apply {
+            ui.heading(this, "哪些畫面會被跳過？")
+            ui.body(this, "允許清單以外、被排除的 app、鎖定與安全視窗不會擷取。只要包含密碼或可編輯欄位，就會排除整個視窗，包含搜尋列與訊息輸入框；不是只略過那個欄位。", top = 8)
+            ui.body(this, "只有切換視窗的事件會觸發檢查，系統擷取嘗試最多每五分鐘一次；同一 app 內持續閱讀不會定期截圖。", top = 10)
+            ui.meta(this, "此頁只保留本次 app 執行期間的一個結果與最近排入時間，不保存 app 名稱、畫面文字、圖片或錯誤內容，也不傳送診斷。重新開啟程序或更換連線後重設。", top = 12)
         }
     }
 
@@ -1402,12 +1427,13 @@ class MainActivity : Activity() {
 
         ui.groupLabel(body, "畫面情境（進階，預設關閉）")
         ui.card(body, padding = 8).apply {
-            ui.meta(this, "每一項都是獨立同意。密碼、輸入欄位、鎖定畫面與安全視窗一律在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
+            ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
             val contextDetail = when { !s.enabled -> "需先開啟 App 使用紀錄"; s.allowed.isEmpty() -> "需先在允許清單加入 app"; else -> "允許清單中的 app 切換時，最多每 5 分鐘讀取一次" }
             ui.row(this, "畫面文字", contextDetail, (if (s.contextEnabled) "開啟" else "關閉") to s.contextEnabled) { toggleContext(s) }
             ui.row(this, "畫面縮圖", if (s.contextEnabled) "最長邊 480 px，可能含無法從文字判斷的私人資訊" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else "關閉") to s.imagesEnabled) { toggleImages(s) }
             ui.row(this, "短期縮圖回放", if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else "關閉") to s.replayConsent) { toggleReplay(s) }
             ui.row(this, "文字隱私防護", "疑似金鑰、token 或長數字時跳過整個視窗", (if (s.privacyShield) "開啟" else "關閉") to s.privacyShield) { privacyShieldDialog(s) }
+            ui.row(this, "擷取狀態與排除原因", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
             ui.row(this, "系統輔助使用設定", "畫面文字需要 PocketLog 的輔助使用服務") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         }
 

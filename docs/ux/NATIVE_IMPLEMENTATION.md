@@ -249,3 +249,11 @@ Prioritize consented screenshot capture, classification, timeline and API next.
 Issue #26 adds Dayflow-inspired category visibility controls shared by the native
 timeline and list, filtered counts, all-hidden recovery, and rotation retention.
 Full-day statistics remain clearly labeled and unchanged. See ACCEPTANCE.md.
+
+## Capture diagnostics follow-up (0.4.6-dev)
+
+Issue #28 adds content-free process-memory diagnostics wired to context capture
+gates/callbacks and exposed in Settings/Support. Outcomes and last local queue
+time do not imply successful sync/classification. Consent, exclusion and sampling
+policy are unchanged. Acceptance distinguishes injected-state UI tests from OS
+capture verification.

@@ -47,6 +47,8 @@ final class ConnectedUiChecks {
                 if (has("無法載入")) throw new IllegalStateException("Connected page failed");
                 capture(page[0].equals("每日") ? "daily" : page[0].equals("設定") ? "settings" : "page-" + page[0]);
             }
+            stage = "content-free capture status and whole-window guidance";
+            captureStatusCheck();
             stage = "category visibility, list parity, reset and recreation";
             categoryVisibilityCheck();
             stage = "reflection draft navigation and empty edit";
@@ -148,6 +150,27 @@ final class ConnectedUiChecks {
                 new CredentialStore(test.getTargetContext()).clear();
             }
         }
+    }
+    private void captureStatusCheck() throws Exception {
+        CaptureDiagnostics.INSTANCE.clear();
+        long now=System.currentTimeMillis();
+        CaptureDiagnostics.INSTANCE.complete(CaptureDiagnostics.INSTANCE.begin(now),CaptureDiagnostics.Outcome.WINDOW_REJECTED,now);
+        click("設定"); await("畫面情境"); awaitSettled();
+        click("擷取狀態與排除原因"); await("視窗已依隱私規則排除");
+        if(!has("整個視窗") || !has("尚無成功排入的情境") || !has("此頁不會啟用任何紀錄"))
+            throw new IllegalStateException("Capture rejection guidance missing");
+        capture("capture-status-exclusion");
+        CaptureDiagnostics.INSTANCE.complete(CaptureDiagnostics.INSTANCE.begin(now),CaptureDiagnostics.Outcome.QUEUED_TEXT,now);
+        CaptureDiagnostics.INSTANCE.complete(CaptureDiagnostics.INSTANCE.begin(now),CaptureDiagnostics.Outcome.SYSTEM_FAILED,now);
+        click("重新檢查擷取狀態"); await("系統擷取未成功");
+        if(has("尚無成功排入的情境")) throw new IllegalStateException("Failure erased previous queue success");
+        capture("capture-status-failure");
+        click("返回"); await("畫面情境"); awaitSettled();
+        click("支援"); await("沒有活動時"); awaitSettled();
+        click("擷取狀態與排除原因"); await("系統擷取未成功");
+        reveal("重新檢查擷取狀態");
+        click("返回"); await("沒有活動時"); awaitSettled();
+        CaptureDiagnostics.INSTANCE.clear(); assertConsentOff();
     }
     private void categoryVisibilityCheck() throws Exception {
         click("時間軸"); await("活動"); awaitSettled();

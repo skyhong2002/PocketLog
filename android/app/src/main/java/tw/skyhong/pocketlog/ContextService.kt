@@ -26,38 +26,45 @@ class ContextService : AccessibilityService() {
         val revision = settings.revision
         val now = System.currentTimeMillis()
         if (pending || now - lastCapture < RecordingRules.CONTEXT_GAP || !allowed(pkg, settings)) return
+        val attempt = CaptureDiagnostics.begin(now)
+        fun report(outcome: CaptureDiagnostics.Outcome) = CaptureDiagnostics.complete(attempt, outcome, System.currentTimeMillis())
         // Structural exclusions and optional local text-secret checks run before pixels.
-        if (safeNodes(pkg, window) == null) return
+        if (safeNodes(pkg, window) == null) { report(CaptureDiagnostics.Outcome.WINDOW_REJECTED); return }
         pending = true
         lastCapture = now
         runCatching { takeScreenshotOfWindow(window, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
+                var imageFailed = false
                 val jpeg = try {
                     if (currentGeneration == generation && revision == settings.revision && allowed(pkg, settings) && settings.imagesEnabled && safeNodes(pkg, window) != null)
-                        runCatching { ContextImage.jpeg(result) }.getOrNull() else null
+                        runCatching { ContextImage.jpeg(result) }.getOrNull().also { imageFailed = it == null } else null
                 } finally { result.hardwareBuffer.close() }
                 pending = false
                 runCatching { executor.execute { synchronized(SyncEngine.lock) {
-                    if (revision != settings.revision || currentGeneration != generation || foreground != pkg || !allowed(pkg, settings)) return@synchronized
+                    if (revision != settings.revision || currentGeneration != generation || foreground != pkg || !allowed(pkg, settings)) { report(CaptureDiagnostics.Outcome.CANCELED); return@synchronized }
                     runCatching {
-                        val nodes = safeNodes(pkg, window) ?: return@runCatching
+                        val nodes = safeNodes(pkg, window) ?: run { report(CaptureDiagnostics.Outcome.WINDOW_REJECTED); return@runCatching }
                         val lines = nodes.flatMap { node -> listOfNotNull(node.text?.let { RecordingRules.cap(it.toString(), 300) }, node.contentDescription?.let { RecordingRules.cap(it.toString(), 300) }) }
-                        if (revision != settings.revision || currentGeneration != generation || !allowed(pkg, settings)) return@runCatching
+                        if (revision != settings.revision || currentGeneration != generation || !allowed(pkg, settings)) { report(CaptureDiagnostics.Outcome.CANCELED); return@runCatching }
                         val text = RecordingRules.normalize(lines)
-                        if (text.isBlank() && jpeg == null) return@runCatching
-                        val credentials = CredentialStore(this@ContextService).load() ?: return@runCatching
+                        if (text.isBlank() && jpeg == null) { report(if (imageFailed) CaptureDiagnostics.Outcome.IMAGE_FAILED else CaptureDiagnostics.Outcome.EMPTY); return@runCatching }
+                        val credentials = CredentialStore(this@ContextService).load() ?: run { report(CaptureDiagnostics.Outcome.CONNECTION_MISSING); return@runCatching }
                         val body = JSONObject()
                             .put("id", UUID.randomUUID().toString()).put("at_ms", now).put("app", pkg)
                             .put("text", text).put("analysis_consent", true).put("external_ai_consent", settings.externalAiConsent)
                         if (settings.externalAiConsent) settings.aiProviderId?.let { body.put("provider_id", it) }
                         if (jpeg != null && settings.imagesEnabled) { body.put("jpeg_base64", jpeg).put("image_consent", true); if (settings.replayConsent) body.put("replay_consent", true) }
                         JournalQueue(this@ContextService).enqueue(credentials, "/v1/observations", body)
-                        SyncEngine.schedule(this@ContextService)
-                    }
-                } } }
+                        report(when { jpeg != null -> CaptureDiagnostics.Outcome.QUEUED_IMAGE; imageFailed -> CaptureDiagnostics.Outcome.QUEUED_TEXT_IMAGE_FAILED; else -> CaptureDiagnostics.Outcome.QUEUED_TEXT })
+                        runCatching { SyncEngine.schedule(this@ContextService) }.onFailure { report(CaptureDiagnostics.Outcome.QUEUED_SCHEDULE_FAILED) }
+                    }.onFailure { report(CaptureDiagnostics.Outcome.PROCESSING_FAILED) }
+                } } }.onFailure { report(CaptureDiagnostics.Outcome.PROCESSING_FAILED) }
             }
-            override fun onFailure(errorCode: Int) { pending = false }
-        }) }.onFailure { pending = false }
+            override fun onFailure(errorCode: Int) {
+                pending = false
+                report(if (errorCode == ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) CaptureDiagnostics.Outcome.SYSTEM_SECURE else CaptureDiagnostics.Outcome.SYSTEM_FAILED)
+            }
+        }) }.onFailure { pending = false; report(CaptureDiagnostics.Outcome.SYSTEM_FAILED) }
     }
     /** Reject structural risks before collecting text; fail closed on partial traversal. */
     private fun safeNodes(pkg: String, window: Int): List<AccessibilityNodeInfo>? {
