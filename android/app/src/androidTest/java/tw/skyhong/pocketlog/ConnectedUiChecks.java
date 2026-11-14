@@ -17,6 +17,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import org.json.JSONObject;
 
 /** Real HTTPS/API checks on a disposable synthetic fixture; never accepts a real owner key. */
 final class ConnectedUiChecks {
@@ -46,6 +47,8 @@ final class ConnectedUiChecks {
                 if (has("無法載入")) throw new IllegalStateException("Connected page failed");
                 capture(page[0].equals("每日") ? "daily" : page[0].equals("設定") ? "settings" : "page-" + page[0]);
             }
+            stage = "category visibility, list parity, reset and recreation";
+            categoryVisibilityCheck();
             stage = "reflection draft navigation and empty edit";
             click("時間軸"); await("活動"); awaitSettled();
             setEditor("哪件事讓你恢復精神？", "Synthetic unsaved reflection");
@@ -145,6 +148,56 @@ final class ConnectedUiChecks {
                 new CredentialStore(test.getTargetContext()).clear();
             }
         }
+    }
+    private void categoryVisibilityCheck() throws Exception {
+        click("時間軸"); await("活動"); awaitSettled();
+        click("前一天"); await("顯示全部"); awaitSettled();
+        Field loaded=MainActivity.class.getDeclaredField("loaded"); loaded.setAccessible(true);
+        JSONObject data=(JSONObject)loaded.get(activity);
+        org.json.JSONArray cards=data.getJSONArray("cards");
+        if(cards.length()<2) throw new IllegalStateException("Synthetic category fixture absent");
+        String hiddenCategory=cards.getJSONObject(0).getString("category");
+        int hiddenCount=0;
+        for(int i=0;i<cards.length();i++) if(hiddenCategory.equals(cards.getJSONObject(i).getString("category"))) hiddenCount++;
+        final String[] categoryAction={null};
+        test.runOnMainSync(() -> {
+            for(View v:views()) if(v.getContentDescription()!=null && v.getContentDescription().toString().endsWith("顯示中，點按隱藏")) {
+                categoryAction[0]=v.getContentDescription().toString(); break;
+            }
+        });
+        // Categories follow first appearance in the synthetic response.
+        click(categoryAction[0]);
+        await("顯示 "+(cards.length()-hiddenCount)+" / "+cards.length());
+        click("清單");
+        for(int i=0;i<cards.length();i++) if(hiddenCategory.equals(cards.getJSONObject(i).getString("category")) && has(cards.getJSONObject(i).getString("title")))
+            throw new IllegalStateException("Hidden category remains in list");
+        capture("category-filter-list");
+        Instrumentation.ActivityMonitor monitor=test.addMonitor(MainActivity.class.getName(),null,false);
+        test.runOnMainSync(() -> activity.recreate());
+        Activity recreated=test.waitForMonitorWithTimeout(monitor,10_000); test.removeMonitor(monitor);
+        if(recreated==null) throw new IllegalStateException("Filter recreation failed");
+        activity=recreated; await("顯示 "+(cards.length()-hiddenCount)+" / "+cards.length()); awaitSettled();
+        final boolean[] selectedList={false};
+        test.runOnMainSync(() -> {
+            for(View v:views()) if("活動檢視：清單，已選取".contentEquals(v.getContentDescription()==null?"":v.getContentDescription())) selectedList[0]=v.isSelected();
+        });
+        if(!selectedList[0]) throw new IllegalStateException("List mode lost on recreation");
+        // Hide every remaining visible category through its accessible action.
+        for(int attempt=0;attempt<100;attempt++) {
+            final String[] action={null};
+            test.runOnMainSync(() -> {
+                for(View v:views()) if(v.getContentDescription()!=null && v.getContentDescription().toString().endsWith("顯示中，點按隱藏")) {
+                    action[0]=v.getContentDescription().toString();break;
+                }
+            });
+            if(action[0]==null) break;
+            click(action[0]);
+        }
+        await("這些分類已隱藏"); await("顯示 0 / "+cards.length());
+        capture("category-filter-empty"); click("重設分類篩選"); await("顯示 "+cards.length()+" / "+cards.length());
+        if(has("這些分類已隱藏")) throw new IllegalStateException("Reset failed");
+        click("活動檢視：時間軸"); capture("category-filter-timeline");
+        click("後一天"); await("活動"); awaitSettled();
     }
     private void reveal(String label) {
         test.runOnMainSync(() -> {

@@ -233,3 +233,26 @@ tracks phone pairing/first activity, with no mood step and no overflow.
 The built JS hash matches source. Rust fmt/clippy-Dwarnings/tests, cargo audit
 (1509 advisories/185 dependencies; local index warning), web regressions and
 final Docker smoke passed. No external model or real journal used for captures.
+
+## Native category visibility (#26), 0.4.5-dev
+
+Official Dayflow TabFilterBar.swift and the supplied actual screenshots show
+category visibility chips. Native now provides horizontally scrollable48dp
+category actions with visible/hidden state, reset and filtered-card count.
+Timeline/list share the same selection, retained with the day and view mode on
+Activity recreation. All-hidden state offers reset; goals and totals explicitly
+remain full-day statistics. This does not change stored categories or collection.
+
+Connected synthetic normal/2× text runs passed hide→list exclusion, retained
+selection/list on recreation, hide-all and reset, then timeline mode. Existing
+all-page/brief/Chat/Flow/reflection checks passed; normal also repeated actual
+offline/cache/queue checks. Android33 unit tests/build/instrumentation build/lint
+passed. A test selector initially used the wrong segmented-control accessibility
+label; corrected to the real label before final successful runs.
+
+- [Filtered list](screenshots/native-category-filter-list.png)
+- [All hidden](screenshots/native-category-filter-empty.png)
+- [2× text timeline controls](screenshots/native-category-filter-large.png)
+
+Secure emulator View snapshots and programmatic actions; physical horizontal
+swipe/TalkBack focus remain unverified. The web/server UI is unchanged.

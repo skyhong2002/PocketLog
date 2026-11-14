@@ -21,6 +21,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -91,6 +92,7 @@ class MainActivity : Activity() {
     private var tab = Tab.TIMELINE
     private var restoreTab: Tab? = null
     private var listMode = false
+    private val mutedCategories = linkedSetOf<String>()
 
     private var credentials: Credentials? = null
     private var workspace: JSONObject? = null
@@ -101,7 +103,7 @@ class MainActivity : Activity() {
     private var questionDrafts = EditorDrafts(20, 1000)
     private data class RetainedEditors(val reflections: EditorDrafts, val questions: EditorDrafts, val conversation: String, val weekly: Boolean, val request: JSONObject?, val requestWeekly: Boolean)
     private var bindingReflection = false
-    private fun clearDrafts() { reflectionDrafts.clear(); questionDrafts.clear() }
+    private fun clearDrafts() { reflectionDrafts.clear(); questionDrafts.clear(); mutedCategories.clear() }
     private var exportBytes: ByteArray? = null
     private var agentImportSource = "codex"
     private var pendingAsk: JSONObject? = null
@@ -127,6 +129,8 @@ class MainActivity : Activity() {
         window.setDecorFitsSystemWindows(false)
         ui = Ui(this)
         listMode = getSystemService(AccessibilityManager::class.java)?.isTouchExplorationEnabled == true
+        listMode = state?.getBoolean("list_mode", listMode) ?: listMode
+        state?.getStringArrayList("muted_categories")?.take(100)?.let { mutedCategories.addAll(it) }
         restoreTab = state?.getString("tab")?.let { name -> Tab.entries.firstOrNull { it.name == name } }
         state?.getString("day")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.takeIf { TimelineMath.inHistory(it, journalDay()) }?.let { day = it }
         buildShell()
@@ -139,6 +143,7 @@ class MainActivity : Activity() {
         super.onSaveInstanceState(out)
         // Only navigation state; never journal content or credentials.
         out.putString("tab", tab.name); out.putString("day", day.toString())
+        out.putBoolean("list_mode", listMode); out.putStringArrayList("muted_categories", ArrayList(mutedCategories))
     }
 
     override fun onStart() {
@@ -637,7 +642,7 @@ class MainActivity : Activity() {
         if (data.optBoolean("offline")) ui.banner(slot, "離線：顯示加密快取，可能未包含最新修改。", Kind.WARN)
         if (data.optBoolean("truncated")) ui.banner(slot, "這天資料已達顯示上限，統計可能不完整。", Kind.WARN)
         if (data.optBoolean("pending_reflections")) ui.banner(slot, "反思有加密保存的變更等待同步；這裡先顯示手機上的版本。", Kind.INFO)
-        val list = cardsOf(data); val items = list.map(::item)
+        val list = cardsOf(data)
         val card = ui.card(slot)
         ui.heading(card, "活動")
         val tracked = TimelineMath.covered(intervals(list))
@@ -651,14 +656,37 @@ class MainActivity : Activity() {
             }.apply { background = null; setPadding(0, ui.dp(12), 0, 0) }
             return
         }
-        ui.meta(card, "已記錄 ${TimelineMath.duration(tracked)} · ${list.size} 張活動卡 · 點卡片可修改", bottom = 8)
+        ui.meta(card, "整日已記錄 ${TimelineMath.duration(tracked)} · ${list.size} 張活動卡 · 點卡片可修改", bottom = 8)
+        val count = ui.meta(card, "")
+        ui.meta(card, "切換分類只影響活動顯示；下方目標與時間分配仍統計整日。", bottom = 4)
+        val filters = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val chips = ui.horizontal(null, 6)
+        filters.addView(chips); card.addView(filters, ui.lp())
+        val categories = list.map { it.getString("category") }.distinct()
+        val buttons = linkedMapOf<String, Button>()
+        lateinit var reset: Button
         val holder = ui.column(null)
         fun draw() {
+            val shown = list.filter { it.getString("category") !in mutedCategories }
+            val items = shown.map(::item)
+            count.text = "顯示 ${shown.size} / ${list.size} 張活動卡"
+            reset.isSelected = categories.none { it in mutedCategories }
+            reset.contentDescription = "顯示全部分類，${if (reset.isSelected) "已選擇" else "未選擇"}"
+            buttons.forEach { (id, button) ->
+                val shownCategory = id !in mutedCategories
+                button.text = "${if (shownCategory) "✓" else "○"} ${label(id)}"
+                button.isSelected = shownCategory
+                button.contentDescription = "${label(id)}，${if (shownCategory) "顯示中，點按隱藏" else "已隱藏，點按顯示"}"
+            }
             holder.removeAllViews()
-            if (listMode) activityList(holder, list, items) else {
+            if (shown.isEmpty()) {
+                ui.empty(holder, "這些分類已隱藏", "整日活動仍保留。切換上方分類或顯示全部即可查看。", "重設分類篩選") {
+                    mutedCategories.clear(); draw()
+                }
+            } else if (listMode) activityList(holder, shown, items) else {
                 val viewport = ScrollView(this@MainActivity).apply { isNestedScrollingEnabled = true }
                 val now = System.currentTimeMillis()
-                val view = DayTimelineView(this@MainActivity, day, zone, items, now) { editCard(list[it]) }
+                val view = DayTimelineView(this@MainActivity, day, zone, items, now) { editCard(shown[it]) }
                 viewport.addView(view)
                 val height = (resources.displayMetrics.heightPixels * .58f).toInt().coerceAtLeast(ui.dp(320))
                 holder.addView(viewport, ui.lp(height = height, top = 8))
@@ -666,6 +694,13 @@ class MainActivity : Activity() {
                 val (start, end) = range(day)
                 val focus = if (now in start..end && day == journalDay()) now else items.minOf { it.start }
                 viewport.post { viewport.scrollTo(0, (view.yFor(focus) - height / 3).coerceAtLeast(0)) }
+            }
+        }
+        reset = ui.button(chips, "顯示全部", Tone.TONAL) { mutedCategories.clear(); draw() }
+        categories.forEach { id ->
+            buttons[id] = ui.button(chips, label(id), Tone.OUTLINE) {
+                if (!mutedCategories.remove(id)) mutedCategories.add(id)
+                draw()
             }
         }
         ui.segmented(card, listOf("時間軸", "清單"), if (listMode) 1 else 0, "活動檢視") { listMode = it == 1; draw() }

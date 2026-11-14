@@ -243,3 +243,9 @@ Manual mood/energy entry and its historical card were removed from Timeline and
 Daily. This supersedes the check-in work described above. Existing API/export
 data is preserved; shared reflection editing and focus review remain available.
 Prioritize consented screenshot capture, classification, timeline and API next.
+
+## Category visibility follow-up (0.4.5-dev)
+
+Issue #26 adds Dayflow-inspired category visibility controls shared by the native
+timeline and list, filtered counts, all-hidden recovery, and rotation retention.
+Full-day statistics remain clearly labeled and unchanged. See ACCEPTANCE.md.
