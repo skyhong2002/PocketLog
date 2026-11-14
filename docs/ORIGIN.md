@@ -11,5 +11,7 @@ services, phone history and app installation were left unchanged.
 
 The target product is an automatic activity diary with optional context capture,
 daily reflection and explicit feelings, inspired by Dayflow's usage pattern.
-The name PocketLog was selected by Sky after the naming discussion. That does not
-constitute trademark clearance or a decision on an open-source license.
+The name PocketLog was selected by Sky after the naming discussion. This does not
+constitute trademark clearance. PocketLog is MIT-licensed, as selected by Sky;
+third-party components retain their own licenses (see
+[third-party notices](../THIRD_PARTY_NOTICES.md)).

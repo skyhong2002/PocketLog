@@ -14,5 +14,5 @@ Read README.md and docs/SECURITY.md before changing data collection, sync or aut
 - Run Rust fmt, clippy with warnings denied, tests and cargo audit; run Android
   unit tests, assembleDebug and lintDebug. Smoke-test Docker for deployment changes.
 - Never commit tokens, signing keys, real journals, caches or APK build products.
-  Stage explicit source paths. The repository is private; do not change visibility
-  or choose an open-source license without the owner's instruction.
+  Stage explicit source paths. PocketLog is public and MIT-licensed. Do not change
+  visibility or licensing without the owner's instruction.
