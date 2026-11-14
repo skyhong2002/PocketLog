@@ -58,15 +58,15 @@ No production data or external model was involved.
 Root walked the four onboarding steps, skipped AI, saved a first check-in, and
 confirmed that manual journaling completes setup without a phone. Reflection save
 and reload, successful Chat and saved daily brief using the local fake model,
-session expiry after server restart and re-login were exercised. All eight pages
+session expiry after server restart and re-login were exercised. Flow start, leave/return, live countdown and finish/save were exercised. All eight pages
 loaded at390px without document overflow. The fake model checks UI/request flow,
 not real model quality or vendor interoperability.
 
 A CSS200% zoom stress check at390px exposed fixed date-control/chart widths (#15).
 The repair was checked through individual DOM style properties, preserving CSP;
-rebuilt-image confirmation is still pending. CSS zoom is not browser text zoom.
+rebuilt-image confirmation passed for all eight pages with no document overflow. CSS zoom is not browser text zoom.
 The screenshots predate that responsive repair. Layout arithmetic and overlap/DST
-regressions run in CI. Docker smoke passed on the runtime preceding the CSS repair.
+regressions run in CI. Docker smoke passed again on the final rebuilt image.
 
 Still pending: real browser zoom, screen readers, Firefox/Safari, reduced motion,
 connected native workflows, file-picker agent import, clipboard/download actions,
