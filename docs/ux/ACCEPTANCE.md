@@ -417,3 +417,35 @@ fixtures and images are synthetic; the successful test key is revoked afterward.
 
 No Android production source change or new APK required for this issue. Physical
 phone, TalkBack and full-day battery validation remain outstanding.
+
+## Keyboard classification and date boundaries (#32)
+
+Read-only Astra source review identified focus loss after saving a card and at
+date-navigation boundaries. Reproduced on the previous built image: focus a real
+synthetic timeline card, Enter, save, and `document.activeElement` becomes BODY.
+PocketLog's Dayflow-style timeline needs browser keyboard support as well as its
+pointer-based card inspector; this change does not claim Dayflow runtime parity.
+
+Stable card keys now include ID and clipped start time, avoiding duplicate keys
+for a card spanning multiple week days. Save restores the originating key only
+after the new cards render. A card removed by the category filter/top-five list
+falls back to the focusable main region. When Previous/Next/Today becomes disabled,
+focus moves to the date input. Restored cards scroll into view on both axes.
+Actual week screenshot verification caught a horizontally hidden focused card;
+the final build now reveals it rather than only restoring an invisible focus.
+
+Shared browser acceptance used synthetic fixture only: actual Enter activation
+and save passed day timeline, list, Daily and week; Escape returns to the card.
+Changing a learning card to work while filtering learning removed the card and
+focused main. Next→today and Today→today focused the date input. Final390px list
+and1440px week focus rings were inspected; focused week card bounds are inside
+the viewport, with no document overflow or duplicate data keys. Screen-reader
+acceptance is still outstanding. Existing22px short grid cards remain small touch
+targets; the larger list view is available and further mobile refinement remains.
+
+Rust fmt/clippy-Dwarnings,20unit/31integration, cargo audit and final rebuilt Docker
+smoke pass; JS syntax and web regressions pass. Android production/test sources
+are unchanged from #31's37unit/build/lint and connected pairing acceptance.
+
+- [Mobile focus after save](screenshots/web-classification-focus-mobile.png)
+- [Week focus scrolled into view](screenshots/web-classification-focus-week.png)

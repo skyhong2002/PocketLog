@@ -1099,10 +1099,21 @@ function checklist(s, onPage) {
   return box;
 }
 /* ---------- application shell ---------- */
-function restoreFocus(key) {
+function restoreFocus(key, complete = false) {
   if (!key) return;
-  const n = root.querySelector(`[data-key="${CSS.escape(key)}"]`);
-  if (n && !n.disabled) n.focus({ preventScroll: true });
+  let n = root.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  // The next/previous/today control can become disabled at the date boundary.
+  if (n?.disabled && key.startsWith("day-"))
+    n = root.querySelector('[data-key="day-date"]');
+  // Only choose a fallback after activity cards have finished loading. A saved
+  // category can remove the originating card from the active filter/top five.
+  if (!n && complete && key.startsWith("card-")) n = $("#main");
+  if (n && !n.disabled) {
+    n.focus({ preventScroll: true });
+    // Week grids scroll horizontally too; a focused card must remain visible.
+    if (key.startsWith("card-") && n !== $("#main"))
+      n.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 function go(next) {
   page = next;
@@ -1249,7 +1260,7 @@ async function shell() {
     body.replaceWith(content);
     mounted.forEach((fn) => fn());
     if (!root.contains(document.activeElement) || document.activeElement === document.body)
-      restoreFocus(key);
+      restoreFocus(key, true);
   } catch (e) {
     if (e === STALE || seq !== renderSeq) return;
     body.replaceWith(errorPanel(e));
@@ -1525,7 +1536,7 @@ function track(data, compact) {
     visible,
     (24 / 1536) * length,
   )) {
-    const b = btn("", () => editCard(c), "event");
+    const b = keyed(btn("", () => editCard(c), "event"), `card-${c.id}-${c.start_ms}`);
     const height = Math.max(24, px(c.end_ms - c.start_ms));
     const category = styleFor(c.category);
     b.style.setProperty("--top", `${px(c.start_ms - start)}px`);
@@ -1571,7 +1582,7 @@ function activityList(parent, data, showDate) {
   const list = el("ol", null, "activity-list");
   cards.forEach((c) => {
     const category = styleFor(c.category);
-    const b = btn("", () => editCard(c), "activity");
+    const b = keyed(btn("", () => editCard(c), "activity"), `card-${c.id}-${c.start_ms}`);
     b.style.setProperty("--cat", category.color);
     b.setAttribute("aria-label", eventLabel(c));
     add(
@@ -1718,6 +1729,7 @@ async function saveRecord(item) {
   });
 }
 function editCard(c) {
+  const originKey = document.activeElement?.dataset?.key || focusKey;
   modal("活動卡", (p) => {
     const category = styleFor(c.category);
     add(
@@ -1757,6 +1769,7 @@ function editCard(c) {
               category: choice.value,
             });
             close();
+            focusKey = originKey;
             await shell();
           },
           "primary",
@@ -1896,7 +1909,7 @@ async function reviewPage(parent, seq, kind) {
     else {
       const list = el("ol", null, "activity-list");
       longest.forEach((c) => {
-        const b = btn("", () => editCard(c), "activity");
+        const b = keyed(btn("", () => editCard(c), "activity"), `card-${c.id}-${c.start_ms}`);
         b.style.setProperty("--cat", styleFor(c.category).color);
         b.setAttribute("aria-label", eventLabel(c));
         add(
