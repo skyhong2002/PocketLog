@@ -224,3 +224,12 @@ sync a reflection and reran on the disposable emulator.
 - [2× text reflection action](screenshots/native-daily-without-mood-large.png)
 
 Secure View snapshots only; no physical gesture/TalkBack validation claimed.
+
+Final rebuilt-image web verification: 390px Daily has no mood/energy entry or
+feeling-record prompt and no document overflow. Desktop1440px Support checklist
+tracks phone pairing/first activity, with no mood step and no overflow.
+[Daily](screenshots/web-daily-without-mood.png) ·
+[Activity setup](screenshots/web-activity-setup-checklist.png).
+The built JS hash matches source. Rust fmt/clippy-Dwarnings/tests, cargo audit
+(1509 advisories/185 dependencies; local index warning), web regressions and
+final Docker smoke passed. No external model or real journal used for captures.
