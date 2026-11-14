@@ -39,7 +39,7 @@ final class ConnectedUiChecks {
             stage = "rejected key recovery";
             fillConnection(endpoint, "b".repeat(64)); click("驗證並連線"); await("伺服器拒絕這把金鑰");
             stage = "valid synthetic connection";
-            fillConnection(endpoint, "a".repeat(64)); click("驗證並連線"); await("手機紀錄未開啟"); await("已記錄");
+            fillConnection(endpoint, "a".repeat(64)); click("驗證並連線"); await("手機紀錄未開啟"); await("活動"); awaitSettled();
             assertConsentOff(); capture("timeline");
             for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
                 stage = "navigation " + page[0]; click(page[0]); await(page[1]); awaitSettled();
@@ -47,12 +47,12 @@ final class ConnectedUiChecks {
                 capture(page[0].equals("每日") ? "daily" : page[0].equals("設定") ? "settings" : "page-" + page[0]);
             }
             stage = "reflection draft navigation and empty edit";
-            click("時間軸"); await("已記錄"); awaitSettled();
+            click("時間軸"); await("活動"); awaitSettled();
             setEditor("哪件事讓你恢復精神？", "Synthetic unsaved reflection");
-            click("每日"); await("時間分配"); awaitSettled(); click("時間軸"); await("已記錄"); awaitSettled();
+            click("每日"); await("時間分配"); awaitSettled(); click("時間軸"); await("活動"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic unsaved reflection");
             setEditor("哪件事讓你恢復精神？", "");
-            click("每日"); await("時間分配"); awaitSettled(); click("時間軸"); await("已記錄"); awaitSettled();
+            click("每日"); await("時間分配"); awaitSettled(); click("時間軸"); await("活動"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "");
             stage = "draft survives Activity recreation";
             setEditor("哪件事讓你恢復精神？", "Synthetic retained reflection");
@@ -60,18 +60,18 @@ final class ConnectedUiChecks {
             test.runOnMainSync(() -> activity.recreate());
             Activity recreated = test.waitForMonitorWithTimeout(monitor, 10_000); test.removeMonitor(monitor);
             if (recreated == null) throw new IllegalStateException("Activity did not recreate");
-            activity = recreated; await("已記錄"); awaitSettled();
+            activity = recreated; await("活動"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic retained reflection");
             stage = "Daily editor shares timeline draft and saves without leaving";
             click("每日"); await("時間分配"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic retained reflection");
             setEditor("哪件事讓你恢復精神？", "Synthetic Daily editor draft");
-            click("時間軸"); await("已記錄"); awaitSettled();
+            click("時間軸"); await("活動"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic Daily editor draft");
             click("每日"); await("時間分配"); awaitSettled();
             setEditor("哪件事讓你恢復精神？", "Synthetic Daily saved reflection");
             click("儲存這一天的反思"); await("反思已加密加入佇列"); awaitSettled();
-            click("時間軸"); await("已記錄"); awaitSettled();
+            click("時間軸"); await("活動"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic Daily saved reflection");
             click("每日"); await("時間分配"); awaitSettled();
             revealEditor("哪件事讓你恢復精神？"); capture("daily-editor");
@@ -83,6 +83,25 @@ final class ConnectedUiChecks {
             revealEditor("哪件事讓你恢復精神？"); capture("daily-historical-editor");
             click("回到今天記感受"); await("記下此刻（可離線）"); awaitSettled();
             assertEditor("哪件事讓你恢復精神？", "Synthetic Daily saved reflection");
+            stage = "brief consent destination, scope, cancel and explicit generate";
+            click("前一天"); await("回到今天記感受"); awaitSettled();
+            click("每日 AI 回顧與排程"); await("產生並保存回顧"); awaitSettled();
+            int beforeBriefs=briefCount();
+            click("產生並保存回顧"); await("提供者端點"); awaitSettled();
+            if(!has("127.0.0.1:18752") || !has("synthetic-ui") || !has("24,000 位元組") || !has("時區：") || !has("不含原始畫面") || !has("尚未傳送"))
+                throw new IllegalStateException("Consent destination or scope missing");
+            capture("brief-consent"); revealAction("取消，返回回顧"); capture("brief-consent-actions");
+            click("取消，返回回顧"); await("產生並保存回顧"); awaitSettled();
+            if(briefCount()!=beforeBriefs) throw new IllegalStateException("Cancel created a brief");
+            click("產生並保存回顧"); await("提供者端點"); awaitSettled();
+            click("同意並產生"); await("已保存新的回顧"); awaitSettled();
+            if(briefCount()!=beforeBriefs+1) throw new IllegalStateException("Explicit brief was not stored once");
+            click("摘要排程設定"); await("提供者端點："); awaitSettled();
+            if(!has("127.0.0.1:18752") || !has("synthetic-ui")) throw new IllegalStateException("Schedule destination missing");
+            capture("brief-schedule");
+            click("返回"); await("產生並保存回顧"); awaitSettled();
+            click("返回"); await("回到今天記感受"); awaitSettled();
+            click("回到今天記感受"); await("記下此刻（可離線）"); awaitSettled();
             stage = "question draft navigation and scope isolation";
             click("Chat"); await("你想問什麼？"); awaitSettled();
             setEditor("例如：今天哪段時間最專注？", "Synthetic day question");
@@ -109,7 +128,7 @@ final class ConnectedUiChecks {
             click("每日"); await("時間分配"); click("Flow"); await("Synthetic native focus");
             click("儲存並結束"); await("開始一段專注");
             stage = "check-in and encrypted queue sync";
-            click("時間軸"); await("已記錄"); click("記下此刻（可離線）"); await("已加密儲存");
+            click("時間軸"); await("活動"); click("記下此刻（可離線）"); await("已加密儲存");
             click("同步並重新整理"); await("已同步");
             assertConsentOff();
             if ("yes".equals(args.getString("offline"))) offlineCacheCheck();
@@ -185,6 +204,11 @@ final class ConnectedUiChecks {
                         throw new IllegalStateException("Queued deletion resurrected cached reflection");
             }
         } finally { shell("cmd connectivity airplane-mode disable"); shell("svc wifi enable"); }
+    }
+    private int briefCount() throws Exception {
+        long now=System.currentTimeMillis();
+        Credentials c=new CredentialStore(test.getTargetContext()).load();
+        return new PocketLogApi(c).request("/v1/briefs?from_ms="+(now-7L*86_400_000)+"&to_ms="+now,null,"GET").getJSONArray("briefs").length();
     }
     private void assertConsentOff() {
         RecordingSettings s = new RecordingSettings(test.getTargetContext());

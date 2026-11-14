@@ -185,3 +185,20 @@ review was source-only. Android33 unit tests, assembleDebug, instrumentation bui
 and lintDebug passed (0 lint errors/8 existing warnings). Service source/APK
 network/collection logic are unchanged; Rust/web/Docker checks passed earlier in
 this wave. Physical device/keyboard/permission/battery validation remains pending.
+
+## Native AI brief destination consent (#24), 0.4.4-dev
+
+The separate confirmation page names endpoint, model, exact half-open date range
+and timezone, evidence limits and exclusions before any model request. Schedule
+consent also identifies the endpoint/model. No provider means disabled consent.
+Connected synthetic normal/2× font checks verified cancel leaves brief count
+unchanged, explicit consent creates one brief through a local fake model, and
+schedule destination is readable. Android33 unit tests, assembleDebug,
+assembleDebugAndroidTest and lintDebug passed. The test runner now accepts empty
+new days after the04:00 rollover rather than requiring populated-day text.
+
+- [Destination and scope](screenshots/native-brief-consent.png)
+- [Schedule destination](screenshots/native-brief-schedule.png)
+- [2× text consent actions](screenshots/native-brief-large-actions.png)
+
+Secure emulator View snapshots; physical touch and TalkBack remain unverified.

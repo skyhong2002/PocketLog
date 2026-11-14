@@ -229,3 +229,10 @@ return-to-today action rather than a check-in form. Existing recorded feelings
 remain readable, and historical reflection editing remains available. No capture
 or model consent changes. Connected normal/2× text and Astra source review are
 recorded in ACCEPTANCE.md.
+
+## AI brief consent follow-up (0.4.4-dev)
+
+Issue #24 adds a readable confirmation page with provider endpoint/model, exact
+range/timezone, bounds and exclusions. Cancellation makes no model call; one
+request identity is retained for retries. Schedule consent identifies its
+provider and cannot be enabled without one. See ACCEPTANCE.md for synthetic checks.

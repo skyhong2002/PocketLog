@@ -967,14 +967,42 @@ class MainActivity : Activity() {
             ui.button(this, "產生並保存回顧") {
                 task("確認 AI 設定…", { api().request("/v1/ai") }) { config ->
                     if (!config.optBoolean("enabled")) { notice("請先設定 AI", Kind.WARN); return@task }
-                    dialog().setTitle("這次傳送活動卡？").setMessage("會將上述範圍送到 ${config.getString("model")}，可能產生 API 費用，並保存摘要 30 天。").setNegativeButton("取消", null).setPositiveButton("同意並產生") { _, _ ->
-                        val request = JSONObject().put("id", UUID.randomUUID().toString()).put("from_ms", from).put("to_ms", to).put("kind", if (weekly) "weekly" else "daily").put("provider_id", config.getString("provider_id")).put("consent", true)
-                        task("等待模型回覆…", { api().request("/v1/briefs", request) }) { briefsPage(weekly); notice("已保存新的回顧") }
-                    }.showSecure()
+                    briefConsentPage(weekly, config, from, to)
+                    notice("尚未傳送；確認後才會產生回顧。", Kind.INFO)
                 }
             }
             ui.row(this, "摘要排程設定", "獨立同意，預設關閉") { briefScheduleSettings(weekly) }
         }
+    }
+
+    private fun briefConsentPage(weekly: Boolean, config: JSONObject, from: Long, to: Long) {
+        val body = screen("確認這次 AI 回顧", if (weekly) "每週回顧" else "每日回顧", back = { briefsPage(weekly) })
+        ui.card(body).apply {
+            ui.heading(this, "傳送給誰")
+            ui.meta(this, "提供者端點")
+            ui.body(this, config.getString("endpoint"), top = 4)
+            ui.meta(this, "模型", top = 12)
+            ui.body(this, config.getString("model"), top = 4)
+            ui.meta(this, "經由你的私人 PocketLog 伺服器轉送；請確認這是你信任的提供者。", top = 12)
+        }
+        ui.card(body).apply {
+            ui.heading(this, "這次傳送什麼")
+            val format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            ui.body(this, "${Instant.ofEpochMilli(from).atZone(zone).format(format)} – ${Instant.ofEpochMilli(to).atZone(zone).format(format)}")
+            ui.meta(this, "時區：${zone.id}；包含開始、不包含結束時間。", top = 6)
+            ui.body(this, "最多 100 張活動卡、24,000 位元組，只含活動的 app、時間、標題與摘要。", top = 12)
+            ui.meta(this, "不含原始畫面、原始文字、感受、反思或 Agent 對話。", top = 8)
+        }
+        ui.card(body).apply {
+            ui.heading(this, "費用與保存")
+            ui.body(this, "API 費用由你承擔。模型輸出可能有誤，請核對活動。回顧保存在私人伺服器 30 天；已傳給模型的內容無法撤回。")
+        }
+        // One identity for retries from this confirmation page; provider-bound on the server.
+        val request = JSONObject().put("id", UUID.randomUUID().toString()).put("from_ms", from).put("to_ms", to).put("kind", if (weekly) "weekly" else "daily").put("provider_id", config.getString("provider_id")).put("consent", true)
+        ui.button(body, "同意並產生", Tone.PRIMARY) {
+            task("等待模型回覆…", { api().request("/v1/briefs", request) }) { briefsPage(weekly); notice("已保存新的回顧") }
+        }
+        ui.button(body, "取消，返回回顧", Tone.TEXT) { briefsPage(weekly) }
     }
 
     private fun briefScheduleSettings(weekly: Boolean) {
@@ -983,7 +1011,10 @@ class MainActivity : Activity() {
         val slot = ui.column(body)
         load(slot, "讀取排程…", { val api = api(); api.request("/v1/briefs/schedule") to api.request("/v1/ai") }) { (schedule, config) ->
             val card = ui.card(slot)
-            val enabled = ui.checkbox(card, "同意持續傳送給 ${config.optString("model", "尚未設定模型")}，並保存摘要 30 天", schedule.getBoolean("enabled") && schedule.optString("provider_id") == config.optString("provider_id"))
+            val configured = config.optBoolean("enabled")
+            ui.meta(card, if (configured) "提供者端點：${config.getString("endpoint")}\n模型：${config.getString("model")}" else "尚未設定 AI。請先到「設定 → AI」設定自己的模型；目前只能保存停用的排程。", bottom = 8)
+            val enabled = ui.checkbox(card, "同意持續傳送給上述提供者與模型，並保存摘要 30 天", configured && schedule.getBoolean("enabled") && schedule.optString("provider_id") == config.optString("provider_id"))
+            enabled.isEnabled = configured
             val timezone = ui.field(card, "IANA 時區", "Asia/Taipei", Field.TEXT, schedule.getString("timezone"))
             val minutes = ui.field(card, "每天幾點幾分", "04:00–23:59", Field.TEXT, "%02d:%02d".format(schedule.getInt("minute_of_day") / 60, schedule.getInt("minute_of_day") % 60))
             val daily = ui.checkbox(card, "每日摘要", schedule.getBoolean("daily"))
