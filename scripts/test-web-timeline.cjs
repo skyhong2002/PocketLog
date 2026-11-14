@@ -48,3 +48,18 @@ try {
   assert.equal(timelineTicks('2026-10-31').length,24);
 } finally { if (originalZone === undefined) delete process.env.TZ; else process.env.TZ=originalZone; }
 console.log('Web 04:00 DST labels, offsets and half-hour transition checks passed');
+
+const { metrics } = require('../server/web/app.js');
+const cards = [[0,60,'work'],[30,90,'learn'],[75,120,'rest'],[100,130,'social']]
+  .map(([start_ms,end_ms,category])=>({start_ms,end_ms,category}));
+const before = JSON.stringify(cards);
+const m = metrics(cards, c => ['work','learn'].includes(c) ? 'focus' : 'distraction');
+assert.equal(m.total,130);
+assert.equal(m.focus,90);
+assert.equal(m.distraction,55);
+assert.equal(m.longest,90);
+assert.equal(m.categoryTotal,195);
+assert.equal(JSON.stringify(cards),before);
+assert.equal(metrics([],()=> 'neutral').total,0);
+assert.equal(metrics([{start_ms:-30,end_ms:-10,category:'work'}],()=> 'focus').longest,20);
+console.log('Elapsed and role totals merge overlaps; category attribution remains explicit');

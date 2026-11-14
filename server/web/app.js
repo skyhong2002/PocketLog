@@ -411,42 +411,39 @@ function layoutLanes(cards, minMs = 0) {
   flush();
   return out;
 }
-function metrics(cards) {
-  const totals = {};
-  let focus = 0,
-    distraction = 0;
-  const intervals = [];
-  for (const c of cards) {
-    const ms = c.end_ms - c.start_ms;
-    totals[c.category] = (totals[c.category] || 0) + ms;
-    const role = styleFor(c.category).role;
-    if (role === "focus") {
-      focus += ms;
-      intervals.push([c.start_ms, c.end_ms]);
-    }
-    if (role === "distraction") distraction += ms;
-  }
-  intervals.sort((a, b) => a[0] - b[0]);
-  let longest = 0,
-    start = 0,
-    end = 0;
-  for (const [s, e] of intervals) {
-    if (s > end) {
-      start = s;
-      end = e;
-    } else end = Math.max(end, e);
+// Elapsed time is a union; category attribution may legitimately overlap.
+function mergedTime(cards) {
+  let total = 0, longest = 0, start, end;
+  for (const c of [...cards].sort((a, b) => a.start_ms - b.start_ms)) {
+    if (c.end_ms <= c.start_ms) continue;
+    if (end === undefined || c.start_ms > end) {
+      if (end !== undefined) total += end - start;
+      start = c.start_ms;
+      end = c.end_ms;
+    } else end = Math.max(end, c.end_ms);
     longest = Math.max(longest, end - start);
   }
+  if (end !== undefined) total += end - start;
+  return { total, longest };
+}
+function metrics(cards, roleFor = (id) => styleFor(id).role) {
+  const totals = {};
+  for (const c of cards) {
+    const ms = Math.max(0, c.end_ms - c.start_ms);
+    totals[c.category] = (totals[c.category] || 0) + ms;
+  }
+  const focus = mergedTime(cards.filter((c) => roleFor(c.category) === "focus"));
   return {
     totals,
-    focus,
-    distraction,
-    longest,
-    total: Object.values(totals).reduce((a, b) => a + b, 0),
+    focus: focus.total,
+    distraction: mergedTime(cards.filter((c) => roleFor(c.category) === "distraction")).total,
+    longest: focus.longest,
+    total: mergedTime(cards).total,
+    categoryTotal: Object.values(totals).reduce((a, b) => a + b, 0),
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks };
+  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks };
 
 /* ---------- dialogs ---------- */
 function modal(title, build) {
@@ -1630,7 +1627,7 @@ function donut(parent, m) {
   let start = 0;
   const entries = Object.entries(m.totals).sort((a, b) => b[1] - a[1]);
   const stops = entries.map(([id, ms]) => {
-    const end = start + (ms / (m.total || 1)) * 360;
+    const end = start + (ms / (m.categoryTotal || 1)) * 360;
     const stop = `${styleFor(id).color} ${start}deg ${end}deg`;
     start = end;
     return stop;
@@ -1658,12 +1655,13 @@ function donut(parent, m) {
       add(el("span"), el("i", null, "dot"), document.createTextNode(c.name)),
       el(
         "span",
-        `${duration(ms)} · ${Math.round((ms / (m.total || 1)) * 100)}%`,
+        `${duration(ms)} · ${Math.round((ms / (m.categoryTotal || 1)) * 100)}%`,
       ),
     );
     add(legend, line);
   });
   add(parent, legend);
+  if (entries.length) add(parent, el("p", "分類占比依各卡片時間計算；同時進行的活動可能重疊。記錄與目標時間會合併重疊時段。", "muted"));
   if (!entries.length)
     add(parent, el("p", "這天沒有可統計的活動。", "muted center"));
 }

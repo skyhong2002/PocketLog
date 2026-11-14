@@ -414,6 +414,7 @@ class MainActivity : Activity() {
     }
 
     private fun legend(parent: ViewGroup, totals: List<Pair<String, Long>>) {
+        ui.meta(parent, "分類占比依各卡片時間計算；同時進行的活動可能重疊。")
         val sum = totals.sumOf { it.second }.coerceAtLeast(1)
         parent.addView(CategoryBarView(this@MainActivity, totals.map { colorFor(it.first) to it.second }), ui.lp(top = 4, bottom = 8))
         totals.forEach { (id, ms) ->
@@ -690,8 +691,8 @@ class MainActivity : Activity() {
     private data class DayStats(val focus: Long, val distraction: Long, val longest: Long)
     private fun dayStats(list: List<JSONObject>): DayStats {
         val focusRows = list.filter { style(it.getString("category"))?.optString("role") == "focus" }
-        val distraction = list.filter { style(it.getString("category"))?.optString("role") == "distraction" }.sumOf { it.getLong("end_ms") - it.getLong("start_ms") }
-        return DayStats(focusRows.sumOf { it.getLong("end_ms") - it.getLong("start_ms") }, distraction, TimelineMath.longestMerged(intervals(focusRows)))
+        val distraction = TimelineMath.covered(intervals(list.filter { style(it.getString("category"))?.optString("role") == "distraction" }))
+        return DayStats(TimelineMath.covered(intervals(focusRows)), distraction, TimelineMath.longestMerged(intervals(focusRows)))
     }
 
     private fun goals(card: LinearLayout, list: List<JSONObject>) {
@@ -714,7 +715,7 @@ class MainActivity : Activity() {
         val tiles = ui.horizontal(card, 8).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(10) }
         ui.stat(tiles, "最長連續專注", TimelineMath.duration(stats.longest), null)
         ui.stat(tiles, "已記錄", TimelineMath.duration(TimelineMath.covered(intervals(list))), null)
-        ui.meta(card, "專注與分心依分類角色計算，可在「設定 → 目標與分類」調整。", top = 8)
+        ui.meta(card, "專注與分心依分類角色計算，同類角色的重疊時段只計一次；不同角色可能同時進行。可在「設定 → 目標與分類」調整。", top = 8)
     }
 
     private fun feelingsCard(parent: ViewGroup): LinearLayout {
