@@ -559,7 +559,7 @@ class MainActivity : Activity() {
         val dots = ui.horizontal(body, 6).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(16); contentDescription = "第 ${step + 1} 步，共 4 步"; isFocusable = true }
         repeat(4) { i -> dots.addView(View(this@MainActivity).apply { background = ui.shape(if (i <= step) Palette.ACCENT else Palette.BORDER, 3f) }, LinearLayout.LayoutParams(0, ui.dp(6), 1f)) }
         val (headline, text) = when (step) {
-            0 -> "把一天，收進口袋。" to "活動卡、每日回顧與你的感受，幫助你理解生活節奏。這份設定在網站與手機共用，完成一次即可。"
+            0 -> "把一天，收進口袋。" to "自動記錄、活動分類與時間軸，幫助你回看一天。這份設定在網站與手機共用，完成一次即可。"
             1 -> "先選擇，才開始記錄。" to "• 使用紀錄、畫面文字、圖片與 AI 各自獨立同意，預設關閉。\n• 排除清單優先於允許清單；密碼、輸入欄位、鎖定畫面與安全視窗在擷取前排除。\n• 原始情境最多保留 24 小時，活動與反思最多 30 天。\n• 伺服器管理者可以讀取日誌。"
             2 -> "為自己留一點專注。" to "目標與分類角色會同步到網站；它們用來整理你的一天，不是替你評分。"
             else -> "帶上你自己的 AI（選用）。" to "可設定 OpenAI 相容、Anthropic 或 Gemini API 與模型，也可以先使用無 AI 的活動卡。設定模型不代表同意傳送畫面。"
@@ -611,7 +611,6 @@ class MainActivity : Activity() {
         dateNav(body) { day = it; home() }
         captureCallout(body)
         val slot = ui.column(body)
-        val checkins = feelingsCard(body)
         val reflections = reflectionCard(body)
         dayActions(body)
         load(slot, "讀取時間軸…", {
@@ -619,7 +618,7 @@ class MainActivity : Activity() {
             latest to SyncEngine.readTimeline(this@MainActivity, dayPath())
         }) { (latest, data) ->
             if (latest != null) workspace = latest
-            renderTimeline(slot, data); renderFeelings(checkins, reflections, data)
+            renderTimeline(slot, data); renderReflections(reflections, data)
         }
     }
 
@@ -730,27 +729,6 @@ class MainActivity : Activity() {
         ui.meta(card, "專注與分心依分類角色計算，同類角色的重疊時段只計一次；不同角色可能同時進行。可在「設定 → 目標與分類」調整。", top = 8)
     }
 
-    private fun feelingsCard(parent: ViewGroup): LinearLayout {
-        val card = ui.card(parent)
-        if (day != journalDay()) {
-            ui.heading(card, "這天的感受")
-            ui.meta(card, "感受只記錄當下，不會補填到過去的日期。下方仍可閱讀這天的紀錄。")
-            ui.button(card, "回到今天記感受", Tone.TONAL) { day = journalDay(); go(tab) }
-            return ui.column(card)
-        }
-        ui.heading(card, "現在感覺如何？")
-        ui.meta(card, "1 = 很低，5 = 很高。記錄時間是現在；只保存你填寫的感受，系統不會推測。", bottom = 4)
-        ui.text(card, "心情", 14f, bold = true, top = 8, bottom = 6)
-        val mood = ui.segmented(card, listOf("1", "2", "3", "4", "5"), 2, "心情")
-        ui.text(card, "精神", 14f, bold = true, top = 12, bottom = 6)
-        val energy = ui.segmented(card, listOf("1", "2", "3", "4", "5"), 2, "精神")
-        ui.button(card, "記下此刻（可離線）", Tone.PRIMARY) {
-            val body = JSONObject().put("id", UUID.randomUUID().toString()).put("at_ms", System.currentTimeMillis()).put("mood", mood() + 1).put("energy", energy() + 1)
-            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/checkins", body) }) { notice("已加密儲存，等待同步。") }
-        }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
-        return ui.column(card)
-    }
-
     private fun reflectionCard(parent: ViewGroup): LinearLayout {
         val card = ui.card(parent)
         ui.heading(card, "每日反思")
@@ -768,10 +746,7 @@ class MainActivity : Activity() {
         return ui.column(card)
     }
 
-    private fun renderFeelings(checkinSlot: LinearLayout, reflectionSlot: LinearLayout, data: JSONObject) {
-        val checkins = data.optJSONArray("checkins") ?: JSONArray()
-        if (checkins.length() > 0) ui.text(checkinSlot, "這天的紀錄", 14f, bold = true, top = 12, bottom = 4)
-        for (i in 0 until checkins.length()) { val c = checkins.getJSONObject(i); ui.meta(checkinSlot, "${clock(c.getLong("at_ms"))} · 心情 ${c.getInt("mood")}/5 · 精神 ${c.getInt("energy")}/5") }
+    private fun renderReflections(reflectionSlot: LinearLayout, data: JSONObject) {
         val reflections = data.optJSONArray("reflections") ?: JSONArray()
         for (i in 0 until reflections.length()) {
             val reflection = reflections.getJSONObject(i)
@@ -810,7 +785,7 @@ class MainActivity : Activity() {
                 val keywords = data.getJSONArray("title_keywords")
                 ui.heading(panel, "標題關鍵字", top = 12)
                 ui.body(panel, (0 until keywords.length()).joinToString("、") { keywords.getJSONArray(it).getString(0) }.ifBlank { "—" })
-                ui.meta(panel, "取自最近 1000 張卡片。感受紀錄：${data.getInt("checkin_count")} 筆（只統計你填寫的感受）。", top = 8)
+                ui.meta(panel, "取自最近 1000 張活動卡片。", top = 8)
                 if (data.optBoolean("offline")) ui.banner(panel, "離線快取，尚未包含最新資料。", Kind.WARN, 0)
                 dialog().setTitle("${md(start)} 起的活動概覽").setView(ScrollView(this@MainActivity).apply { addView(panel) }).setPositiveButton("關閉", null).showSecure()
                 notice("概覽已更新", Kind.INFO)
@@ -884,9 +859,8 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            val checkins = feelingsCard(slot)
             val reflections = reflectionCard(slot)
-            renderFeelings(checkins, reflections, data)
+            renderReflections(reflections, data)
             ui.card(slot, padding = 8).apply {
                 ui.row(this, "每日 AI 回顧與排程", "只在你明確同意時傳送活動卡") { briefsPage(false) }
                 ui.row(this, "複製這天的私人時間軸", "標題與摘要；只貼到你信任的位置") {

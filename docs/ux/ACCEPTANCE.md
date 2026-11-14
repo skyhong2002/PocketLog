@@ -202,3 +202,25 @@ new days after the04:00 rollover rather than requiring populated-day text.
 - [2× text consent actions](screenshots/native-brief-large-actions.png)
 
 Secure emulator View snapshots; physical touch and TalkBack remain unverified.
+
+## Owner scope correction: remove manual mood entry (#25)
+
+Supersedes the check-in portions of #23 and earlier acceptance: Android Timeline
+and Daily no longer render mood/energy forms or historical feeling cards. Web
+Daily, empty states, welcome and checklist no longer ask for a mood entry. Setup
+now tracks a journal device key and first activity, with capture consent separate.
+Existing check-ins remain in storage and private export/API for compatibility;
+no journal migration or deletion was performed. Optional reflection and Dayflow's
+focus/distraction review remain separate from mood entry.
+
+Android33 unit tests/build/instrumentation build/lint passed. Connected synthetic
+normal and2× font runs passed all pages, absent current/historical mood actions,
+shared reflection drafts/save, queue sync, brief consent, Chat and Flow. Normal
+run repeated actual offline queued update/delete/cache checks. The first run
+stopped because an old test still clicked the deleted mood button; corrected to
+sync a reflection and reran on the disposable emulator.
+
+- [Daily without mood form](screenshots/native-daily-without-mood.png)
+- [2× text reflection action](screenshots/native-daily-without-mood-large.png)
+
+Secure View snapshots only; no physical gesture/TalkBack validation claimed.

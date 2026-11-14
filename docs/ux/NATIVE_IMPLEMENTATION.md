@@ -236,3 +236,10 @@ Issue #24 adds a readable confirmation page with provider endpoint/model, exact
 range/timezone, bounds and exclusions. Cancellation makes no model call; one
 request identity is retained for retries. Schedule consent identifies its
 provider and cannot be enabled without one. See ACCEPTANCE.md for synthetic checks.
+
+## Owner scope correction (#25)
+
+Manual mood/energy entry and its historical card were removed from Timeline and
+Daily. This supersedes the check-in work described above. Existing API/export
+data is preserved; shared reflection editing and focus review remain available.
+Prioritize consented screenshot capture, classification, timeline and API next.

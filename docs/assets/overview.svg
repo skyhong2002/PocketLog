@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
   <title id="title">PocketLog: make room for reflection</title>
-  <desc id="desc">Product direction, not an app screenshot: activity capture and context understanding are planned; explicit mood and energy check-ins are available in the development foundation.</desc>
+  <desc id="desc">Product direction, not an app screenshot: consented activity capture, context understanding, and classified timeline review.</desc>
   <defs>
     <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#122F28"/><stop offset="1" stop-color="#224B3E"/></linearGradient>
     <linearGradient id="card" x2="1" y2="1"><stop stop-color="#315B4C"/><stop offset="1" stop-color="#24483D"/></linearGradient>
@@ -39,8 +39,8 @@
     <g>
       <rect x="725" y="369" width="419" height="110" rx="18" fill="#DCE9C1"/>
       <text x="750" y="401" font-size="11" fill="#4D684E" letter-spacing="1.7">03 / REFLECT</text>
-      <text x="750" y="434" font-size="24" font-weight="600" fill="#1C3D30">How did that feel?</text>
-      <text x="750" y="459" font-size="13" fill="#46664D">Mood + energy check-ins · available</text>
+      <text x="750" y="434" font-size="24" font-weight="600" fill="#1C3D30">Find your day again</text>
+      <text x="750" y="459" font-size="13" fill="#46664D">Activity cards · categories · private API</text>
     </g>
   </g>
 </svg>

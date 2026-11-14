@@ -2,7 +2,7 @@
 
 PocketLog has two parts: your private website stores and reviews the journal;
 the Android app can optionally collect phone activity. Start on the website.
-AI and automatic recording are optional. A manual check-in works without either.
+AI and automatic recording have separate consent. No mood entry is required.
 
 1. The person who deployed the server holds its **owner key**, which is the
    website password. The initializer creates it in `.secrets/owner_token` for
@@ -15,7 +15,7 @@ AI and automatic recording are optional. A manual check-in works without either.
 3. In website Settings, issue a **journal device key** for the phone. Install
    the APK and enter the same HTTPS address plus this device key. Keep the owner
    key for recovery instead of sharing it across phones.
-4. Make a manual check-in first. Enable phone recording only if desired, granting
+4. Enable phone recording only if desired, granting
    its separate Android permissions. Check the first activity after sync; Android
    background scheduling can delay it. The browser does not collect phone activity.
 

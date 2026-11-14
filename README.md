@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Early development.** The timeline reader, mood check-ins, and self-hosted API
+> **Early development.** The timeline reader and self-hosted API
 > now include opt-in app/context capture, encrypted offline sync, editable activity
 > cards, daily reflection, shared onboarding, a private responsive website and BYO AI.
 > Daily/weekly saved AI briefs and opt-in schedules, durable Chat, shared focus timers,
@@ -32,15 +32,15 @@ or reading the news. PocketLog aims to turn those fragments into a timeline you
 can review, categorize, and correct.
 
 <p align="center">
-  <img src="docs/assets/overview.svg" alt="Product direction: capture activity, understand context, and reflect on feelings. Optional capture, private processing, and explicit mood journaling; illustration is a product concept." width="100%">
+  <img src="docs/assets/overview.svg" alt="Product direction: capture activity, understand context, and review a classified timeline. Optional capture and private processing; illustration is a product concept." width="100%">
   <br><sub>Product concept, not a screenshot of the current app.</sub>
 </p>
 
-## How Did It Feel?
+## Find Your Day Again
 
-Record your mood and energy alongside your activities. The goal is to notice what
-restores or drains you, with space for rest, entertainment, and connection.
-Feelings are self-reported; screen time alone cannot tell us how you feel.
+Capture phone context with explicit consent, review activity cards on a timeline,
+and correct their categories. BYO AI and the private API help connect that context
+to your own tools. Manual mood entry is no longer part of the app.
 
 ## Features
 
@@ -48,7 +48,7 @@ Feelings are self-reported; screen time alone cannot tell us how you feel.
 | --- | --- |
 | Shared onboarding and website | Owner login, shared setup/goals/category presentation; separate phone permission/consent flow |
 | Daily timeline and overview | Native + web hourly day/week cards, 04:00 day boundary, daily/week/month totals, top apps and keywords |
-| Mood, energy, and daily reflection | Explicit check-ins, editable daily reflection; offline queue |
+| Daily reflection | Optional editable reflection with encrypted offline queue; manual mood entry removed |
 | Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; quotas, retention and deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
@@ -113,8 +113,7 @@ phone API or migrate its history.
 
 The design draws on [Dayflow](https://github.com/JerryZLiu/Dayflow)'s activity
 review, [ActivityWatch](https://github.com/ActivityWatch/aw-android)'s event
-collection, and [Daily You](https://github.com/Demizo/Daily_You)'s explicit mood
-journaling. Capturing a screen, understanding its contents, and reflecting on a day
+collection. Capturing a screen, understanding its contents, and reviewing a day
 are separate capabilities.
 
 Our [11-project comparison](docs/research/comparison-audit.md) documents those

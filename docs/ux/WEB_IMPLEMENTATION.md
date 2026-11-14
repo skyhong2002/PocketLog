@@ -294,3 +294,10 @@ implemented; they are requests to the server owner.
 ## Integrator follow-up
 
 Root added scripts/test-web-timeline.cjs to CI, including overlap/immutability and 04:00 DST/half-hour-transition coverage. Timeline tick labels/scroll anchoring now follow actual local-day duration, with offset labels on transition days. Manual-journal setup can complete without enabling phone capture; only unexpired journal device keys count as ready. Final built-image browser verification is tracked in ACCEPTANCE.md.
+
+## Owner scope correction (#25)
+
+Manual mood/energy entry, Daily feeling cards and check-in onboarding actions were
+removed. The checklist tracks phone pairing and first captured activity instead;
+existing check-ins do not count as capture setup. Welcome and empty states lead
+to phone recording/classification. Existing API/export data remains intact.

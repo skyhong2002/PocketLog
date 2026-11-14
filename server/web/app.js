@@ -643,14 +643,14 @@ function login(reason) {
     el("h1", "生活中，值得收藏的小事。"),
     el(
       "p",
-      "PocketLog 是你自己伺服器上的私人活動日誌：回看一天做了什麼、記下當時的感受，慢慢看懂自己的節奏。",
+      "PocketLog 是你自己伺服器上的私人活動日誌：自動整理活動、分類與時間軸，讓你回看一天做了什麼。",
     ),
     listOf(
       false,
       [
         "日誌存放在你或你信任的人架設的伺服器，沒有公開頁面與使用分析。",
         "手機記錄、畫面內容與 AI 都是選用的，預設關閉、各自需要同意。",
-        "不用手機也能開始：登入後可以先記一筆感受或寫每日反思。",
+        "登入後連接手機、設定紀錄權限，再從時間軸查看與修正活動分類。",
       ],
       "points",
     ),
@@ -829,7 +829,7 @@ function onboard(step) {
       p,
       el(
         "p",
-        "PocketLog 把一天整理成可回看的時間軸：活動卡、感受與每日反思，都是讓你理解自己節奏的線索。",
+        "PocketLog 把一天整理成可回看的時間軸：自動記錄的活動卡與分類，讓你快速找回做過的事。",
       ),
       el(
         "p",
@@ -965,12 +965,11 @@ async function loadSetup() {
       ? devices.devices.filter((d) => d.scope === "journal" && d.expires_ms > now).length
       : null,
     activity: overview ? overview.categories.length > 0 : null,
-    checkins: overview ? overview.checkin_count : null,
   };
   return setupState;
 }
 function setupComplete(s) {
-  return !!s && (s.activity === true || s.checkins > 0);
+  return !!s && s.activity === true;
 }
 function checklist(s, onPage) {
   const box = panel(null, "checklist");
@@ -983,17 +982,6 @@ function checklist(s, onPage) {
       text: "你的目標與分類已保存在伺服器，手機會共用同一份設定。",
     },
     {
-      done: s.checkins > 0,
-      title: "記下第一筆感受",
-      text:
-        s.checkins > 0
-          ? "已經有感受紀錄。隨時可以在「每日」再記一筆。"
-          : "不需要手機或 AI。花十秒記下此刻的心情與精神，日誌就開始了。",
-      action:
-        s.checkins > 0 ? null : btn("現在記一筆", () => checkinDialog(), "primary"),
-    },
-    {
-      optional: true,
       done: s.keys > 0 || s.activity === true,
       title: "為手機建立裝置金鑰",
       text:
@@ -1008,13 +996,12 @@ function checklist(s, onPage) {
       ),
     },
     {
-      optional: true,
       done: s.activity === true,
       title: "收到第一筆手機活動",
       text:
         s.activity === true
           ? "時間軸已經有活動。之後可以點任何一張卡片修正標題與分類。"
-          : "在手機 app 連線後，若想自動記錄，請在手機上另外同意並授予「使用紀錄」權限。Android 會自行安排同步，第一筆可能要等十五分鐘以上。不想自動記錄也可以略過這一步。",
+          : "在手機 app 連線後，若想自動記錄，請在手機上另外同意並授予「使用紀錄」權限。Android 會自行安排同步，第一筆可能要等十五分鐘以上。畫面擷取需要在手機另外同意，並設定排除 app；不會因完成設定而自動啟用。",
       action:
         s.activity === true
           ? null
@@ -1090,62 +1077,6 @@ function checklist(s, onPage) {
     );
   return box;
 }
-function scale(parent, legend, low, high) {
-  const set = el("fieldset", null, "scale");
-  add(set, el("legend", legend));
-  const name = "scale-" + crypto.randomUUID();
-  const inputs = [1, 2, 3, 4, 5].map((n) => {
-    const l = el("label");
-    const i = el("input");
-    i.type = "radio";
-    i.name = name;
-    i.value = String(n);
-    i.checked = n === 3;
-    add(l, i, el("span", String(n)));
-    add(set, l);
-    return i;
-  });
-  add(set, add(el("div", null, "scale-ends"), el("span", low), el("span", high)));
-  add(parent, set);
-  return () => +inputs.find((i) => i.checked).value;
-}
-function checkinForm(parent, done) {
-  const mood = scale(parent, "現在的心情", "低落", "很好"),
-    energy = scale(parent, "現在的精神", "疲憊", "充沛");
-  const save = btn(
-    "記下此刻",
-    async () => {
-      await api("/v1/checkins", {
-        id: crypto.randomUUID(),
-        at_ms: Date.now(),
-        mood: mood(),
-        energy: energy(),
-      });
-      notice("感受已記下");
-      await done();
-    },
-    "primary",
-  );
-  add(parent, save);
-  return save;
-}
-function checkinDialog() {
-  modal("記下此刻的感受", (p) => {
-    add(
-      p,
-      el(
-        "p",
-        "感受由你自己回報，PocketLog 不會從螢幕使用推測情緒。紀錄時間是現在，保留 30 天。",
-      ),
-    );
-    checkinForm(p, async () => {
-      close();
-      if (setupState) setupState.checkins = (setupState.checkins || 0) + 1;
-      await shell();
-    });
-  });
-}
-
 /* ---------- application shell ---------- */
 function restoreFocus(key) {
   if (!key) return;
@@ -1452,9 +1383,8 @@ async function timelinePage(parent, seq) {
       emptyState(
         isToday ? "今天還沒有活動紀錄" : "這一天沒有活動紀錄",
         isToday
-          ? "手機同步後，活動會出現在這裡；Android 會自行安排同步時間。你也可以不靠手機，先記下感受或寫反思。"
-          : "這天沒有收到手機活動。感受與反思仍可在「每日」查看與補寫。",
-        isToday ? btn("記下此刻的感受", () => checkinDialog(), "primary") : null,
+          ? "手機同步後，活動會出現在這裡；Android 會自行安排同步時間。可在手機設定檢查紀錄權限與同步狀態。"
+          : "這天沒有收到手機活動。可切換日期或查看手機紀錄設定。",
         btn("寫每日反思", () => go("daily")),
         btn("手機沒有資料？", () => go("support")),
       ),
@@ -1877,10 +1807,6 @@ async function reviewPage(parent, seq, kind) {
           dm.total ? "" : "muted",
         ),
         stack,
-        el(
-          "small",
-          d.checkins.length ? `${d.checkins.length} 筆感受` : "",
-        ),
       );
       if (!future)
         add(
@@ -1925,7 +1851,7 @@ async function reviewPage(parent, seq, kind) {
       .sort((a, b) => b.end_ms - b.start_ms - (a.end_ms - a.start_ms))
       .slice(0, 5);
     if (!longest.length)
-      add(top, el("p", "這天沒有活動資料。感受與反思仍然可以記錄。", "muted"));
+      add(top, el("p", "這天沒有活動資料；請檢查手機同步狀態或選擇其他日期。", "muted"));
     else {
       const list = el("ol", null, "activity-list");
       longest.forEach((c) => {
@@ -1947,22 +1873,6 @@ async function reviewPage(parent, seq, kind) {
       add(top, list);
     }
     add(columns, top);
-    const feel = panel("感受");
-    if (d.checkins.length) {
-      const list = el("ul", null, "plain");
-      d.checkins.forEach((c) =>
-        add(list, el("li", `${time(c.at_ms)} · 心情 ${c.mood}／5 · 精神 ${c.energy}／5`)),
-      );
-      add(feel, list);
-    } else add(feel, el("p", "這天沒有感受紀錄。", "muted"));
-    if (d.date === journalDate()) {
-      keyed(checkinForm(feel, shell), "checkin-save");
-    } else
-      add(
-        feel,
-        el("p", "感受只記錄當下。要記一筆，請回到今天。", "muted"),
-        btn("回到今天", () => setDay(journalDate())),
-      );
     const write = panel("每日反思");
     const stored = d.reflections.map((r) => r.text).join("\n");
     const reflection = field(
@@ -2012,7 +1922,7 @@ async function reviewPage(parent, seq, kind) {
         state,
       ),
     );
-    add(parent, add(el("div", null, "split"), feel, write));
+    add(parent, write);
   }
   briefs(parent, days, kind, saved, briefFrom, briefTo);
 }
@@ -2024,7 +1934,7 @@ function briefs(parent, days, kind, saved, from, to) {
       box,
       el(
         "p",
-        "尚未設定 AI，沒有任何內容被傳送。上面的統計、感受與反思都不需要 AI。",
+        "尚未設定 AI，沒有任何內容被傳送。上面的統計與反思都不需要 AI。",
       ),
       row(
         btn("設定自己的 AI", () =>
@@ -3266,7 +3176,7 @@ async function settingsPage(parent, seq) {
         ? `已設定：${ai.model} · ${providerHost()}。每次摘要或提問前都會先顯示傳送範圍。`
         : ai.available === false
           ? "這個伺服器沒有啟用 AI 設定儲存空間；請依安裝文件掛載設定目錄。"
-          : "尚未設定，沒有任何內容傳送到外部模型。時間軸、感受與反思不需要 AI。",
+          : "尚未設定，沒有任何內容傳送到外部模型。時間軸與反思不需要 AI。",
     ),
     row(
       btn(ai.enabled ? "修改 AI 設定" : "設定自己的 AI", () =>
