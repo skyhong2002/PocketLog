@@ -1,0 +1,14 @@
+.secrets/
+.env
+/data/
+**/target/
+**/build/
+**/.gradle/
+**/local.properties
+*.sqlite*
+*.apk
+*.jks
+*.keystore
+.DS_Store
+
+**/.cargo/

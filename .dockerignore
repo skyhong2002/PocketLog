@@ -1,0 +1,9 @@
+.git
+.secrets
+.env
+android
+server/target
+docs
+data
+
+server/.cargo

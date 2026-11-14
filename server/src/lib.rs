@@ -1,0 +1,326 @@
+#![forbid(unsafe_code)]
+
+use axum::{
+    Json, Router,
+    extract::{DefaultBodyLimit, Query, State},
+    http::{StatusCode, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::{delete, get, post},
+};
+use rusqlite::{Connection, params};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::sync::{Arc, Mutex};
+use subtle::ConstantTimeEq;
+
+const DAY: i64 = 86_400_000;
+const RETENTION: i64 = 30 * DAY;
+const MAX_EVENTS: i64 = 100_000;
+
+#[derive(Clone)]
+pub struct AppState {
+    db: Arc<Mutex<Connection>>,
+    token_hash: [u8; 32],
+    db_slots: Arc<tokio::sync::Semaphore>,
+}
+
+#[derive(Debug)]
+struct ApiError(StatusCode, &'static str);
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (self.0, Json(serde_json::json!({"error":self.1}))).into_response()
+    }
+}
+type Result<T> = std::result::Result<T, ApiError>;
+fn storage_error(_: impl std::fmt::Debug) -> ApiError {
+    ApiError(StatusCode::SERVICE_UNAVAILABLE, "storage unavailable")
+}
+fn invalid() -> ApiError {
+    ApiError(StatusCode::BAD_REQUEST, "invalid request")
+}
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+impl AppState {
+    pub fn new(db: Connection, token: &str) -> std::result::Result<Self, &'static str> {
+        // Generated 32-byte random hex secret; never use a memorable password.
+        if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("owner token must be 64 hex characters");
+        }
+        db.busy_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| "database setup failed")?;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA secure_delete=ON;
+          CREATE TABLE IF NOT EXISTS activities(id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, category TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS activities_end ON activities(end_ms);
+          CREATE TABLE IF NOT EXISTS checkins(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, mood INTEGER NOT NULL, energy INTEGER NOT NULL);
+          CREATE INDEX IF NOT EXISTS checkins_at ON checkins(at_ms);").map_err(|_| "database setup failed")?;
+        Ok(Self {
+            db: Arc::new(Mutex::new(db)),
+            token_hash: Sha256::digest(token.as_bytes()).into(),
+            db_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+        })
+    }
+    async fn database<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let permit = self
+            .db_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "server busy"))?;
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let mut db = db.lock().map_err(storage_error)?;
+            f(&mut db)
+        })
+        .await
+        .map_err(storage_error)?
+    }
+    pub async fn prune(&self) -> std::result::Result<(), &'static str> {
+        self.database(|db| {
+            prune(db, now_ms())?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| "retention cleanup failed")
+    }
+}
+fn prune(db: &Connection, now: i64) -> Result<()> {
+    db.execute(
+        "DELETE FROM activities WHERE end_ms <= ?",
+        [now - RETENTION],
+    )
+    .map_err(storage_error)?;
+    db.execute("DELETE FROM checkins WHERE at_ms <= ?", [now - RETENTION])
+        .map_err(storage_error)?;
+    Ok(())
+}
+
+async fn authenticate(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .unwrap_or("");
+    let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+    if !bool::from(state.token_hash.ct_eq(&hash)) {
+        return ApiError(StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    match tokio::time::timeout(std::time::Duration::from_secs(10), next.run(req)).await {
+        Ok(response) => response,
+        Err(_) => ApiError(StatusCode::REQUEST_TIMEOUT, "request timed out").into_response(),
+    }
+}
+async fn private_headers(req: axum::extract::Request, next: Next) -> Response {
+    let mut response = next.run(req).await;
+    for (key, value) in [
+        ("cache-control", "no-store"),
+        ("x-content-type-options", "nosniff"),
+        ("x-robots-tag", "noindex, nofollow"),
+        (
+            "content-security-policy",
+            "default-src 'none'; frame-ancestors 'none'",
+        ),
+        ("referrer-policy", "no-referrer"),
+    ] {
+        response.headers_mut().insert(
+            axum::http::HeaderName::from_static(key),
+            axum::http::HeaderValue::from_static(value),
+        );
+    }
+    response.headers_mut().insert(
+        header::VARY,
+        axum::http::HeaderValue::from_static("Authorization"),
+    );
+    response
+}
+pub fn router(state: AppState) -> Router {
+    let private = Router::new()
+        .route("/v1/activities", post(ingest))
+        .route("/v1/checkins", post(checkin))
+        .route("/v1/timeline", get(timeline))
+        .route("/v1/journal", delete(erase))
+        .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
+    Router::new()
+        .route(
+            "/healthz",
+            get(|| async { Json(serde_json::json!({"status":"ok"})) }),
+        )
+        .merge(private)
+        .layer(DefaultBodyLimit::max(64 * 1024))
+        .layer(middleware::from_fn(private_headers))
+        .with_state(state)
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Activity {
+    pub id: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub app: String,
+    pub category: Category,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Unsorted,
+    Work,
+    Learning,
+    Communication,
+    Entertainment,
+    LifeAdmin,
+    Rest,
+}
+impl Activity {
+    fn valid(&self, now: i64) -> bool {
+        valid_id(&self.id)
+            && self.start_ms > now - RETENTION
+            && self.end_ms <= now + 60_000
+            && self.end_ms > self.start_ms
+            && self.end_ms - self.start_ms <= DAY
+            && !self.app.is_empty()
+            && self.app.len() <= 200
+            && self
+                .app
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    }
+}
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Batch {
+    activities: Vec<Activity>,
+}
+async fn ingest(
+    State(state): State<AppState>,
+    Json(batch): Json<Batch>,
+) -> Result<Json<serde_json::Value>> {
+    let now = now_ms();
+    if batch.activities.is_empty()
+        || batch.activities.len() > 100
+        || batch.activities.iter().any(|a| !a.valid(now))
+    {
+        return Err(invalid());
+    }
+    let accepted = state.database(move |db| {
+        let tx = db.transaction().map_err(storage_error)?;
+        prune(&tx, now)?;
+        let mut accepted = 0;
+        for a in batch.activities {
+            let category = serde_json::to_string(&a.category).map_err(storage_error)?;
+            let changed = tx.execute("INSERT OR IGNORE INTO activities VALUES (?, ?, ?, ?, ?)", params![a.id,a.start_ms,a.end_ms,a.app,category]).map_err(storage_error)?;
+            if changed == 0 {
+                let same: bool = tx.query_row("SELECT start_ms = ? AND end_ms = ? AND app = ? AND category = ? FROM activities WHERE id = ?", params![a.start_ms,a.end_ms,a.app,category,a.id], |r| r.get(0)).map_err(storage_error)?;
+                if !same { return Err(ApiError(StatusCode::CONFLICT, "event id already used")); }
+            }
+            accepted += changed;
+        }
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM activities", [], |r| r.get(0)).map_err(storage_error)?;
+        if count > MAX_EVENTS { return Err(ApiError(StatusCode::INSUFFICIENT_STORAGE, "journal capacity reached")); }
+        tx.commit().map_err(storage_error)?;
+        Ok(accepted)
+    }).await?;
+    Ok(Json(serde_json::json!({"accepted":accepted})))
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Checkin {
+    id: String,
+    at_ms: i64,
+    mood: u8,
+    energy: u8,
+}
+async fn checkin(State(state): State<AppState>, Json(c): Json<Checkin>) -> Result<StatusCode> {
+    let now = now_ms();
+    if !valid_id(&c.id)
+        || c.at_ms <= now - RETENTION
+        || c.at_ms > now + 60_000
+        || !(1..=5).contains(&c.mood)
+        || !(1..=5).contains(&c.energy)
+    {
+        return Err(invalid());
+    }
+    state.database(move |db| {
+        let tx = db.transaction().map_err(storage_error)?;
+        prune(&tx, now)?;
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM checkins", [], |r| r.get(0)).map_err(storage_error)?;
+        // Replacement makes network retry idempotent, including at capacity.
+        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM checkins WHERE id = ?)", [&c.id], |r| r.get(0)).map_err(storage_error)?;
+        if count >= 10_000 && !exists { return Err(ApiError(StatusCode::INSUFFICIENT_STORAGE, "journal capacity reached")); }
+        tx.execute("INSERT INTO checkins VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET at_ms=excluded.at_ms, mood=excluded.mood, energy=excluded.energy", params![c.id,c.at_ms,c.mood,c.energy]).map_err(storage_error)?;
+        tx.commit().map_err(storage_error)?;
+        Ok(())
+    }).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Window {
+    from_ms: i64,
+    to_ms: i64,
+}
+#[derive(Serialize)]
+struct Timeline {
+    activities: Vec<Activity>,
+    checkins: Vec<Checkin>,
+    truncated: bool,
+}
+async fn timeline(
+    State(state): State<AppState>,
+    Query(w): Query<Window>,
+) -> Result<Json<Timeline>> {
+    let now = now_ms();
+    if w.from_ms < now - RETENTION
+        || w.to_ms > now + 60_000
+        || w.to_ms <= w.from_ms
+        || w.to_ms - w.from_ms > 26 * 3_600_000
+    {
+        return Err(invalid());
+    }
+    state.database(move |db| {
+        prune(db, now)?;
+        let mut statement = db.prepare("SELECT id, MAX(start_ms, ?1), MIN(end_ms, ?2), app, category FROM activities WHERE end_ms > ?1 AND start_ms < ?2 ORDER BY start_ms, id LIMIT 1001").map_err(storage_error)?;
+        let mut activities = statement.query_map([w.from_ms,w.to_ms], |r| {
+            let category: String = r.get(4)?;
+            Ok(Activity { id:r.get(0)?, start_ms:r.get(1)?, end_ms:r.get(2)?, app:r.get(3)?, category:serde_json::from_str(&category).map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e)))? })
+        }).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
+        let mut statement = db.prepare("SELECT id, at_ms, mood, energy FROM checkins WHERE at_ms >= ? AND at_ms < ? ORDER BY at_ms, id LIMIT 1001").map_err(storage_error)?;
+        let mut checkins = statement.query_map([w.from_ms,w.to_ms], |r| Ok(Checkin {id:r.get(0)?,at_ms:r.get(1)?,mood:r.get(2)?,energy:r.get(3)?})).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
+        let truncated = activities.len() > 1000 || checkins.len() > 1000;
+        activities.truncate(1000); checkins.truncate(1000);
+        Ok(Json(Timeline { activities, checkins, truncated }))
+    }).await
+}
+async fn erase(State(state): State<AppState>) -> Result<StatusCode> {
+    state
+        .database(|db| {
+            let tx = db.transaction().map_err(storage_error)?;
+            tx.execute("DELETE FROM activities", [])
+                .map_err(storage_error)?;
+            tx.execute("DELETE FROM checkins", [])
+                .map_err(storage_error)?;
+            tx.commit().map_err(storage_error)?;
+            db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                .map_err(storage_error)?;
+            Ok(())
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
