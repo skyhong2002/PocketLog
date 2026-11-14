@@ -18,7 +18,9 @@ let prefs,
   page = "timeline",
   day = journalDate(),
   mode = "day",
-  view = "grid",
+  // Dense time grids remain available; phone readers start with full-size cards.
+  // Only choose at initial load so resizing never overrides an explicit switch.
+  view = inBrowser && matchMedia("(max-width: 860px)").matches ? "list" : "grid",
   filter = null,
   current = [],
   reviewRows = [],

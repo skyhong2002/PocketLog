@@ -43,3 +43,11 @@ Android brand assets with `uv run --with pillow --with cairosvg --with fonttools
 selected Noto Sans 400 glyphs so the font does not depend on the viewer's system.
 Activity category colors remain distinct and user-editable; red still identifies
 destructive actions rather than serving as a brand accent.
+
+### Web phone presentation
+
+On initial load at860px or narrower, prefer the activity list: its full-size
+cards keep short events readable and touchable. Desktop opens the proportional
+grid. Both presentations remain explicitly selectable; resizing or changing pages
+must retain the current selection within the tab. The opt-in dense grid still has
+small short-event targets, so it is not the default phone reading experience.

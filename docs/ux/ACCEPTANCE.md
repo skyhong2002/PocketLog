@@ -449,3 +449,32 @@ are unchanged from #31's37unit/build/lint and connected pairing acceptance.
 
 - [Mobile focus after save](screenshots/web-classification-focus-mobile.png)
 - [Week focus scrolled into view](screenshots/web-classification-focus-week.png)
+
+## Initial web presentation on phones (#33)
+
+The previous grid opens with22px-high short-event targets; dense week columns
+can make them narrower than20px. This was observed in the synthetic browser
+captures for #32, consistent with Astra's source review. Dayflow's desktop
+proportional grid remains the hierarchy reference, but those dense targets are
+not a good initial phone reading experience.
+
+At initial viewport widths860px or less, PocketLog now selects the existing
+activity list. Desktop defaults to the grid. No resize listener, browser storage,
+automatic collection or additional API calls are added. A user's explicit view
+selection persists through page navigation and viewport resizing within the tab.
+A new page load chooses its initial view from the current width again.
+
+Final rebuilt-image shared browser checks: fresh390px→list,8synthetic cards,
+minimum102px height/328px width and no document overflow; week retained list with
+12cards; explicit grid survived Support→Timeline and resizing to1440px; fresh
+1440px→grid; explicit list survived resizing back to390px. Both initial layouts
+were visually inspected. Classification/focus uses the same cards already
+verified in #32. Existing opt-in dense grid targets remain small, and this change
+does not claim to resize or solve them. Physical-device/screen-reader checks remain.
+
+JS syntax/web regressions and rebuilt Docker smoke pass. Rust fmt/clippy-Dwarnings,
+20unit/31integration and audit passed in this wave with unchanged Rust/dependencies;
+Android unchanged from #31's37unit/build/lint and connected acceptance.
+
+- [Phone initial list](screenshots/web-phone-default-list.png)
+- [Desktop initial grid](screenshots/web-desktop-default-grid.png)
