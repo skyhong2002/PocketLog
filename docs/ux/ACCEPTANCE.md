@@ -308,3 +308,27 @@ worker/local excerpt/private replay and explicitly consented loopback-model
 classification. This adds runtime evidence beyond injected diagnostic states in
 #28. Only fixed synthetic content was used; no production data or external AI.
 Physical-device and full-day battery checks remain open.
+
+## Web content provenance (#29)
+
+Dayflow's actual supplied timeline screenshots and official `ActivityCard.swift`
+(at reference2c79e161) establish the selected-card review/edit hierarchy. PocketLog
+also needs to distinguish its local excerpts and app-only fallback from model
+output: the web previously omitted source, unlike native. Timeline accessible
+labels/tooltips, list/Daily metadata and the inspector now show fixed readable
+source labels. The inspector explains AI uncertainty, excerpt context limits,
+app-only limits and user precedence. Missing/unrecognized source stays unknown.
+No source text is interpreted as markup and no processing request is added.
+
+Built-image390px list and inspector, and1440px desktop list checked with actual
+synthetic capture/local+AI cards plus synthetic app-only/user cards. All four
+source explanations were opened and cancelled; labels include the source for
+assistive technology. No document/dialog horizontal overflow. Rust fmt/clippy
+with warnings denied,14unit/31integration tests, web regressions, cargo audit
+(1509advisories/185dependencies, local-index warning) and final Docker smoke passed.
+Android37unit/build/lint+fixture checks passed for the preceding test-only change;
+no native production source changed in this web fix.
+
+- [Phone source labels](screenshots/web-content-source-mobile.png)
+- [AI inspector](screenshots/web-content-source-inspector.png)
+- [Desktop source labels](screenshots/web-content-source-desktop.png)

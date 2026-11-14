@@ -986,6 +986,9 @@ progress.over::-moz-progress-bar {
   display: block;
   font-weight: 500;
 }
+.activity-main small {
+  display: block;
+}
 .meter {
   margin-bottom: 16px;
 }

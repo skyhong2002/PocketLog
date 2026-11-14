@@ -1469,8 +1469,17 @@ async function timelinePage(parent, seq) {
   add(left, foot);
   summary(aside, selected ? metrics(selected.cards) : metrics([]));
 }
+function contentSource(source) {
+  switch (source) {
+    case "user": return { label: "你的修改", detail: "這張卡片使用你儲存的內容與分類；你的修改優先於自動處理。" };
+    case "ai": return { label: "AI 摘要，請核對", detail: "模型根據已同意處理的活動證據產生摘要與分類，可能有誤；你可以在這裡核對並修改。" };
+    case "local_excerpt": return { label: "可見文字摘錄", detail: "這份摘要由已收集的可見文字整理，沒有使用 AI 產生；摘錄可能缺少前後文。" };
+    case "app_only": return { label: "僅 app 使用紀錄", detail: "這張卡片只有 app 與使用時段，無法僅憑 app 名稱確認你做了什麼。" };
+    default: return { label: "來源未提供", detail: "目前資料沒有可辨識的內容來源；請自行核對標題、摘要與分類。" };
+  }
+}
 function eventLabel(c) {
-  return `${time(c.start_ms)}–${time(c.end_ms)}，${c.title}，${styleFor(c.category).name}，${duration(c.end_ms - c.start_ms)}`;
+  return `${time(c.start_ms)}–${time(c.end_ms)}，${c.title}，${styleFor(c.category).name}，${duration(c.end_ms - c.start_ms)}，${contentSource(c.source).label}`;
 }
 function track(data, compact) {
   const lane = el("div", null, "timeline");
@@ -1498,12 +1507,12 @@ function track(data, compact) {
     b.style.setProperty("--lane", index);
     b.style.setProperty("--lanes", lanes);
     b.setAttribute("aria-label", eventLabel(c));
-    b.title = `${c.title} · ${time(c.start_ms)}–${time(c.end_ms)}`;
+    b.title = `${c.title} · ${time(c.start_ms)}–${time(c.end_ms)} · ${contentSource(c.source).label}`;
     add(b, el("strong", c.title));
     if (!compact || height >= 40)
       add(b, el("small", `${time(c.start_ms)}–${time(c.end_ms)}`));
     if (height >= 52 && !compact)
-      add(b, el("span", `${c.app} · ${category.name}`, "event-meta"));
+      add(b, el("span", `${c.app} · ${category.name} · ${contentSource(c.source).label}`, "event-meta"));
     if (height >= 84 && !compact && c.summary)
       add(b, el("span", c.summary, "event-summary"));
     add(lane, b);
@@ -1545,6 +1554,7 @@ function activityList(parent, data, showDate) {
         el("span", null, "activity-main"),
         el("strong", c.title),
         el("small", `${c.app} · ${category.name}`),
+        el("small", contentSource(c.source).label),
       ),
       el("span", duration(c.end_ms - c.start_ms), "activity-length"),
     );
@@ -1688,8 +1698,10 @@ function editCard(c) {
         ["時間", `${time(c.start_ms)}–${time(c.end_ms)}（${duration(c.end_ms - c.start_ms)}）`],
         ["App", c.app],
         ["目前分類", category.name],
+        ["內容來源", contentSource(c.source).label],
       ]),
     );
+    add(p, el("p", contentSource(c.source).detail, "muted"));
     const title = field(p, "標題", c.title),
       note = field(p, "摘要", c.summary, "textarea"),
       choice = select(
@@ -1865,6 +1877,7 @@ async function reviewPage(parent, seq, kind) {
             el("span", null, "activity-main"),
             el("strong", c.title),
             el("small", `${c.app} · ${styleFor(c.category).name}`),
+            el("small", contentSource(c.source).label),
           ),
           el("span", duration(c.end_ms - c.start_ms), "activity-length"),
         );
