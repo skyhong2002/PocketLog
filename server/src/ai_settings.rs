@@ -120,9 +120,11 @@ impl AiSettingsStore {
 fn redacted(value: Option<&StoredSettings>) -> serde_json::Value {
     match value {
         Some(s) => {
-            serde_json::json!({"available":true,"protocol":s.protocol,"enabled":s.enabled,"endpoint":s.endpoint,"model":s.model,"provider_id":s.provider_id,"has_key":!s.key.is_empty(),"image_support":s.image_support,"response_format":s.response_format})
+            serde_json::json!({"available":true,"probe_provider_binding":true,"protocol":s.protocol,"enabled":s.enabled,"endpoint":s.endpoint,"model":s.model,"provider_id":s.provider_id,"has_key":!s.key.is_empty(),"image_support":s.image_support,"response_format":s.response_format})
         }
-        None => serde_json::json!({"available":true,"enabled":false,"has_key":false}),
+        None => {
+            serde_json::json!({"available":true,"probe_provider_binding":true,"enabled":false,"has_key":false})
+        }
     }
 }
 pub(super) fn routes() -> Router<AppState> {
@@ -132,7 +134,9 @@ pub(super) fn routes() -> Router<AppState> {
 }
 async fn read(State(state): State<AppState>) -> Result<Json<serde_json::Value>> {
     let Some(store) = state.ai_settings.clone() else {
-        return Ok(Json(serde_json::json!({"available":false,"enabled":false})));
+        return Ok(Json(
+            serde_json::json!({"available":false,"probe_provider_binding":true,"enabled":false}),
+        ));
     };
     state
         .database(move |_| {
@@ -218,7 +222,21 @@ async fn clear(State(state): State<AppState>) -> Result<StatusCode> {
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
-async fn probe(State(state): State<AppState>) -> Result<Json<serde_json::Value>> {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProbeRequest {
+    provider_id: String,
+}
+async fn probe(
+    State(state): State<AppState>,
+    request: std::result::Result<Json<ProbeRequest>, axum::extract::rejection::JsonRejection>,
+) -> Result<Json<serde_json::Value>> {
+    let Json(request) = request.map_err(|_| invalid())?;
+    if request.provider_id.len() != 64
+        || !request.provider_id.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(invalid());
+    }
     let store = state.ai_settings.clone().ok_or(ApiError(
         StatusCode::SERVICE_UNAVAILABLE,
         "AI settings unavailable",
@@ -232,7 +250,10 @@ async fn probe(State(state): State<AppState>) -> Result<Json<serde_json::Value>>
         let _permit = permit;
         let provider = analysis::Provider::from_store(&store)
             .map_err(storage_error)?
-            .ok_or_else(invalid)?;
+            .ok_or(ApiError(StatusCode::CONFLICT, "provider changed"))?;
+        if provider.identity() != Some(request.provider_id.as_str()) {
+            return Err(ApiError(StatusCode::CONFLICT, "provider changed"));
+        }
         provider
             .probe()
             .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "model connection test failed"))?;

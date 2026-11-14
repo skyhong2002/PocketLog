@@ -513,6 +513,7 @@ async fn byo_settings_are_owner_only_redacted_persistent_and_can_be_deleted() {
     let first = response["provider_id"].as_str().unwrap().to_owned();
     let read = call(&app, "GET", "/v1/ai", Value::Null, true).await.1;
     assert_eq!(read["provider_id"], first);
+    assert_eq!(read["probe_provider_binding"], true);
     assert!(read.get("key").is_none() && read.get("api_key").is_none());
     assert_eq!(
         std::fs::metadata(directory.0.join("provider.json"))
@@ -918,7 +919,15 @@ async fn explicit_probe_is_synthetic_and_chat_sends_only_bounded_derived_cards()
     call(&app,"POST","/v1/observations",json!({"id":"raw","at_ms":now-500000,"app":"org.example.reader","text":"NEVER_SEND_RAW","analysis_consent":true}),true).await;
     let config=call(&app,"PUT","/v1/ai",json!({"endpoint":format!("http://{address}/v1/chat/completions"),"model":"test","api_key":"test-provider-key"}),true).await.1;
     assert_eq!(
-        call(&app, "POST", "/v1/ai/test", json!({}), true).await.0,
+        call(
+            &app,
+            "POST",
+            "/v1/ai/test",
+            json!({"provider_id":config["provider_id"]}),
+            true
+        )
+        .await
+        .0,
         StatusCode::OK
     );
     let result=call(&app,"POST","/v1/ask",json!({"question":"做了什麼？","from_ms":now-3600000,"to_ms":now,"provider_id":config["provider_id"],"consent":true}),true).await;
@@ -1216,7 +1225,15 @@ async fn native_provider_headers_and_real_transport_preserve_secret_boundaries()
         assert_eq!(config.1["protocol"], protocol);
         assert!(!config.1.to_string().contains("synthetic-provider-key"));
         assert_eq!(
-            call(&app, "POST", "/v1/ai/test", json!({}), true).await.0,
+            call(
+                &app,
+                "POST",
+                "/v1/ai/test",
+                json!({"provider_id":config.1["provider_id"]}),
+                true
+            )
+            .await
+            .0,
             StatusCode::OK
         );
         let rows = capture.join().unwrap();
@@ -2095,5 +2112,206 @@ async fn scheduled_briefs_require_explicit_current_provider_and_skip_empty_perio
         db.query_row("SELECT COUNT(*) FROM briefs", [], |r| r.get::<_, i64>(0))
             .unwrap(),
         1
+    );
+}
+
+#[tokio::test]
+async fn probe_requires_the_confirmed_current_provider_before_any_network_call() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().unwrap()
+    );
+    let (app, _directory) = configured_app();
+    assert_eq!(
+        call(&app, "GET", "/v1/ai", Value::Null, true).await.1["probe_provider_binding"],
+        true
+    );
+    for raw in ["", "{", "[]", "null"] {
+        for authenticated in [false, true] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/ai/test")
+                .header("content-type", "application/json");
+            if authenticated {
+                request = request.header("authorization", format!("Bearer {TOKEN}"));
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::from(raw)).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if authenticated {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }
+            );
+        }
+    }
+    let absent = call(
+        &app,
+        "POST",
+        "/v1/ai/test",
+        json!({"provider_id":"a".repeat(64)}),
+        true,
+    )
+    .await;
+    assert_eq!(absent.0, StatusCode::CONFLICT);
+    let a = call(
+        &app,
+        "PUT",
+        "/v1/ai",
+        json!({"endpoint":endpoint,"model":"synthetic-a","api_key":"synthetic-key-a"}),
+        true,
+    )
+    .await;
+    assert_eq!(a.0, StatusCode::OK);
+    let b = call(
+        &app,
+        "PUT",
+        "/v1/ai",
+        json!({"endpoint":endpoint,"model":"synthetic-b","api_key":"synthetic-key-b"}),
+        true,
+    )
+    .await;
+    assert_eq!(b.0, StatusCode::OK);
+    assert_ne!(a.1["provider_id"], b.1["provider_id"]);
+    for invalid in [
+        json!({}),
+        json!({"provider_id":null}),
+        json!({"provider_id":7}),
+        json!({"provider_id":""}),
+        json!({"provider_id":"a".repeat(63)}),
+        json!({"provider_id":"g".repeat(64)}),
+        json!({"provider_id":b.1["provider_id"],"consent":true}),
+    ] {
+        assert_eq!(
+            call(&app, "POST", "/v1/ai/test", invalid.clone(), false)
+                .await
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, "POST", "/v1/ai/test", invalid, true).await.0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let stale = call(
+        &app,
+        "POST",
+        "/v1/ai/test",
+        json!({"provider_id":a.1["provider_id"]}),
+        true,
+    )
+    .await;
+    assert_eq!(stale.0, StatusCode::CONFLICT);
+    assert_eq!(stale.1["error"], "provider changed");
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    call(
+        &app,
+        "POST",
+        "/v1/activities",
+        json!({"activities":[event("private-probe-card")]}),
+        true,
+    )
+    .await;
+    call(&app, "POST", "/v1/cards", json!({"id":"private-probe-card","title":"NEVER_SEND_PROBE_CARD","summary":"Private derived content","category":"learning"}), true).await;
+    let receiver = listener.try_clone().unwrap();
+    let capture = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+        let mut stream = loop {
+            match receiver.accept() {
+                Ok((stream, _)) => break stream,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "expected synthetic probe"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(e) => panic!("{e}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let mut headers = Vec::new();
+        let mut byte = [0];
+        while !headers.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            headers.push(byte[0]);
+            assert!(headers.len() < 16384);
+        }
+        let headers = String::from_utf8(headers).unwrap();
+        let length: usize = headers
+            .lines()
+            .find_map(|line| {
+                line.to_lowercase()
+                    .strip_prefix("content-length: ")
+                    .map(str::to_owned)
+            })
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(length < 16384);
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).unwrap();
+        let body = String::from_utf8(body).unwrap();
+        let content =
+            json!({"title":"Synthetic test","summary":"Connection only","category":"unsorted"})
+                .to_string();
+        let reply =
+            json!({"choices":[{"finish_reason":"stop","message":{"content":content}}]}).to_string();
+        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
+        (headers, body)
+    });
+    let confirmed = call(
+        &app,
+        "POST",
+        "/v1/ai/test",
+        json!({"provider_id":b.1["provider_id"]}),
+        true,
+    )
+    .await;
+    assert_eq!(confirmed.0, StatusCode::OK);
+    assert_eq!(confirmed.1, json!({"ok":true,"journal_data_sent":false}));
+    let (headers, body) = capture.join().unwrap();
+    assert!(
+        headers
+            .to_lowercase()
+            .contains("authorization: bearer synthetic-key-b")
+    );
+    assert!(body.contains("Synthetic connection test"));
+    assert!(body.contains("synthetic-b"));
+    for private in ["synthetic-key-a", TOKEN, "NEVER_SEND_PROBE_CARD"] {
+        assert!(!headers.contains(private));
+        assert!(!body.contains(private));
+    }
+    assert!(!body.contains("synthetic-key-b"));
+    assert_eq!(
+        call(&app, "DELETE", "/v1/ai", Value::Null, true).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let disabled = call(
+        &app,
+        "POST",
+        "/v1/ai/test",
+        json!({"provider_id":b.1["provider_id"]}),
+        true,
+    )
+    .await;
+    assert_eq!(disabled.0, StatusCode::CONFLICT);
+    assert_eq!(disabled.1["error"], "provider changed");
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
     );
 }

@@ -398,9 +398,9 @@ function stamp(ms) {
 function styleFor(id) {
   return prefs.categories.find((c) => c.id === id) || prefs.categories.at(-1);
 }
-function providerHost() {
+function providerHost(config = ai) {
   try {
-    return new URL(ai.endpoint).host;
+    return new URL(config.endpoint).host;
   } catch {
     return "尚未設定";
   }
@@ -3836,16 +3836,41 @@ function providerDialog(done) {
           "primary",
         ),
         btn("測試已儲存的設定", async () => {
-          if (!ai.enabled) throw Error("請先儲存設定，再進行測試");
+          const saved = structuredClone(ai);
+          if (!saved.enabled) throw Error("請先儲存設定，再進行測試");
+          if (!saved.probe_provider_binding) throw Error("請先更新伺服器，才能確認測試目的地。尚未傳送測試文字。");
           if (
             !(await ask(
               "傳送一段固定的測試文字？",
-              `只會把固定測試文字送到 ${providerHost()} 的 ${ai.model}，不含任何日誌；可能產生少量模型費用。`,
+              [
+                `目的地：${providerHost(saved)} · ${saved.protocol} · 模型 ${saved.model}`,
+                "使用上次儲存的設定，不包含表單中尚未儲存的修改。只送固定測試文字，不含任何日誌；可能產生少量模型費用。",
+              ],
               "送出測試",
             ))
           )
             return;
-          await api("/v1/ai/test", {});
+          if (!p.isConnected) return;
+          p.querySelector(".probe-feedback")?.remove();
+          try {
+            await api("/v1/ai/test", { provider_id: saved.provider_id });
+          } catch (error) {
+            if (error.status !== 409) throw error;
+            if (!p.isConnected) return;
+            const recovery = el("div", null, "probe-feedback callout warn");
+            recovery.setAttribute("role", "alert");
+            add(recovery, el("p", "已儲存的模型已變更，沒有改向新模型重試。可保留目前編輯，或重新載入設定，再核對目的地並確認。重新載入會捨棄尚未儲存的修改。"), btn("重新載入已儲存的模型", async () => {
+              const current = await api("/v1/ai");
+              if (!p.isConnected) return;
+              ai = current;
+              await done();
+              providerDialog(done);
+            }));
+            add(p, recovery);
+            recovery.scrollIntoView({ block: "nearest" });
+            return;
+          }
+          if (!p.isConnected) return;
           notice("模型測試成功，未傳送日誌");
         }),
         ai.enabled || ai.has_key

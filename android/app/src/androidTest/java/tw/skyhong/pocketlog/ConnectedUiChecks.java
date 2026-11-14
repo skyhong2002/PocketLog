@@ -60,6 +60,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("probeOnly"))) { providerProbeCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("previewOnly"))) { rulePreviewCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("replayOnly"))) { replayUnavailableCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
@@ -196,6 +197,41 @@ final class ConnectedUiChecks {
         test.runOnMainSync(()->{if(editor("例如 org.mozilla.firefox").getError()==null)throw new IllegalStateException("Missing sample validation");});
         if(!before.toString().equals(owner.request("/v1/workspace",null,"GET").toString()))throw new IllegalStateException("Preview saved draft preferences");
         assertConsentOff();
+    }
+    private JSONObject probeConfig(String model)throws Exception {
+        return new JSONObject().put("protocol","openai").put("endpoint","http://127.0.0.1:18753/v1/chat/completions").put("model",model).put("api_key","synthetic-probe-key").put("image_support",false).put("response_format","json_schema");
+    }
+    private void providerProbeCheck(PocketLogApi owner)throws Exception {
+        stage="saved provider test consent";
+        owner.request("/v1/ai",probeConfig("synthetic-A"),"PUT");
+        java.lang.reflect.Method ai=MainActivity.class.getDeclaredMethod("aiSettings",kotlin.jvm.functions.Function0.class);ai.setAccessible(true);
+        test.runOnMainSync(()->{try{ai.invoke(activity,(kotlin.jvm.functions.Function0<kotlin.Unit>)()->kotlin.Unit.INSTANCE);}catch(Exception e){throw new RuntimeException(e);}});
+        await("模型連線");awaitSettled();
+        setEditor("https://your-provider.example/v1","https://unsaved.example/v1");setEditor("輸入供應商提供的完整模型 ID","unsaved-B");
+        click("測試已儲存模型");awaitProbeDialog("測試已儲存模型？");
+        String consent=probeDialogText();
+        if(!consent.contains("127.0.0.1:18753")||!consent.contains("synthetic-A")||!consent.contains("openai")||!consent.contains("尚未儲存的修改")||consent.contains("unsaved-B")||consent.contains("unsaved.example"))throw new IllegalStateException("Saved destination consent mismatch");
+        captureProbeDialog("probe-consent");probeDialogClick("取消");awaitSettled();assertEditor("輸入供應商提供的完整模型 ID","unsaved-B");
+        owner.request("/v1/ai",probeConfig("synthetic-B"),"PUT");
+        click("測試已儲存模型");awaitProbeDialog("測試已儲存模型？");probeDialogClick("測試");awaitProbeDialog("已儲存的模型已變更");captureProbeDialog("probe-changed");
+        probeDialogClick("保留編輯");awaitSettled();assertEditor("輸入供應商提供的完整模型 ID","unsaved-B");
+        click("測試已儲存模型");awaitProbeDialog("測試已儲存模型？");probeDialogClick("測試");awaitProbeDialog("已儲存的模型已變更");probeDialogClick("重新載入設定");
+        await("模型連線");awaitSettled();assertEditor("輸入供應商提供的完整模型 ID","synthetic-B");
+        click("測試已儲存模型");awaitProbeDialog("測試已儲存模型？");if(!probeDialogText().contains("synthetic-B"))throw new IllegalStateException("New saved provider absent");probeDialogClick("測試");await("連線與摘要格式驗證成功");assertConsentOff();
+        JSONObject oldServer=owner.request("/v1/ai",null,"GET");oldServer.remove("probe_provider_binding");
+        Field page=MainActivity.class.getDeclaredField("page");page.setAccessible(true);
+        java.lang.reflect.Method render=MainActivity.class.getDeclaredMethod("renderAiForm",android.widget.LinearLayout.class,JSONObject.class,kotlin.jvm.functions.Function0.class);render.setAccessible(true);
+        test.runOnMainSync(()->{try{android.widget.LinearLayout target=(android.widget.LinearLayout)page.get(activity);target.removeAllViews();render.invoke(activity,target,oldServer,(kotlin.jvm.functions.Function0<kotlin.Unit>)()->kotlin.Unit.INSTANCE);}catch(Exception e){throw new RuntimeException(e);}});
+        click("測試已儲存模型");await("請先更新伺服器，才能確認測試目的地");if(!probeDialogText().isEmpty())throw new IllegalStateException("Old-server probe consent opened");assertConsentOff();
+    }
+    private View probeDialog(){for(View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(root!=activity.getWindow().getDecorView()&&root.isShown())return root;throw new IllegalStateException("Probe dialog absent");}
+    private String probeDialogText(){StringBuilder out=new StringBuilder();test.runOnMainSync(()->{List<View> all=new ArrayList<>();try{collect(probeDialog(),all);}catch(IllegalStateException absent){return;}for(View v:all)if(v instanceof TextView t)out.append(t.getText()).append('\n');});return out.toString();}
+    private void awaitProbeDialog(String label)throws Exception {long end=System.currentTimeMillis()+10000;while(System.currentTimeMillis()<end){try{if(probeDialogText().contains(label)){Thread.sleep(200);return;}}catch(RuntimeException ignored){}Thread.sleep(100);}throw new IllegalStateException("Probe dialog missing: "+label);}
+    private void probeDialogClick(String label){test.runOnMainSync(()->{List<View> all=new ArrayList<>();collect(probeDialog(),all);for(View v:all)if(v instanceof TextView t&&label.equals(t.getText().toString())&&v.isClickable()){v.performClick();return;}throw new IllegalStateException("Probe action absent");});}
+    private void captureProbeDialog(String name)throws Exception {
+        String variant=args.getString("variant","phone");if(!variant.matches("[a-z0-9-]{1,40}"))throw new IllegalArgumentException("Bad variant");
+        File folder=new File(test.getTargetContext().getExternalFilesDir(null),"ux-connected");if(!folder.isDirectory()&&!folder.mkdirs())throw new IllegalStateException("Evidence folder");
+        final Exception[] failure={null};test.runOnMainSync(()->{Bitmap bitmap=null;try{View view=probeDialog();if(!(view.getLayoutParams() instanceof WindowManager.LayoutParams p)||(p.flags&WindowManager.LayoutParams.FLAG_SECURE)==0)throw new IllegalStateException("Insecure probe dialog");bitmap=Bitmap.createBitmap(view.getWidth(),view.getHeight(),Bitmap.Config.ARGB_8888);view.draw(new Canvas(bitmap));try(FileOutputStream out=new FileOutputStream(new File(folder,variant+"-"+name+".png"))){if(!bitmap.compress(Bitmap.CompressFormat.PNG,100,out))throw new IllegalStateException("Snapshot failed");}}catch(Exception e){failure[0]=e;}finally{if(bitmap!=null)bitmap.recycle();}});if(failure[0]!=null)throw failure[0];
     }
     private void replayUnavailableCheck(PocketLogApi owner) throws Exception {
         stage="replay stale resource recovery";

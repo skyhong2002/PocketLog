@@ -789,3 +789,56 @@ Docker smoke pass; Rust/native source and dependencies are unchanged from #39/#4
 
 - [Desktop final step](screenshots/web-onboarding-current-desktop.png)
 - [Phone final step](screenshots/web-onboarding-current-mobile.png)
+
+## Approved provider for connection tests (#42)
+
+Astra's source review found that the fixed connection test loaded the latest
+saved provider without the confirmed identity. Another client could change A to B
+while A's confirmation remained visible, causing an unintended synthetic request
+and possible charge to B. This did not leak journals or forward A's key to B.
+Native confirmation also omitted the saved destination/model.
+
+The API now requires a strict64-hex `provider_id`, compares it to the same loaded
+Provider used for the fixed test, and rejects stale/disabled/unconfigured identities
+before networking. Existing current-provider checks, limits and no-journal payload
+remain. Clients capture saved settings for confirmation/request, explain that
+unsaved edits are excluded, and offer explicit refresh/reconfirmation after409
+without automatically testing a new provider. Native dialogs retain FLAG_SECURE.
+Both clients require `probe_provider_binding` capability; old bodyless clients
+receive400 and must update. API compatibility is documented.
+
+Bounded Rust mock tests verify missing/malformed/unknown fields/authentication,
+zero calls after stale or disabled identity, exactly one accepted synthetic call
+using keyB, and absence of keyA/owner token/private card content. Native OpenAI,
+Anthropic and Gemini transport tests use confirmed IDs. Requiredfmt/clippy-Dwarnings,
+20unit+32API+6preview tests and audit1509advisories/185dependencies pass (existing
+local crates.io-index warning). Web syntax/import/timeline checks and final image
+Docker smoke pass.
+
+Actual Chromium tests on the final image show savedA despite unsavedB fields,
+Cancel retains the draft, A-to-B change rejects the old confirmation with no mock
+call, and explicit reload updates both editor/background summary. Reconfirmation
+succeeds with exactly one fixed test. Missing capability was injected only into
+the disposable GET response and blocked confirmation/networking.390px consent and
+1440px recovery were inspected with no horizontal overflow.
+
+Real native HTTPS tests at normal/2×font exercise the same saved-versus-unsaved,
+cancel, stale409, keep-editing, reload and fresh-confirmation path. Captures of the
+secure dialog Views were inspected; they are not compositor/TalkBack evidence.
+A production-form render with a synthetic missing-capability response verifies
+that old-server testing is blocked. The initial test harness threw while polling
+for an absent dialog on the main thread; that harness error was fixed and the
+disposable emulator data cleared before successful reruns. No product crash claim.
+Android37unit/assembleDebug/assembleDebugAndroidTest/lintDebug and full connected
+eight-page/HTTPS/offline queue/cache/brief-consent regression pass. The synthetic
+provider configuration was restored through the API before full regression.
+
+Dayflow `TestConnectionView.swift`/provider helper source at2c79e161 informs the
+selected-provider reference; macOS was not executed and its credential URL/fallback
+behavior was not copied. Physical-device, screen-reader and battery limits remain.
+
+- [Phone web confirmation](screenshots/web-probe-consent.png)
+- [Desktop stale-provider recovery](screenshots/web-probe-changed.png)
+- [Native saved-provider confirmation](screenshots/native-probe-consent.png)
+- [Native2×text confirmation](screenshots/native-probe-consent-large.png)
+- [Native2×text stale-provider recovery](screenshots/native-probe-changed-large.png)

@@ -1721,10 +1721,16 @@ class MainActivity : Activity() {
         ui.card(slot, padding = 8).apply {
             ui.row(this, "測試已儲存模型", "只送固定測試文字，不讀取或傳送日誌") {
                 if (!enabled) { notice("請先儲存 AI 設定", Kind.WARN); return@row }
-                dialog().setTitle("測試模型連線？").setMessage("僅發送固定的測試文字，不會讀取或傳送日誌。供應商可能收取少量 API 費用。")
+                if (!config.optBoolean("probe_provider_binding")) { notice("請先更新伺服器，才能確認測試目的地。尚未傳送測試文字。", Kind.WARN); return@row }
+                val providerId = config.getString("provider_id")
+                dialog().setTitle("測試已儲存模型？").setMessage("目的地：${config.getString("endpoint")}\n協定：${config.optString("protocol")}\n模型：${config.getString("model")}\n\n使用上次儲存的設定，不包含表單中尚未儲存的修改。僅發送固定測試文字，不會讀取或傳送日誌。供應商可能收取少量 API 費用。")
                     .setNegativeButton("取消", null).setPositiveButton("測試") { _, _ ->
-                        task("測試模型…", { api().request("/v1/ai/test", JSONObject()) }) { notice("連線與摘要格式驗證成功；沒有傳送日誌。") }
-                    }.show()
+                        task("測試模型…", { api().request("/v1/ai/test", JSONObject().put("provider_id", providerId)) }, failed = { error ->
+                            if (error is ApiFailure && error.status == 409) dialog().setTitle("已儲存的模型已變更")
+                                .setMessage("沒有改向新模型重試。重新載入設定後，請核對目的地並再次確認；重新載入會捨棄表單中尚未儲存的修改。")
+                                .setNegativeButton("保留編輯", null).setPositiveButton("重新載入設定") { _, _ -> aiSettings(back) }.showSecure()
+                        }) { notice("連線與摘要格式驗證成功；沒有傳送日誌。") }
+                    }.showSecure()
             }
             ui.row(this, "同意這個模型處理未來情境", "需先開啟畫面文字；更換設定後要重新同意") { approveAi { aiSettings(back) } }
         }

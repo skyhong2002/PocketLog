@@ -52,6 +52,18 @@ snapshots. See [security boundaries](SECURITY.md).
 
 ## Private browser and shared product setup
 
+`GET /v1/ai` includes `probe_provider_binding:true` on servers supporting bound
+connection tests. `POST /v1/ai/test` now requires strict
+`{"provider_id":"<64-hex identity from the approved saved settings>"}`.
+Missing/malformed/unknown fields return400; a changed, disabled or unconfigured
+provider returns409 before any test networking. The fixed synthetic text is sent
+using the same loaded provider instance that was checked, never journal content.
+Read current settings and obtain explicit confirmation again after409; do not
+automatically retry with a new identity. Old clients posting `{}` must update.
+New clients must require the capability flag before testing against older servers
+that ignored request bodies. Existing request bounds, authentication and probe
+concurrency/time limits remain. A request already sent cannot be recalled.
+
 `GET /` serves the same-origin responsive browser UI. `POST /session` accepts
 `{"token":"owner token"}` with `X-PocketLog: 1`, creating an eight-hour Secure,
 HttpOnly, SameSite=Strict host cookie. `DELETE /session` invalidates that cookie's

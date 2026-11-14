@@ -143,6 +143,13 @@ the saved answer without another model call. Model calls use an 8-second
 request limit, a 64 KiB response bound and one concurrent explicit test/chat call.
 Deletion/provider epoch changes invalidate in-flight answers.
 
+Explicit model connection tests require the confirmed saved provider identity and
+use that same loaded configuration. Changed identities are rejected before test
+networking; clients require another confirmation after refreshing settings. Only
+fixed synthetic text is sent, with no journal evidence. A request already sent to
+the approved provider cannot be recalled. New clients check the advertised bound
+probe capability before testing against older servers.
+
 Shared onboarding is not collection consent. User-started focus, review and agent
 summary records have quotas and 30-day retention and participate in journal
 deletion. Agent files are chosen explicitly and parsed locally before per-turn approval.
