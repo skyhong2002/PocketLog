@@ -98,7 +98,11 @@ the temporary edits.「填入清單」only fills the form; press「儲存清單�
 Manually entered packages outside the launcher list are preserved. Then read
 and accept the separate context notice, then enable the PocketLog Accessibility
 service in Android settings. Thumbnail capture and model processing each have
-additional opt-ins. Sensitive/excluded apps take precedence over allowlists.
+additional opt-ins. Exclusions take precedence over allowlists; Settings, Support
+and capture diagnostics warn when consent is on but no allowed app is eligible.
+The eligible count is a package-rule check, not proof of permissions or successful
+capture. Built-in sensitive-app matching is incomplete: explicitly exclude your
+sensitive apps even if their package names do not look financial or private.
 Image capture is experimental until a full-day device battery run is recorded.
 Do not enable banking, authentication or private messaging apps just to increase
 coverage. Review [capture limits](INFOVORE_PORT.md) and [analysis setup](ANALYSIS.md).

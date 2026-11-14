@@ -29,6 +29,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (args == null || !"yes".equals(args.getString("synthetic"))) throw new IllegalStateException("Explicit synthetic=yes required");
+            if ("yes".equals(args.getString("readiness"))) {
+                new CaptureReadinessChecks(this,args).run();
+                result.putString("stream", "Synthetic effective-allowlist readiness and historical diagnostics checks passed; original settings restored.\n");
+                finish(Activity.RESULT_OK,result); return;
+            }
             if ("yes".equals(args.getString("replayOwnership"))) {
                 new ReplayOwnershipChecks(this,args).run();
                 result.putString("stream", "Synthetic replay secure dialog, dismissal/recreation and undelivered-bitmap disposal passed.\n");
@@ -70,7 +75,7 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership"))) ? " " + error.getMessage() : "") + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness"))) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }

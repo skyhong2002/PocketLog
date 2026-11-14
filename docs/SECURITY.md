@@ -54,7 +54,9 @@ report suspected vulnerabilities privately through the repository owner.
   enforced while the service runs, not while a host is powered off.
 - Automatic collection defaults off. App usage consent, context consent, image
   consent and model consent are separate. Context requires an explicit app
-  allowlist; exclusions override it. Structural password/editable-field checks run
+  allowlist; exclusions override it. Built-in sensitive-app exclusions cover known
+  packages and package-name patterns, not every sensitive app; explicitly exclude
+  your financial, authentication and other private apps. Structural password/editable-field checks run
   before any screenshot/text capture; incomplete traversal fails closed. Locked
   screens and secure-window screenshot failures reject capture. OS/AppOps behavior
   and permission revocation still require physical-device validation.

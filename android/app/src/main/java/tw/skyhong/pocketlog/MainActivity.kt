@@ -1358,14 +1358,16 @@ class MainActivity : Activity() {
         val s = RecordingSettings(this@MainActivity)
         val usage = s.hasUsagePermission()
         ui.groupLabel(body, "這支手機的狀態")
+        val eligible = effectiveAllowedCount(s)
+        captureAllowlistWarning(body, s, eligible)
         val card = ui.card(body, padding = 8)
         ui.row(card, "私人伺服器", host(), (if (credentials != null) "已設定" else "未連線") to (credentials != null)) { settings() }
         ui.row(card, "手機紀錄", if (s.enabled) "記錄同意後的 app 前景時段" else "預設關閉；需要時在設定開啟", (if (s.enabled) "開啟" else "關閉") to s.enabled) { settings() }
         ui.row(card, "Android 使用情況存取權", if (usage) "已授予" else "開啟紀錄後需要授予", (if (usage) "已授予" else "未授予") to usage) { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
         ui.row(card, "伺服器收集", if (s.remotePaused) "所有裝置已暫停；恢復不會改變本機同意" else "未暫停", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { settings() }
-        ui.row(card, "畫面文字", "允許清單 ${s.allowed.size} 個 app · 排除 ${s.exclusions.size} 個", (if (s.contextEnabled) "開啟" else "關閉") to s.contextEnabled) { settings() }
+        ui.row(card, "畫面文字", "允許 ${s.allowed.size} 個 · 可擷取 $eligible 個 · 排除 ${s.exclusions.size} 個", (if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { settings() }
         if (s.contextEnabled) accessibilityServiceOn().let { on -> ui.row(card, "輔助使用服務", "畫面文字需要 PocketLog 的輔助使用服務", (if (on) "已開啟" else "未開啟") to on) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } }
-        ui.row(card, "擷取狀態與排除原因", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { supportPage() } }
+        ui.row(card, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { supportPage() } }
         ui.row(card, "最近同步", s.status(), onClick = null)
         val queue = ui.column(card)
         load(queue, "讀取離線佇列…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).counts() } }) { (pending, rejected) ->
@@ -1385,15 +1387,17 @@ class MainActivity : Activity() {
     private fun captureDiagnostics(back: () -> Unit) {
         val body = screen("擷取狀態", "本機狀態，不含畫面內容", tab, back = back, action = Triple(R.drawable.ic_sync, "重新檢查擷取狀態", { captureDiagnostics(back) }), refresh = { captureDiagnostics(back) })
         val settings = RecordingSettings(this)
+        captureAllowlistWarning(body, settings, effectiveAllowedCount(settings))
         if (!settings.contextEnabled) callout(body, "畫面文字未開啟；此頁不會啟用任何紀錄。", Kind.INFO, "查看設定") { settings() }
         else if (!accessibilityServiceOn() || !settings.hasUsagePermission())
             callout(body, "系統權限未齊全，請檢查使用情況存取權與輔助使用服務。", Kind.WARN, "查看設定") { settings() }
         val state = CaptureDiagnostics.snapshot()
         ui.card(body).apply {
-            ui.heading(this, "最近結果")
+            ui.heading(this, "最近一次檢查結果")
             ui.text(this, state.outcome.title, 19f, bold = true, top = 8)
             ui.meta(this, state.atMs?.let { stamp(it) } ?: "本次執行尚無結果", top = 4)
             ui.body(this, state.outcome.detail, top = 12)
+            ui.meta(this, "這是過去的檢查結果，不代表目前可擷取；請以本頁設定與權限提示為準。", top = 8)
             ui.heading(this, "最近排入本機佇列", top = 16)
             ui.body(this, state.lastQueuedMs?.let { stamp(it) } ?: "尚無成功排入的情境", top = 6)
             ui.meta(this, "排入佇列不代表已同步；請到設定檢查同步狀態。", top = 6)
@@ -1407,6 +1411,18 @@ class MainActivity : Activity() {
     }
 
     // ---------------------------------------------------------------- settings
+
+    private fun effectiveAllowedCount(settings: RecordingSettings): Int {
+        val allowed = settings.allowed
+        val excluded = settings.exclusions
+        return allowed.count { RecordingRules.contextAllowed(it, allowed, excluded, packageName) }
+    }
+
+    private fun captureAllowlistWarning(parent: ViewGroup, settings: RecordingSettings, eligible: Int) {
+        if (settings.contextEnabled && eligible == 0) callout(parent,
+            "已同意畫面文字，但沒有可擷取的 app。允許清單可能是空的，或全部被排除；排除永遠優先。",
+            Kind.WARN, "調整允許與排除清單") { appListsPage() }
+    }
 
     private fun settings() {
         val s = RecordingSettings(this@MainActivity)
@@ -1433,14 +1449,16 @@ class MainActivity : Activity() {
         }
 
         ui.groupLabel(body, "畫面情境（進階，預設關閉）")
+        val eligible = effectiveAllowedCount(s)
+        captureAllowlistWarning(body, s, eligible)
         ui.card(body, padding = 8).apply {
             ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
-            val contextDetail = when { !s.enabled -> "需先開啟 App 使用紀錄"; s.allowed.isEmpty() -> "需先在允許清單加入 app"; else -> "允許清單中的 app 切換時，最多每 5 分鐘讀取一次" }
-            ui.row(this, "畫面文字", contextDetail, (if (s.contextEnabled) "開啟" else "關閉") to s.contextEnabled) { toggleContext(s) }
+            val contextDetail = when { !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；切換時最多每 5 分鐘讀取一次，仍需系統權限" }
+            ui.row(this, "畫面文字", contextDetail, (if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
             ui.row(this, "畫面縮圖", if (s.contextEnabled) "最長邊 480 px，可能含無法從文字判斷的私人資訊" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else "關閉") to s.imagesEnabled) { toggleImages(s) }
             ui.row(this, "短期縮圖回放", if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else "關閉") to s.replayConsent) { toggleReplay(s) }
             ui.row(this, "文字隱私防護", "疑似金鑰、token 或長數字時跳過整個視窗", (if (s.privacyShield) "開啟" else "關閉") to s.privacyShield) { privacyShieldDialog(s) }
-            ui.row(this, "擷取狀態與排除原因", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
+            ui.row(this, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
             ui.row(this, "系統輔助使用設定", "畫面文字需要 PocketLog 的輔助使用服務") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         }
 
@@ -1583,7 +1601,7 @@ class MainActivity : Activity() {
     private fun appListsPage() {
         val s = RecordingSettings(this@MainActivity)
         val body = screen("排除與允許清單", "完整套件名稱，以空白、逗號或換行分隔", tab = Tab.SETTINGS, back = { settings() })
-        ui.banner(body, "密碼管理器、驗證器、付款／銀行 app 與 PocketLog 本身一律排除。視窗含密碼或輸入欄位時跳過。")
+        ui.banner(body, "PocketLog 本身、已知敏感 app 與套件名稱符合內建規則的 app 會自動排除，但無法辨識所有密碼管理器、驗證器或付款／銀行 app。請主動把敏感 app 加入排除清單。視窗含密碼或輸入欄位時仍會跳過。")
         val excluded: EditText; val allowed: EditText
         ui.card(body).apply {
             ui.heading(this, "排除的 app")

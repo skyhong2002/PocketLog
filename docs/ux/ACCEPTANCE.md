@@ -732,3 +732,42 @@ table snapshots including expired rows, and operation without database tables.
 - [Phone web result](screenshots/web-rule-preview-mobile.png)
 - [Native result](screenshots/native-rule-preview.png)
 - [Native2×text result](screenshots/native-rule-preview-large.png)
+
+## Capture consent versus eligible apps (#40)
+
+Astra's read-only review identified a misleading native state: a nonempty allowlist
+could consist entirely of excluded packages while Settings/Support still presented
+screen context as enabled. The capture service correctly rejected these events
+before beginning diagnostics, leaving any past success unchanged.
+
+Settings, Support and capture diagnostics now show actionable zero-eligible
+guidance when context consent is on. The count uses the existing production
+`contextAllowed` predicate, including custom exclusions, known sensitive packages,
+name patterns and PocketLog itself. Support places the warning above the status
+card. Positive counts describe package eligibility, not permission or capture
+success. Diagnostics and its entry rows explicitly describe historical checks.
+The app-list banner and setup/security documents now explain the finite sensitive
+app matching coverage and the need to explicitly exclude private apps. No capture
+gate, consent, permissions, sampling, queue or API behavior changes.
+
+The dedicated emulator harness uses no credentials or network. It temporarily
+sets only synthetic package lists/context consent on an initially consent-off
+fixture, tests empty/explicitly excluded/built-in-blocked/own-package lists and
+recovery to one eligible package, and restores original lists/consent in finally.
+A synthetic in-memory past queued result remains explicitly historical. It opens
+the actual recovery action and app-list page. Normal and2×font runs pass, including
+an assertion that the recovery action is fully visible; final View captures were
+inspected. The first screenshots exposed the Support warning below its long card;
+it was moved above the card and both final runs repeated. FLAG_SECURE remains on.
+These checks do not exercise OS capture, compositor screenshots or TalkBack.
+
+Reference: official `ScreenRecordingPermissionView.swift` and privacy settings
+view/model at2c79e161 separate permissions and blocked-app state; supplied actual
+Dayflow screenshots inform overall shell hierarchy. Linux did not execute macOS.
+Required Android37unit/build/lint and full connected eight-page/HTTPS/offline
+queue/cache/brief-consent regression checks pass; unchanged server/web dependencies
+retain #39's verified fmt/clippy/57tests/audit/web/Docker checks and successful CI.
+
+- [Actionable capture warning](screenshots/native-capture-no-eligible.png)
+- [2×text warning and visible action](screenshots/native-capture-no-eligible-large.png)
+- [Accurate privacy guidance at2×text](screenshots/native-capture-privacy-large.png)
