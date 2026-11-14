@@ -525,3 +525,40 @@ needed; production remains7603f9a. Physical phone/TalkBack/battery remain gaps.
 - [2×text](screenshots/native-app-picker-large.png)
 - [Dialog adjusted for visible keyboard](screenshots/native-app-picker-keyboard.png)
 - [Explicit empty app result](screenshots/native-app-picker-empty.png)
+
+## Desktop activity inspector (#35)
+
+Official Dayflow source SHA2c79e1619d7039c476e06e4b85b0246e50bc34fa,
+`Dayflow/Views/UI/MainView/Layout+Panels.swift:327` selects activity details in the
+right inspector and otherwise shows the summary. The owner's actual wide screenshot
+establishes the timeline/right-summary hierarchy, not the selected-card state.
+Linux cannot execute the macOS SwiftUI app; this is source-based interaction alignment.
+
+At widths >=1100px, PocketLog Timeline now selects a read-only activity inspector
+beside the timeline. Explicit Edit opens the existing validated dialog. Narrower
+layouts and Daily keep their dialogs. Selection, full title, time, category, app,
+source explanation and pending-context explanation are visible without editing.
+Return restores focus to the originating card. The toolbar remains visible when
+scrolling long content. No extra requests, polling, browser storage or AI consent.
+
+Root verified the rebuilt image in the shared browser with synthetic data only:
+1440px day grid, week list, selection changes, refresh retention with fresh saved
+content, return-to-card focus, Save focus, filter/date/mode/page clearing, and
+390px dialog/no document overflow. Desktop Edit -> resize390px -> Escape returns
+the original card and removes desktop pressed semantics; Enter then opens the
+mobile dialog. Long154-character title, long package and900-character summary
+wrap without document overflow; toolbar and pending explanation remain reachable
+inside the scrollable sidebar. Initial long-content capture revealed actions
+below the fold; final implementation moves a sticky toolbar above the title.
+A bounded independent Astra source review found resize-cancel focus and stale
+pressed-state issues; both were corrected and verified against the final build.
+
+Rustfmt/clippy-Dwarnings,20unit/31integration tests, cargo audit1509/185, Node
+syntax/timeline regression and final Docker smoke pass. Android unchanged from
+#34's37unit/build/lint/connected acceptance; no APK republish needed.
+This is a read-only inspector plus edit dialog, not full Dayflow feature parity.
+Screen-reader behavior beyond semantic DOM/focus checks remains unverified.
+
+- [Desktop selected activity](screenshots/web-desktop-activity-inspector.png)
+- [Long title and summary](screenshots/web-desktop-inspector-long.png)
+- [Mobile retains activity dialog](screenshots/web-mobile-activity-dialog.png)

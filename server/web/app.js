@@ -33,6 +33,8 @@ let prefs,
   setupState = null,
   refreshOnClose = false;
 const drafts = {};
+const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
+let timelineInspector = null, inspectedCard = null;
 const titles = {
   timeline: "時間軸",
   daily: "每日回顧",
@@ -537,6 +539,7 @@ function resetPrivateState() {
   chat = [];
   flow = null;
   setupState = null;
+  timelineInspector = inspectedCard = null;
   refreshOnClose = false;
   Object.keys(drafts).forEach((k) => delete drafts[k]);
   clearInterval(timerHandle);
@@ -1160,6 +1163,8 @@ function setDay(next) {
 }
 async function shell() {
   const seq = ++renderSeq;
+  timelineInspector = null;
+  if (page !== "timeline") inspectedCard = null;
   clearInterval(timerHandle);
   const key = focusKey || document.activeElement?.dataset?.key || null;
   focusKey = null;
@@ -1503,7 +1508,80 @@ async function timelinePage(parent, seq) {
     add(foot, rich("span", "muted week-total", "本週已載入的記錄 ", el("strong", duration(sum))));
   }
   add(left, foot);
-  summary(aside, selected ? metrics(selected.cards) : metrics([]));
+  installTimelineInspector(aside, left, selected ? metrics(selected.cards) : metrics([]), days.flatMap((d) => d.cards));
+}
+function cardKey(c) {
+  return `card-${c.id}-${c.start_ms}`;
+}
+function openCard(c) {
+  if (page === "timeline" && inspectorMedia.matches && timelineInspector) {
+    if (timelineInspector.key === cardKey(c)) timelineInspector.reset(true);
+    else timelineInspector.open(c, true);
+  } else editCard(c);
+}
+function installTimelineInspector(aside, left, totals, cards) {
+  const context = `${day}:${mode}:${filter || ""}`;
+  const mark = (key) => {
+    left.querySelectorAll('button[data-key^="card-"]').forEach((b) => {
+      const selected = b.dataset.key === key;
+      b.classList.toggle("is-selected", selected);
+      if (inspectorMedia.matches) b.setAttribute("aria-pressed", String(selected));
+      else b.removeAttribute("aria-pressed");
+      if (selected) b.setAttribute("aria-controls", "activity-inspector");
+      else b.removeAttribute("aria-controls");
+    });
+  };
+  const reset = (focus) => {
+    const origin = inspectedCard?.key;
+    inspectedCard = null;
+    mark(null);
+    aside.classList.remove("inspecting");
+    aside.setAttribute("aria-label", "所選日摘要");
+    aside.replaceChildren();
+    summary(aside, totals);
+    if (focus) restoreFocus(origin, true);
+  };
+  const open = (c, focus) => {
+    inspectedCard = { key: cardKey(c), context };
+    mark(cardKey(c));
+    aside.classList.add("inspecting");
+    aside.setAttribute("aria-label", "所選活動詳情");
+    const box = panel(null, "activity-inspector");
+    box.id = "activity-inspector";
+    box.style.setProperty("--cat", styleFor(c.category).color);
+    const title = el("h2", c.title);
+    title.tabIndex = -1;
+    add(box,
+      el("p", "所選活動", "eyebrow"),
+      add(el("div", null, "inspector-actions"),
+        keyed(btn("回到當日摘要", () => reset(true)), "inspector-close"),
+        keyed(btn("編輯活動卡", () => editCard(c, cardKey(c)), "primary"), "inspector-edit"),
+      ),
+      title,
+      facts([
+        ["時間", `${stamp(c.start_ms)} – ${stamp(c.end_ms)}`],
+        ["時長", duration(c.end_ms - c.start_ms)],
+        ["分類", styleFor(c.category).name],
+        ["App", c.app],
+        ["內容來源", contentSource(c.source).label],
+      ]),
+      el("h3", "摘要"),
+      el("p", c.summary || "這張卡片沒有摘要，可編輯補充。", "inspector-summary"),
+      el("p", contentSource(c.source).detail, "muted"),
+      c.pending_context === true ? el("p", pendingContextHelp, "hint") : null,
+    );
+    aside.replaceChildren(box);
+    if (focus) {
+      title.focus({ preventScroll: true });
+      title.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  };
+  timelineInspector = { open, reset, get key() { return inspectedCard?.key; }, get ownsFocus() { return aside.contains(document.activeElement); } };
+  const retained = inspectedCard?.context === context && inspectorMedia.matches
+    ? cards.find((c) => cardKey(c) === inspectedCard.key && (!filter || c.category === filter))
+    : null;
+  if (retained) open(retained, false);
+  else reset(false);
 }
 function contentSource(source) {
   switch (source) {
@@ -1538,7 +1616,7 @@ function track(data, compact) {
     visible,
     (24 / 1536) * length,
   )) {
-    const b = keyed(btn("", () => editCard(c), "event"), `card-${c.id}-${c.start_ms}`);
+    const b = keyed(btn("", () => openCard(c), "event"), cardKey(c));
     const height = Math.max(24, px(c.end_ms - c.start_ms));
     const category = styleFor(c.category);
     b.style.setProperty("--top", `${px(c.start_ms - start)}px`);
@@ -1584,7 +1662,7 @@ function activityList(parent, data, showDate) {
   const list = el("ol", null, "activity-list");
   cards.forEach((c) => {
     const category = styleFor(c.category);
-    const b = keyed(btn("", () => editCard(c), "activity"), `card-${c.id}-${c.start_ms}`);
+    const b = keyed(btn("", () => openCard(c), "activity"), cardKey(c));
     b.style.setProperty("--cat", category.color);
     b.setAttribute("aria-label", eventLabel(c));
     add(
@@ -1730,8 +1808,12 @@ async function saveRecord(item) {
     ...item,
   });
 }
-function editCard(c) {
-  const originKey = document.activeElement?.dataset?.key || focusKey;
+function editCard(c, originKey = document.activeElement?.dataset?.key || focusKey) {
+  let saved = false;
+  $("#modal").addEventListener("close", () => {
+    // Resizing can remove the inspector Edit button while this dialog is open.
+    if (!saved) restoreFocus(originKey, true);
+  }, { once: true });
   modal("活動卡", (p) => {
     const category = styleFor(c.category);
     add(
@@ -1770,6 +1852,7 @@ function editCard(c) {
               summary: note.value,
               category: choice.value,
             });
+            saved = true;
             close();
             focusKey = originKey;
             await shell();
@@ -1911,7 +1994,7 @@ async function reviewPage(parent, seq, kind) {
     else {
       const list = el("ol", null, "activity-list");
       longest.forEach((c) => {
-        const b = keyed(btn("", () => editCard(c), "activity"), `card-${c.id}-${c.start_ms}`);
+        const b = keyed(btn("", () => openCard(c), "activity"), cardKey(c));
         b.style.setProperty("--cat", styleFor(c.category).color);
         b.setAttribute("aria-label", eventLabel(c));
         add(
@@ -3823,6 +3906,10 @@ const pages = {
   settings: settingsPage,
 };
 if (inBrowser) {
+  inspectorMedia.addEventListener("change", (event) => {
+    if (timelineInspector)
+      timelineInspector.reset(!event.matches && timelineInspector.ownsFocus && !$("#modal").open);
+  });
   $("#modal").addEventListener("close", () => {
     if (!$("#modal").open) $("#modal-body").replaceChildren();
     if (refreshOnClose && root.querySelector("nav")) {
