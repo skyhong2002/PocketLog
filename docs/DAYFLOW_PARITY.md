@@ -11,11 +11,11 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | Official Dayflow area | PocketLog status |
 | --- | --- |
 | Onboarding: explain capture/privacy/provider | Website and native Android onboarding share server completion, goals and category settings; OS permissions and capture/model consent remain device-specific |
-| Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank |
-| Week timeline | Website seven-column view and horizontally scrollable native Android day columns; 29 selectable journal dates |
-| Category filtering and editing | Website filters; both clients edit ten built-ins plus up to 30 custom categories; up to 32 ordered app/title rules, with manual corrections taking priority |
+| Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank; desktop web selection opens a read-only side inspector, with explicit editing |
+| Week timeline | Website seven-column grid or readable list; native compact seven-column overview with per-day rows; 29 selectable journal dates |
+| Category filtering and editing | Both clients filter categories and edit ten built-ins plus up to 30 custom categories; up to 32 ordered app/title rules, with manual corrections taking priority |
 | Targets, distraction budget, longest focus | Website selected-day sidebar and Android daily review; user-defined focus/distraction roles; intervals are merged for longest-focus metric |
-| Daily | Activity totals, top activities, explicit check-ins, editable reflection and review; both clients generate, save and delete AI briefs with per-request consent |
+| Daily | Activity totals, top activities, editable reflection and focus review; manual mood/energy entry removed at the owner’s request (legacy records/API retained); both clients generate, save and delete AI briefs with per-request consent |
 | Weekly | Website seven-day activity summaries/reflections, totals, AI recap; Android week timeline and existing category/app/keyword overview; separate opt-in daily/weekly schedules with IANA timezone/DST support; no generated artwork |
 | BYO AI | Both clients configure OpenAI-compatible, Anthropic Messages or Gemini generateContent URL, model, key and image capability; no CLI execution |
 | Chat | Both clients can explicitly send up to 100 derived cards to selected provider; both clients support day/week scope, saved multi-turn conversations, same-provider bounded history, deletion and deterministic category charts; no tools or desktop CLI |

@@ -597,3 +597,49 @@ Android production unchanged from #34's validated build; no APK republish.
 
 - [Empty day beside independent weekly footer](screenshots/web-independent-day-empty.png)
 - [390px empty day](screenshots/web-independent-day-mobile.png)
+
+## Recoverable thumbnail replay (#37)
+
+Old built image reproduced delayed replay results opening a modal after navigation
+to Support. Official Dayflow `TimelineReviewMediaViews.swift:6–58` at SHA2c79e161
+distinguishes ready media from preview/fallback content. These are source findings;
+the supplied actual Timeline screenshots do not establish replay interaction and
+Linux cannot run the macOS application. PocketLog retains bounded static thumbnail
+review, not desktop video playback.
+
+Replay now opens immediately with the selected date and a list-loading state.
+List failures have a retry; failed image requests show an explanation plus retry
+image/reload list actions. Loaded media is bounded to the viewport, with controls
+above it and wrapped metadata. Responses belong to the originating render, modal
+and load attempt. Closing/navigating prevents late display. Previous/Next remain
+disabled at boundaries; explicit deletion names the confirmed timestamp/app, locks
+navigation while pending and removes only the captured ID. Retry/boundary/delete
+focus stays within the dialog. No new API, image retention, capture cadence, AI
+consent, automatic playback or polling.
+
+Root created two replay-consented observations using the existing synthetic capture
+fixture JPEG (read-only Kotlin sample, no account/network/private journal). A third
+image had analysis-only consent; real worker validation excluded it from replay.
+Only the isolated fixture archive was reset for this test. No production content.
+
+Final built-image shared-browser checks: immediate loading/date, close+Support
+while list delayed700ms (no late modal); simulated network rejection and real
+list retry; actual authenticated image loads; first/last control disabled state;
+390px no horizontal document overflow; image request redirected to a nonexistent
+synthetic ID yielded a real404 and visible recovery, then restoring the original
+image URL + actual Retry loaded successfully. Retry and boundary actions retained
+focus. Cancel deletion preserved both images. A delayed real DELETE locked all
+controls, removed only the confirmed ID (GET404), retained the other, and deleting
+the final image produced the empty state with hidden controls and focused status.
+The prototype first exposed the shared button helper undoing boundary disabling;
+replay now owns these controls' busy/boundary state and final-build checks passed.
+
+Rustfmt/clippy-Dwarnings,20unit/31integration tests,cargo audit1509/185, web
+regression and final Docker smoke pass. Android source unchanged from #34's
+validated37unit/build/lint/connected checks; APK unchanged. Screen reader and
+physical-device behavior remain unverified. Parity matrix updated to reflect
+compact native week layout and the removed manual mood/energy UI.
+
+- [Phone replay, final-item boundary](screenshots/web-replay-mobile.png)
+- [Recoverable image failure](screenshots/web-replay-image-error.png)
+- [Desktop synthetic thumbnail](screenshots/web-replay-desktop.png)

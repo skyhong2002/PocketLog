@@ -2559,67 +2559,123 @@ async function chatChart(from, to) {
   });
 }
 async function replayDialog() {
-  const [from, to] = windowFor(day);
-  const images = (await api(`/v1/replay?from_ms=${from}&to_ms=${to}`)).images;
+  const seq = renderSeq, date = day;
+  const [from, to] = windowFor(date);
+  let load, deleting = false, attempt = 0;
   modal("短期畫面回放", (p) => {
-    add(
-      p,
-      el(
-        "p",
-        "只有在手機另外同意保存供回放的縮圖會顯示，最多 24 小時／256 張，最長邊 480 px。原本只供分析的原始畫面仍不可讀回。圖片可能含有私人資訊；預先排除並不等於 OCR 遮罩。",
-      ),
+    add(p,
+      el("p", `${dayTitle(date)} · 只顯示這一天的核准縮圖`, "eyebrow"),
+      el("p", "只有在手機另外同意保存供回放的縮圖會顯示，最多 24 小時／256 張，最長邊 480 px。原本只供分析的原始畫面仍不可讀回。圖片可能含有私人資訊；預先排除並不等於 OCR 遮罩。"),
     );
-    const stage = el("div", null, "replay-stage"),
-      position = el("p");
-    position.setAttribute("role", "status");
-    add(p, position, stage);
-    let index = 0;
-    const controls = row();
-    const render = () => {
-      stage.replaceChildren();
-      controls.hidden = !images.length;
-      if (!images.length) {
-        position.textContent =
-          "這一天沒有已同意且仍在保存期限內的縮圖。回放需要在手機上另外開啟。";
+    const holder = el("div", null, "replay-view");
+    add(p, holder);
+    const active = () => seq === renderSeq && holder.isConnected && $("#modal").open;
+    load = async () => {
+      if (deleting) return;
+      const restore = holder.contains(document.activeElement);
+      const generation = ++attempt;
+      const currentLoad = () => active() && generation === attempt;
+      holder.replaceChildren(el("p", "讀取這一天的縮圖清單…", "loading-state"));
+      holder.setAttribute("aria-busy", "true");
+      let images;
+      try {
+        images = (await api(`/v1/replay?from_ms=${from}&to_ms=${to}`)).images;
+      } catch (e) {
+        if (!currentLoad()) return;
+        holder.removeAttribute("aria-busy");
+        const retry = btn("重新讀取清單", load);
+        holder.replaceChildren(emptyState("無法讀取縮圖清單", e.message || "請檢查網路後再試。", retry));
+        if (restore) retry.focus();
         return;
       }
-      const item = images[index];
-      position.textContent = `${index + 1} / ${images.length} · ${time(item.at_ms)} · ${item.app}`;
-      const image = el("img");
-      image.src = `/v1/replay/${item.id}/image`;
-      image.alt = `${item.app} ${time(item.at_ms)} 的核准縮圖`;
-      add(stage, image);
-    };
-    add(
-      controls,
-      btn("上一張", () => {
-        index = Math.max(0, index - 1);
-        render();
-      }),
-      btn("下一張", () => {
-        index = Math.min(images.length - 1, index + 1);
-        render();
-      }),
-      btn("刪除這張", async () => {
-        if (
-          !images.length ||
-          !(await ask(
-            "永久刪除這張回放縮圖？",
-            "只刪除這一張縮圖，無法復原。",
-            "刪除縮圖",
-            true,
-          ))
-        )
+      if (!currentLoad()) return;
+      holder.removeAttribute("aria-busy");
+      const stage = el("div", null, "replay-stage"), position = el("p"), controls = row();
+      position.setAttribute("role", "status");
+      let index = 0;
+      // These controls own persistent boundary/busy state. The generic btn helper
+      // restores disabled=false after actions, which would undo boundary updates.
+      const control = (label, action) => {
+        const button = el("button", label);
+        button.type = "button";
+        button.onclick = () => safe(action, button);
+        return button;
+      };
+      const previous = control("上一張", () => { index = Math.max(0, index - 1); render(); });
+      const next = control("下一張", () => { index = Math.min(images.length - 1, index + 1); render(); });
+      const remove = control("刪除這張", async () => {
+        const item = images[index];
+        if (!item || deleting) return;
+        if (!(await ask("永久刪除這張回放縮圖？", `${stamp(item.at_ms)} · ${item.app}。只刪除這張縮圖，無法復原。`, "刪除縮圖", true)) || !active()) return;
+        deleting = true;
+        updateControls();
+        try {
+          await api(`/v1/replay/${item.id}`, null, "DELETE");
+          if (!currentLoad()) return;
+          images = images.filter((candidate) => candidate.id !== item.id);
+          index = Math.max(0, Math.min(index, images.length - 1));
+          render();
+        } finally {
+          deleting = false;
+          if (active()) {
+            updateControls();
+            // The confirmed image may have been the last one; keep focus in the dialog.
+            if (images.length) remove.focus();
+            else { position.tabIndex = -1; position.focus(); }
+          }
+        }
+      });
+      const updateControls = () => {
+        controls.hidden = !images.length;
+        previous.disabled = deleting || index === 0;
+        next.disabled = deleting || index >= images.length - 1;
+        remove.disabled = deleting;
+      };
+      const render = () => {
+        const action = document.activeElement;
+        const restoreStage = stage.contains(action);
+        stage.replaceChildren();
+        updateControls();
+        if (restoreStage || controls.contains(action) && action.disabled) {
+          position.tabIndex = -1; position.focus();
+        }
+        if (!images.length) {
+          position.textContent = "這一天沒有已同意且仍在保存期限內的縮圖。回放需要在手機上另外開啟。";
           return;
-        await api(`/v1/replay/${images[index].id}`, null, "DELETE");
-        images.splice(index, 1);
-        index = Math.max(0, Math.min(index, images.length - 1));
-        render();
-      }),
-    );
-    add(p, controls);
-    render();
+        }
+        const item = images[index];
+        position.textContent = `${index + 1} / ${images.length} · ${stamp(item.at_ms)} · ${item.app}`;
+        const state = el("p", "載入核准縮圖…", "loading-state");
+        state.setAttribute("role", "status");
+        const image = el("img");
+        image.hidden = true;
+        image.alt = `${item.app} ${stamp(item.at_ms)} 的核准縮圖`;
+        const current = () => currentLoad() && images[index]?.id === item.id && image.isConnected;
+        image.onload = () => {
+          if (!current()) return;
+          state.remove();
+          image.hidden = false;
+        };
+        image.onerror = () => {
+          if (!current()) return;
+          image.remove();
+          state.replaceChildren(
+            el("span", "縮圖無法載入，可能已到期、被刪除或連線中斷。"),
+            btn("重試這張縮圖", render),
+            btn("重新讀取清單", load),
+          );
+          state.className = "callout warn replay-error";
+        };
+        add(stage, state, image);
+        image.src = `/v1/replay/${item.id}/image`;
+      };
+      add(controls, previous, next, remove);
+      holder.replaceChildren(position, controls, stage);
+      render();
+      if (restore) { position.tabIndex = -1; position.focus(); }
+    };
   });
+  await load();
 }
 
 /* ---------- flow ---------- */
