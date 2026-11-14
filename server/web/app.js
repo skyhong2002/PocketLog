@@ -102,6 +102,7 @@ function btn(text, fn, cls) {
     safe(async () => {
       focusKey = n.dataset.key || null;
       n.closest("dialog")?.querySelector(".dialog-feedback")?.remove();
+      const hadFocus = document.activeElement === n;
       n.disabled = true;
       n.setAttribute("aria-busy", "true");
       try {
@@ -109,6 +110,10 @@ function btn(text, fn, cls) {
       } finally {
         n.disabled = false;
         n.removeAttribute("aria-busy");
+        // Native dialog restoration runs while this async opener is disabled.
+        // Restore only when nothing else claimed focus and the opener survived.
+        if (hadFocus && n.isConnected && document.activeElement === document.body)
+          n.focus({ preventScroll: true });
       }
     }, n);
   return n;
@@ -477,14 +482,24 @@ function modal(title, build) {
   p.replaceChildren(heading, content);
   // Late async builders retain a detached container after close, never a newer dialog.
   safe(() => build(content), content);
-  if (!$("#modal").open) $("#modal").showModal();
+  if (!$("#modal").open) {
+    // Async openers may still be disabled when showModal records native focus.
+    $("#modal").dataset.returnKey = focusKey || document.activeElement?.dataset?.key || "";
+    $("#modal").showModal();
+  }
   // Announce the dialog by its title instead of landing on the close button.
   heading.tabIndex = -1;
   heading.focus();
 }
+function restoreModalFocus() {
+  if (document.activeElement === document.body)
+    restoreFocus($("#modal").dataset.returnKey, true);
+}
 function close() {
   $("#modal").close();
   $("#modal-body").replaceChildren();
+  // Save handlers can rebuild the shell before the asynchronous close event.
+  restoreModalFocus();
 }
 /* Specific confirmation; resolves false when dismissed with Escape or Cancel. */
 function ask(title, lines, action, danger) {
@@ -998,11 +1013,11 @@ function checklist(s, onPage) {
           ? `已發出 ${s.keys} 把日誌裝置金鑰。在 Android app 填入這個網站的網址與裝置金鑰，再按「驗證並連線」。`
           : "手機不使用 Owner 金鑰。建立一把可單獨撤銷、會到期的裝置金鑰，只顯示一次。",
       extra: rich("p", "muted", "手機要填的網址：", code(location.origin)),
-      action: btn(
+      action: keyed(btn(
         s.keys > 0 ? "管理裝置金鑰" : "建立裝置金鑰",
         devicesDialog,
         s.keys > 0 || s.activity === true ? "" : "primary",
-      ),
+      ), "setup-devices"),
     },
     {
       done: s.authenticated === true,
@@ -1015,7 +1030,7 @@ function checklist(s, onPage) {
           : s.keys > 0
             ? "尚無連線驗證紀錄。在 Android app 填入伺服器網址與日誌裝置金鑰，按「驗證並連線」，再回這裡重新檢查。金鑰遺失時可撤銷並重建。"
             : "先建立日誌裝置金鑰，再到 Android app 填入網址與金鑰，按「驗證並連線」。",
-      action: btn("重新檢查連線", shell),
+      action: keyed(btn("重新檢查連線", shell), "setup-connection-recheck"),
     },
     {
       done: s.activity === true,
@@ -1027,7 +1042,7 @@ function checklist(s, onPage) {
       action:
         s.activity === true
           ? null
-          : btn("重新檢查", shell),
+          : keyed(btn("重新檢查", shell), "setup-activity-recheck"),
     },
     {
       optional: true,
@@ -1036,12 +1051,12 @@ function checklist(s, onPage) {
       text: ai.enabled
         ? `已設定 ${ai.model}。每次摘要或提問前仍會先顯示傳送範圍。`
         : "需要每日摘要或 Chat 時再設定即可；沒有 AI 不影響時間軸與反思。",
-      action: btn(ai.enabled ? "查看 AI 設定" : "設定 AI", () =>
+      action: keyed(btn(ai.enabled ? "查看 AI 設定" : "設定 AI", () =>
         providerDialog(async () => {
           ai = await api("/v1/ai");
           await shell();
         }),
-      ),
+      ), "setup-ai"),
     },
   ];
   const required = steps.filter((x) => !x.optional);
@@ -1111,8 +1126,9 @@ function restoreFocus(key, complete = false) {
   if (!n && complete && key.startsWith("card-")) n = $("#main");
   if (n && !n.disabled) {
     n.focus({ preventScroll: true });
-    // Week grids scroll horizontally too; a focused card must remain visible.
-    if (key.startsWith("card-") && n !== $("#main"))
+    // Rebuilding the shell can reset document scrolling. Keep restored controls
+    // visible, including horizontal chips/week grids and phone bottom-bar clearance.
+    if (n !== $("#main"))
       n.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 }
@@ -1435,6 +1451,7 @@ async function timelinePage(parent, seq) {
           "顯示全部分類",
           async () => {
             filter = null;
+            focusKey = "chip-null";
             await shell();
           },
           "primary",
@@ -1455,6 +1472,7 @@ async function timelinePage(parent, seq) {
       const open = btn("", async () => {
         day = d.date;
         mode = "day";
+        focusKey = "mode-day";
         await shell();
       }, d.date === day ? "week-day active" : "week-day");
       add(
@@ -1743,7 +1761,7 @@ function summary(parent, m, reviews) {
   const goal = el("section");
   add(
     goal,
-    add(el("div", null, "section-head"), el("h2", "目標"), btn("編輯", goalsDialog, "quiet")),
+    add(el("div", null, "section-head"), el("h2", "目標"), keyed(btn("編輯", goalsDialog, "quiet"), "summary-goals")),
   );
   meter(goal, "專注", m.focus, prefs.focus_minutes, false);
   meter(goal, "分心預算", m.distraction, prefs.distraction_minutes, true);
@@ -3314,7 +3332,7 @@ async function settingsPage(parent, seq) {
   add(
     link1,
     rich("p", "muted", "手機要填的伺服器網址：", code(location.origin)),
-    row(btn("管理裝置金鑰", devicesDialog, devices && !devices.devices.length ? "primary" : "")),
+    row(keyed(btn("管理裝置金鑰", devicesDialog, devices && !devices.devices.length ? "primary" : ""), "settings-devices")),
   );
   add(grid, link1);
   const record = panel("記錄與隱私");
@@ -3331,7 +3349,7 @@ async function settingsPage(parent, seq) {
           : "伺服器接受收集：已在手機同意的紀錄可以上傳。",
       ),
       row(
-        btn(control.paused ? "恢復伺服器收集" : "暫停所有裝置收集", async () => {
+        keyed(btn(control.paused ? "恢復伺服器收集" : "暫停所有裝置收集", async () => {
           if (
             !(await ask(
               control.paused ? "恢復接收手機紀錄？" : "暫停所有裝置的收集？",
@@ -3349,7 +3367,7 @@ async function settingsPage(parent, seq) {
             "PUT",
           );
           await shell();
-        }),
+        }), "settings-collection"),
       ),
     );
   }
@@ -3379,13 +3397,13 @@ async function settingsPage(parent, seq) {
           : "尚未設定，沒有任何內容傳送到外部模型。時間軸與反思不需要 AI。",
     ),
     row(
-      btn(ai.enabled ? "修改 AI 設定" : "設定自己的 AI", () =>
+      keyed(btn(ai.enabled ? "修改 AI 設定" : "設定自己的 AI", () =>
         providerDialog(async () => {
           ai = await api("/v1/ai");
           await shell();
         }),
-      ),
-      ai.enabled ? btn("摘要排程", briefScheduleDialog) : null,
+      ), "settings-ai"),
+      ai.enabled ? keyed(btn("摘要排程", briefScheduleDialog), "settings-schedule") : null,
     ),
   );
   add(grid, model);
@@ -3396,7 +3414,7 @@ async function settingsPage(parent, seq) {
       "p",
       `每天專注目標 ${prefs.focus_minutes} 分鐘 · 分心預算 ${prefs.distraction_minutes} 分鐘 · ${prefs.categories.length} 個分類 · ${(prefs.rules || []).length} 條自動規則。手機與網站共用。`,
     ),
-    row(btn("每日目標", goalsDialog), btn("分類與規則", categoriesDialog)),
+    row(keyed(btn("每日目標", goalsDialog), "settings-goals"), keyed(btn("分類與規則", categoriesDialog), "settings-categories")),
   );
   add(grid, goals);
   const data = panel("資料");
@@ -4041,7 +4059,10 @@ if (inBrowser) {
       timelineInspector.reset(!event.matches && timelineInspector.ownsFocus && !$("#modal").open);
   });
   $("#modal").addEventListener("close", () => {
-    if (!$("#modal").open) $("#modal-body").replaceChildren();
+    if (!$("#modal").open) {
+      $("#modal-body").replaceChildren();
+      restoreModalFocus();
+    }
     if (refreshOnClose && root.querySelector("nav")) {
       refreshOnClose = false;
       safe(shell);

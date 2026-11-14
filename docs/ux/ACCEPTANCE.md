@@ -877,3 +877,42 @@ matching macOS text editor or full feature parity.
 - [Title validation](screenshots/native-card-title-limit.png)
 - [Persistence failure retains draft](screenshots/native-card-save-failure.png)
 - [2× font complete recovery feedback](screenshots/native-card-save-failure-large.png)
+
+## Keyboard focus survives confirmation and shell updates (#44)
+
+Fable5.2's read-only synthetic review found that async buttons disable their
+opener during native-dialog restoration, and unkeyed controls disappear on a
+shell rebuild. Root reproduced export cancellation and a real no-op goals save
+on the original built image: both landed on BODY. The fix restores surviving
+async openers only when focus remains on BODY, records keyed modal return targets
+for asynchronous device/schedule loads, and restores them synchronously before a
+Save handler rebuilds the shell as well as after native close/Escape. Stable
+Settings/Support/summary keys and explicit week-to-day/filter-reset targets cover
+the affected re-renders. Existing intentional focus is respected.
+
+Additional actual checks exposed async device/schedule cancellation losing focus
+and, at390px, a correctly focused goals button below the viewport after a save
+(top1043px, viewport844px). These were fixed before final acceptance. Restored
+controls now scroll into view with phone bottom-bar/safe-area clearance.
+
+Final rebuilt-image browser acceptance at1280×800 and390×844 verifies focus
+identity and fully visible bounds for export/pause cancellation, week→day,
+empty-category reset, actual no-op goals/category saves, async schedule/device
+close and Support connection refresh. Phone setup device/AI close also pass.
+Desktop provider confirmation was dismissed with a real Escape key; real
+Tab/Shift-Tab remain in the provider dialog with a visible2px focus ring. Most
+other actions use scripted focus/click; this is not a full keyboard-only or
+screen-reader audit. An intentional date-field focus claim after cancellation is
+not overwritten. No horizontal overflow, zero model-test calls, no schedule or
+pause changes, and workspace content identical apart from normal revisions.
+
+The two final screenshots were inspected. Web syntax/import/timeline regressions
+and final Docker smoke pass. Native649a840 and Rust checks from the same wave
+remain valid: no native, API, collection or consent change in this web fix.
+Reduced-motion handling was reviewed in source only; no media emulation claim.
+Dayflow's actual supplied screenshot and Swift TimelineFeedbackModal's explicit
+editor focus at2c79e161 inform retaining context across dialogs; this is browser
+accessibility work, not a claim about matching macOS focus behavior.
+
+- [Provider test focus after Escape](screenshots/web-focus-provider-cancel.png)
+- [Phone category-save focus above bottom navigation](screenshots/web-focus-phone-category-save.png)

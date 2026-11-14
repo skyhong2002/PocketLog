@@ -1647,3 +1647,9 @@ summary:focus-visible,
 .rule-preview { margin-top: 20px; border: 1px solid var(--accent); }
 .rule-preview-result { overflow-wrap: anywhere; }
 .preview-outcome { font-weight: 700; color: var(--accent); }
+
+/* Restored keyboard focus must stay visible after the shell replaces its content. */
+main [data-key] { scroll-margin-block: 8px; }
+@media (max-width: 860px) {
+  main [data-key] { scroll-margin-bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
