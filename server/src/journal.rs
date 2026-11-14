@@ -11,6 +11,28 @@ pub(super) fn routes() -> Router<AppState> {
 }
 
 pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
+    crate::conversations::prune(db, now)?;
+    db.execute("DELETE FROM image_replay WHERE at_ms<=?", [now - DAY])
+        .map_err(storage_error)?;
+    db.execute(
+        "DELETE FROM agent_sessions WHERE at_ms<=?",
+        [now - RETENTION],
+    )
+    .map_err(storage_error)?;
+    // Recent session updates cannot extend the lifetime of older imported turns.
+    db.execute("UPDATE agent_sessions SET json=json_set(json,'$.revision',revision+1,'$.turns',json((SELECT json_group_array(json(value)) FROM json_each(agent_sessions.json,'$.turns') WHERE json_extract(value,'$.at_ms')>?1))),revision=revision+1 WHERE EXISTS(SELECT 1 FROM json_each(agent_sessions.json,'$.turns') WHERE json_extract(value,'$.at_ms')<=?1)",[now-RETENTION]).map_err(storage_error)?;
+    db.execute("DELETE FROM briefs WHERE at_ms<=?", [now - RETENTION])
+        .map_err(storage_error)?;
+    db.execute(
+        "DELETE FROM brief_attempts WHERE at_ms<=?",
+        [now - RETENTION],
+    )
+    .map_err(storage_error)?;
+    db.execute(
+        "DELETE FROM focus_session WHERE at_ms<=?",
+        [now - RETENTION],
+    )
+    .map_err(storage_error)?;
     db.execute(
         "DELETE FROM review_records WHERE at_ms <= ?",
         [now - RETENTION],
@@ -38,6 +60,10 @@ pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
     Ok(())
 }
 pub(super) fn erase(db: &Connection) -> Result<()> {
+    db.execute_batch(
+        "DELETE FROM image_replay; DELETE FROM agent_sessions; DELETE FROM briefs; DELETE FROM brief_attempts; UPDATE brief_schedule SET revision=revision+1,json=json_set(json,'$.enabled',json('false'),'$.revision',revision+1); DELETE FROM focus_session; DELETE FROM chat_turns; DELETE FROM chat_threads;",
+    )
+    .map_err(storage_error)?;
     db.execute("DELETE FROM review_records", [])
         .map_err(storage_error)?;
     db.execute_batch("UPDATE journal_meta SET epoch=epoch+1; DELETE FROM analysis_jobs; DELETE FROM observations; DELETE FROM receipts; DELETE FROM notes; DELETE FROM reflections;").map_err(storage_error)
@@ -56,8 +82,13 @@ struct Observation {
     jpeg_base64: Option<String>,
     #[serde(default)]
     image_consent: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    replay_consent: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider_id: Option<String>,
+}
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> Result<StatusCode> {
     let now = now_ms();
@@ -84,6 +115,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
         || o.provider_id
             .as_ref()
             .is_some_and(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
+        || o.replay_consent && (!o.image_consent || o.jpeg_base64.is_none())
         || !o.analysis_consent
     {
         return Err(invalid());
@@ -96,6 +128,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
         .database(move |db| {
             let tx = db.transaction().map_err(storage_error)?;
             super::prune(&tx, now)?;
+            crate::collection::ensure_running(&tx)?;
             let existing: Option<String> = tx
                 .query_row("SELECT hash FROM receipts WHERE id=?", [&o.id], |r| {
                     r.get(0)
@@ -121,6 +154,15 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                         StatusCode::INSUFFICIENT_STORAGE,
                         "context capacity reached",
                     ));
+                }
+                if o.replay_consent {
+                    crate::replay::insert(
+                        &tx,
+                        &o.id,
+                        o.at_ms,
+                        &o.app,
+                        o.jpeg_base64.as_deref().ok_or_else(invalid)?,
+                    )?;
                 }
                 tx.execute(
                     "INSERT INTO receipts VALUES (?,?,?)",
@@ -160,6 +202,7 @@ pub(super) struct Card {
     source: &'static str,
 }
 pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card>> {
+    let preferences = workspace::load(db)?;
     activities
         .iter()
         .map(|a| {
@@ -184,6 +227,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 ),
                 None => (a.app.clone(), String::new(), a.category.clone(), "app_only"),
             };
+            let category = preferences.classify(category, &a.app, &title, source == "user");
             Ok(Card {
                 id: a.id.clone(),
                 start_ms: a.start_ms,
@@ -217,6 +261,7 @@ async fn edit(State(state): State<AppState>, Json(e): Json<Edit>) -> Result<Stat
     }
     state.database(move |db| {
         super::prune(db,now_ms())?;
+        workspace::ensure_category(db, &e.category)?;
         let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM activities WHERE id=?)",[&e.id],|r|r.get(0)).map_err(storage_error)?;
         if !exists { return Err(ApiError(StatusCode::NOT_FOUND,"activity not found")); }
         db.execute("INSERT INTO notes VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET title=excluded.title, summary=excluded.summary,category=excluded.category,edited=1",params![e.id,e.title,e.summary,serde_json::to_string(&e.category).map_err(storage_error)?]).map_err(storage_error)?;
@@ -291,8 +336,17 @@ async fn overview(
     }
     state.database(move |db| {
         super::prune(db,now)?;
-        let categories:Vec<CategoryTotal>=db.prepare("SELECT COALESCE(n.category,a.category),SUM(MIN(a.end_ms,?2)-MAX(a.start_ms,?1)) FROM activities a LEFT JOIN notes n ON n.id=a.id WHERE a.end_ms>?1 AND a.start_ms<?2 GROUP BY COALESCE(n.category,a.category) ORDER BY 2 DESC").map_err(storage_error)?
-            .query_map([w.from_ms,w.to_ms],|r| { let category:String=r.get(0)?; Ok(CategoryTotal {category:serde_json::from_str(&category).map_err(|e|rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,duration_ms:r.get(1)?}) }).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
+        let preferences=workspace::load(db)?;
+        let mut totals=std::collections::BTreeMap::<String,i64>::new();
+        let mut stmt=db.prepare("SELECT COALESCE(n.category,a.category),a.app,COALESCE(n.title,a.app),COALESCE(n.edited,0),MIN(a.end_ms,?2)-MAX(a.start_ms,?1) FROM activities a LEFT JOIN notes n ON n.id=a.id WHERE a.end_ms>?1 AND a.start_ms<?2 LIMIT 100000").map_err(storage_error)?;
+        let rows=stmt.query_map([w.from_ms,w.to_ms],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?))).map_err(storage_error)?;
+        for row in rows {
+            let (category,app,title,edited,duration)=row.map_err(storage_error)?;
+            let category=preferences.classify(serde_json::from_str(&category).map_err(storage_error)?,&app,&title,edited==1);
+            *totals.entry(serde_json::to_string(&category).map_err(storage_error)?).or_default()+=duration;
+        }
+        let mut categories:Vec<CategoryTotal>=totals.into_iter().map(|(category,duration_ms)|Ok(CategoryTotal{category:serde_json::from_str(&category).map_err(storage_error)?,duration_ms})).collect::<Result<_>>()?;
+        categories.sort_by_key(|a| std::cmp::Reverse(a.duration_ms));
         let apps:Vec<AppTotal>=db.prepare("SELECT app,SUM(MIN(end_ms,?2)-MAX(start_ms,?1)) FROM activities WHERE end_ms>?1 AND start_ms<?2 GROUP BY app ORDER BY 2 DESC,app LIMIT 20").map_err(storage_error)?
             .query_map([w.from_ms,w.to_ms],|r|Ok(AppTotal {app:r.get(0)?,duration_ms:r.get(1)?})).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         let (checkins,mood,energy):(i64,Option<f64>,Option<f64>)=db.query_row("SELECT COUNT(*),AVG(mood),AVG(energy) FROM checkins WHERE at_ms>=? AND at_ms<?",[w.from_ms,w.to_ms],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(storage_error)?;

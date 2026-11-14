@@ -18,7 +18,7 @@ contain private words; they are private journal data, not anonymized telemetry.
 
 No provider is configured by default and no provider key is borrowed from infovore.
 Use **Bring your own AI** in Android settings or the private website. Configure
-the full OpenAI-compatible Chat Completions URL, explicit model ID, API key,
+the full model API URL, protocol (OpenAI-compatible, Anthropic Messages or Gemini generateContent), explicit model ID, API key,
 JSON Schema/JSON Object compatibility mode and whether the model supports images.
 Keys travel over HTTPS to the private server and live in a dedicated config volume,
 not SQLite, the phone or read responses. Saving does not call a model. The explicit
@@ -55,7 +55,8 @@ local fallback. Thumbnails require separate capture consent. Up to six JPEGs
 and 6,000 text characters (at most 24 KiB UTF-8) enter one request. Input images
 are max 24 KiB; only JPEG decoding in the worker, dimensions at most 960 by 960,
 with an 8 MiB decoder allocation budget. Invalid images are skipped. The API never
-decodes images or serves raw context.
+decodes images. Analysis-only raw context is never served; a separate explicit
+replay opt-in permits only worker-sanitized short-term thumbnails.
 
 The compatible request format uses `response_format: json_schema`, `strict: true`,
 all fields required, and `additionalProperties: false`; see
@@ -76,7 +77,20 @@ new app-configured provider.
 
 ## Interactive questions and recaps
 
-Native/web Chat and web daily/weekly recaps use the configured provider only after
-explicit per-request approval. The outgoing scope is derived cards only (up to 100,
-24 KB), never raw screen context or feelings/reflections. Questions are independent
-and replies are not stored. See [API](API.md) and [parity matrix](DAYFLOW_PARITY.md).
+Native/web Chat and daily/weekly saved briefs use the configured provider only after
+separate consent. Each request sends at most 100 derived activity cards / 24 KB,
+never raw screen context, feelings, reflections, imported agent turns or replay
+images. Chat may additionally send the last six same-provider turns / 6,000 chars;
+questions/answers are saved privately for 30 days and can be deleted. Brief
+schedules require independent ongoing provider-bound consent, default off, and
+stop matching after settings rotate. Completed daily/weekly 04:00 boundaries use
+IANA timezones including DST. The worker attempts at most two periods/pass and
+three calls/period, with no historical catch-up. Journal deletion disables schedules.
+
+Native Anthropic endpoints end in `/v1/messages`; the key uses `x-api-key` with
+`anthropic-version: 2023-06-01`. Native Gemini endpoints include the exact configured
+model as `/models/MODEL:generateContent`; the key uses `x-goog-api-key`, never a URL
+query. Tools, refusal/block responses, incomplete output and invalid summaries fail
+closed. JSON Schema/JSON Object selection applies to OpenAI-compatible endpoints;
+Gemini uses JSON MIME output for summaries; Anthropic receives the bounded explicit
+JSON instructions. The common TLS/redirect/size/provider-consent limits apply.

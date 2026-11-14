@@ -1,8 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod agents;
 mod ai_settings;
 mod analysis;
+mod briefs;
+mod collection;
+mod conversations;
+mod devices;
+mod focus;
 mod journal;
+mod replay;
 mod web;
 mod workspace;
 
@@ -76,6 +83,14 @@ impl AppState {
           INSERT INTO journal_meta SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM journal_meta);
           CREATE TABLE IF NOT EXISTS analysis_jobs(id TEXT PRIMARY KEY, attempts INTEGER NOT NULL, next_ms INTEGER NOT NULL);
           CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, hash TEXT NOT NULL);").map_err(|_| "database setup failed")?;
+        devices::migrate(&db, &Sha256::digest(token.as_bytes()).into())
+            .map_err(|_| "database setup failed")?;
+        replay::migrate(&db).map_err(|_| "database setup failed")?;
+        collection::migrate(&db).map_err(|_| "database setup failed")?;
+        agents::migrate(&db).map_err(|_| "database setup failed")?;
+        briefs::migrate(&db).map_err(|_| "database setup failed")?;
+        focus::migrate(&db).map_err(|_| "database setup failed")?;
+        conversations::migrate(&db).map_err(|_| "database setup failed")?;
         workspace::migrate(&db).map_err(|_| "database setup failed")?;
         let has_provider_id: bool = db
             .prepare("PRAGMA table_info(observations)")
@@ -158,7 +173,23 @@ async fn authenticate(
         .unwrap_or("");
     let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
     if !bool::from(state.token_hash.ct_eq(&hash)) && !web::authorized(&state, &req) {
-        return ApiError(StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+        let valid_token = token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit());
+        let allowed = if valid_token {
+            devices::authorized(
+                &state,
+                hash,
+                req.method().as_str().to_owned(),
+                req.uri().path().to_owned(),
+            )
+            .await
+        } else {
+            Ok(false)
+        };
+        match allowed {
+            Ok(true) => {}
+            Ok(false) => return ApiError(StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+            Err(error) => return error.into_response(),
+        }
     }
     match tokio::time::timeout(std::time::Duration::from_secs(10), next.run(req)).await {
         Ok(response) => response,
@@ -200,6 +231,13 @@ pub fn router(state: AppState) -> Router {
     let private = journal::routes()
         .merge(ai_settings::routes())
         .merge(workspace::routes())
+        .merge(conversations::routes())
+        .merge(focus::routes())
+        .merge(briefs::routes())
+        .merge(agents::routes())
+        .merge(collection::routes())
+        .merge(replay::routes())
+        .merge(devices::routes())
         .route("/v1/activities", post(ingest))
         .route("/v1/checkins", post(checkin))
         .route("/v1/timeline", get(timeline))
@@ -227,7 +265,7 @@ pub struct Activity {
     pub category: Category,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(try_from = "String", into = "String")]
 pub enum Category {
     Unsorted,
     Work,
@@ -239,6 +277,51 @@ pub enum Category {
     SocialMedia,
     NewsReading,
     Idle,
+    Custom(String),
+}
+impl TryFrom<String> for Category {
+    type Error = &'static str;
+    fn try_from(id: String) -> std::result::Result<Self, Self::Error> {
+        Ok(match id.as_str() {
+            "unsorted" => Self::Unsorted,
+            "work" => Self::Work,
+            "learning" => Self::Learning,
+            "communication" => Self::Communication,
+            "entertainment" => Self::Entertainment,
+            "life_admin" => Self::LifeAdmin,
+            "rest" => Self::Rest,
+            "social_media" => Self::SocialMedia,
+            "news_reading" => Self::NewsReading,
+            "idle" => Self::Idle,
+            _ if id.starts_with("custom_")
+                && (8..=64).contains(&id.len())
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') =>
+            {
+                Self::Custom(id)
+            }
+            _ => return Err("invalid category"),
+        })
+    }
+}
+impl From<Category> for String {
+    fn from(category: Category) -> Self {
+        match category {
+            Category::Unsorted => "unsorted",
+            Category::Work => "work",
+            Category::Learning => "learning",
+            Category::Communication => "communication",
+            Category::Entertainment => "entertainment",
+            Category::LifeAdmin => "life_admin",
+            Category::Rest => "rest",
+            Category::SocialMedia => "social_media",
+            Category::NewsReading => "news_reading",
+            Category::Idle => "idle",
+            Category::Custom(id) => return id,
+        }
+        .into()
+    }
 }
 impl Activity {
     fn valid(&self, now: i64) -> bool {
@@ -281,6 +364,7 @@ async fn ingest(
     let accepted = state.database(move |db| {
         let tx = db.transaction().map_err(storage_error)?;
         prune(&tx, now)?;
+        collection::ensure_running(&tx)?;
         let mut accepted = 0;
         for a in batch.activities {
             let category = serde_json::to_string(&a.category).map_err(storage_error)?;
@@ -289,6 +373,7 @@ async fn ingest(
                 let same: bool = tx.query_row("SELECT start_ms = ? AND end_ms = ? AND app = ? AND category = ? FROM activities WHERE id = ?", params![a.start_ms,a.end_ms,a.app,category,a.id], |r| r.get(0)).map_err(storage_error)?;
                 if !same { return Err(ApiError(StatusCode::CONFLICT, "event id already used")); }
             }
+            if changed > 0 { workspace::ensure_category(&tx, &a.category)?; }
             accepted += changed;
         }
         let count: i64 = tx.query_row("SELECT COUNT(*) FROM activities", [], |r| r.get(0)).map_err(storage_error)?;
@@ -403,3 +488,11 @@ pub fn process_pending(db: &mut Connection) -> std::result::Result<usize, &'stat
 }
 
 pub use analysis::{Provider, process_with_provider};
+
+/// Runs explicitly opted-in derived-card brief schedules; no raw capture input.
+pub fn process_briefs(
+    db: &mut Connection,
+    provider: Option<&Provider>,
+) -> std::result::Result<usize, &'static str> {
+    briefs::process(db, provider)
+}

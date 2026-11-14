@@ -79,4 +79,16 @@ class RecordingTest {
         queue.clearContexts()
         assertEquals("/v1/checkins", queue.entries(a).single().data.getString("path"))
     }
+    @Test fun sharedPauseClearsCapturedQueuesIncludingQuarantineButKeepsExplicitJournal() {
+        val files=MemoryFiles();val queue=JournalQueue(files){}
+        val c=Credentials("https://example.com","a".repeat(64))
+        queue.enqueue(c,"/v1/activities",JSONObject().put("id","capture"))
+        queue.reject(queue.entries(c).single())
+        queue.enqueue(c,"/v1/observations",JSONObject().put("id","context"))
+        queue.enqueue(c,"/v1/checkins",JSONObject().put("id","explicit"))
+        queue.clearCollected()
+        assertEquals(1 to 0,queue.counts())
+        assertEquals("/v1/checkins",queue.entries(c).single().data.getString("path"))
+    }
+
 }

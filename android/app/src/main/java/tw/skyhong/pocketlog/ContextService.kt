@@ -26,7 +26,7 @@ class ContextService : AccessibilityService() {
         val revision = settings.revision
         val now = System.currentTimeMillis()
         if (pending || now - lastCapture < RecordingRules.CONTEXT_GAP || !allowed(pkg, settings)) return
-        // Inspect only structural flags before asking the OS for pixels. No text is read yet.
+        // Structural exclusions and optional local text-secret checks run before pixels.
         if (safeNodes(pkg, window) == null) return
         pending = true
         lastCapture = now
@@ -50,7 +50,7 @@ class ContextService : AccessibilityService() {
                             .put("id", UUID.randomUUID().toString()).put("at_ms", now).put("app", pkg)
                             .put("text", text).put("analysis_consent", true).put("external_ai_consent", settings.externalAiConsent)
                         if (settings.externalAiConsent) settings.aiProviderId?.let { body.put("provider_id", it) }
-                        if (jpeg != null && settings.imagesEnabled) body.put("jpeg_base64", jpeg).put("image_consent", true)
+                        if (jpeg != null && settings.imagesEnabled) { body.put("jpeg_base64", jpeg).put("image_consent", true); if (settings.replayConsent) body.put("replay_consent", true) }
                         JournalQueue(this@ContextService).enqueue(credentials, "/v1/observations", body)
                         SyncEngine.schedule(this@ContextService)
                     }
@@ -59,15 +59,19 @@ class ContextService : AccessibilityService() {
             override fun onFailure(errorCode: Int) { pending = false }
         }) }.onFailure { pending = false }
     }
-    /** Two passes: reject the whole window before reading any visible text. Fail on partial traversal. */
+    /** Reject structural risks before collecting text; fail closed on partial traversal. */
     private fun safeNodes(pkg: String, window: Int): List<AccessibilityNodeInfo>? {
         val root = rootInActiveWindow ?: return null
         if (root.windowId != window || root.packageName?.toString() != pkg) return null
+        val shield = RecordingSettings(this).privacyShield
         val nodes = mutableListOf<AccessibilityNodeInfo>()
         var visited = 0
         fun visit(node: AccessibilityNodeInfo, depth: Int): Boolean {
             if (++visited > 300 || depth > 20 || node.childCount > 100 || node.isPassword || node.isEditable || node.packageName?.toString() != pkg) return false
-            if (node.isVisibleToUser) nodes += node
+            if (node.isVisibleToUser) {
+                if (shield && (PrivacyShield.rejects(node.text) || PrivacyShield.rejects(node.contentDescription))) return false
+                nodes += node
+            }
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i) ?: return false
                 if (!visit(child, depth + 1)) return false

@@ -26,7 +26,7 @@ the journal volume. `docker compose down -v` permanently removes that volume.
 
 This runs the current development implementation as a persistent single-owner
 service with API and worker. Capture remains off until enabled on Android, and
-no model provider is configured by default. Device pairing is still planned. See
+no model provider is configured by default. Use separately issued device keys for Android; physical-device acceptance remains required. See
 [security boundaries](SECURITY.md) for the remaining acceptance work.
 
 ```sh
@@ -104,14 +104,33 @@ separate capture/image/model consent. Browser use does not start screen capture.
 
 The base Compose config mounts `ai_settings:/config` writable for the API and
 read-only for the worker, setting `POCKETLOG_AI_CONFIG_DIR=/config` on both.
-Configure an OpenAI-compatible Chat Completions endpoint/model via Settings.
+Configure an OpenAI-compatible, native Anthropic Messages or Gemini generateContent endpoint/model via Settings.
 Use the synthetic test, then explicitly approve future phone context for that
 provider. Local models are addressed from the server/container network, not the
-phone; verified HTTPS or literal loopback HTTP only. Native Anthropic/Gemini APIs
-and CLI model processes are not implemented. See [analysis](ANALYSIS.md).
+phone; verified HTTPS or literal loopback HTTP only. No CLI model process executes. See [analysis](ANALYSIS.md).
 
 Back up both private volumes on encrypted storage. The config volume contains the
 plaintext provider key (directory0700/file0600); do not publish it or include it in
 source archives. Journal deletion preserves workspace/provider setup; disable AI
 separately to remove its key. Neither operation can remove copied exports/backups
 or requests already delivered to an AI provider.
+
+
+For a phone, sign into the website with the owner token, open Settings → device
+keys, and issue a **journal** credential with a short expiry. Enter that credential
+in Android instead of sharing the owner token across installations. Device keys
+cannot log into the owner website or manage credentials. A collector credential
+is for bounded upload tools and cannot display a journal. Revocation is immediate
+for new server requests; Android stops capture when sync discovers invalid auth.
+Keep the owner token as recovery; rotating it invalidates all device keys on restart.
+
+Daily/weekly AI briefs and background schedules have separate consent. Configure
+IANA timezone and time (04:00–23:59); confirm ongoing derived-card transmission and
+possible costs. Changing model configuration requires renewed schedule consent.
+No schedule is enabled during upgrade. Deleting the journal disables it.
+
+Short-term screenshot replay requires its own Android opt-in in addition to image
+capture. Analysis-only images are never made readable retroactively. At most 256
+worker-sanitized thumbnails are kept for 24 hours and can be individually deleted.
+Privacy Shield conservatively skips visible text with suspected secrets before
+pixels; it is not OCR pixel redaction and does not replace exclusions/allowlists.

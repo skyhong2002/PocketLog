@@ -47,17 +47,20 @@ reflection, category overview and daily JSON export. See
 [exact coverage and limitations](INFOVORE_PORT.md).
 
 Still pending: physical-device permission/capture/Keystore/Doze tests and full-day
-battery measurements; device pairing/revocation; encrypted backup/import/restore;
+battery measurements; physical-device pairing/revocation acceptance; encrypted backup/import/restore;
 local-only mode; reminders; independent security review; owner-approved infovore
 publishing connector. Earlier milestones are product sequencing, not a claim that
 all of these remaining requirements shipped in this port.
 
 ## Website and official Dayflow alignment (2026-11-14)
 
-Shared onboarding, owner-session browser UI, native/web day/week timelines,
-category presentation/roles, goals, explicit AI questions and private focus/agent
-summary records are implemented. See [the exact parity matrix](DAYFLOW_PARITY.md)
-and [UI guidelines](UI_GUIDELINES.md). This is not complete Dayflow parity: native
-provider protocols/CLI, arbitrary category rules, scheduled rich briefs, persistent
-Chat, automatic agent-session readers, recording/replay/redaction and the remote
-Flow service remain substantial work. Do not mark these complete from tab names.
+Shared onboarding, native/web day/week timelines, custom categories and ordered
+classification rules, goals, native provider protocols, saved multi-turn Chat and
+category charts, provider-bound daily/weekly brief schedules, cross-device focus
+timers, per-turn native agent JSONL import/replay, shared collection pause, separate
+short-term image replay consent and expiring/revocable device keys are implemented.
+See [the exact parity matrix](DAYFLOW_PARITY.md). Desktop continuous recording/audio,
+OCR pixel redaction, CLI inference, background desktop session scanning, generated
+artwork and Dayflow's separately hosted Flow backend are not implemented. Physical
+capture/battery acceptance is still required; no additional high-frequency work has
+been introduced on Android.

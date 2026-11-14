@@ -29,9 +29,12 @@ report suspected vulnerabilities privately through the repository owner.
 
 ## Trust and known limitations
 
-- Single owner only. Owner token grants read, write and delete. Independent
-  upload/read/device credentials, pairing expiration, device revocation and a
-  recovery flow are required before broader distribution. Rotate today's token
+- Single owner only. Owner token grants all capabilities and browser login. Owner-issued
+  device keys expire in 1–90 days and can be revoked individually. Journal keys have
+  private journal/model access but cannot manage devices or create owner browser
+  sessions; collector keys can only upload activities/context and read collection/model
+  configuration. Only SHA-256 digests are stored, and keys are returned once. Owner
+  rotation invalidates all device keys on service startup. Rotate the owner token
   by replacing the secret file with a fresh random value and recreating the
   container; update each client. Keep the generated token private.
 - No built-in TLS termination or public-internet abuse protection. Keep behind
@@ -56,7 +59,15 @@ report suspected vulnerabilities privately through the repository owner.
   timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
   app/workers execute, not while powered off. Key loss can make local records
   unrecoverable; corrupt files are discarded with a visible drop count.
-- Raw context is private, max 24 hours, never readable/exportable by API. Receipts
+- Analysis-only raw context is private, max 24 hours, never readable/exportable by API.
+  Independent per-image `replay_consent` can additionally create a separate private
+  archive (256 images / 24 hours). Only worker-decoded, resized/re-encoded JPEGs
+  (480 px, 24 KiB, stripped metadata) become readable. No implicit archive of old
+  images. Replay requires owner/journal-device authentication, remains no-store,
+  is excluded from ordinary exports and is erased with the journal. This is not OCR
+  masking. Default-on local suspected-secret text checks reject the whole window
+  before pixels, with false positives and no guarantee for secrets rendered only
+  as pixels. Receipts
   retain only payload hashes/IDs for 30-day deduplication. Consumed raw records are
   deleted after derived notes commit. Cleanup occurs per request/worker pass and
   hourly; stopped workers/hosts can delay physical cleanup. The API never decodes
@@ -73,6 +84,10 @@ report suspected vulnerabilities privately through the repository owner.
   not already transmitted server/provider copies. Owner deletion invalidates jobs
   and in-flight results, but cannot retract requests already sent to a model. The
   Android delete action first disables capture and clears local queue/cache.
+  Shared server pause rejects new captures and clears pending server context;
+  phones apply it on the existing sync cadence and clear queued capture data.
+  Offline phones use their last known state until reconnection, not instant remote
+  control. Known invalid/revoked device credentials stop local capture after sync.
   Failed server deletion must be retried; other installations can still upload
   with the shared owner token. Rotate/revoke that token when necessary.
 - Raw screen content never belongs in logs or infovore. Daily exports contain
@@ -82,7 +97,7 @@ report suspected vulnerabilities privately through the repository owner.
 
 ## Required acceptance checks before routine personal use
 
-Device pairing and revocation; physical-device verification of consent, exclusions,
+Physical-device pairing and revocation verification; physical-device verification of consent, exclusions,
 AndroidKeyStore and Doze; full-day battery benchmarks; backup+restore and import;
 independent capture/worker threat review; and private integration scopes. Automated
 queue, retention, deletion-race and model/decoder tests do not replace these checks.
@@ -114,12 +129,26 @@ if the database commit fails. An already sent request cannot be recalled.
 
 Chat requires consent on every request for the current provider identity. It
 sends at most 100 derived activity cards/24,000 bytes of evidence and a 1,000-char
-question, with no raw observations, images, reflections or check-ins. Requests
-are single-turn and responses are not persisted. Model calls use an 8-second
+question, with no raw observations, images, reflections or check-ins. Optional
+conversation/request IDs persist 500 pairs across 100 conversations for 30 days,
+with at most six pairs/6,000 characters of same-provider dialogue per call. No
+past dialogue is sent after provider identity changes. Completed request IDs replay
+the saved answer without another model call. Model calls use an 8-second
 request limit, a 64 KiB response bound and one concurrent explicit test/chat call.
 Deletion/provider epoch changes invalidate in-flight answers.
 
 Shared onboarding is not collection consent. User-started focus, review and agent
 summary records have quotas and 30-day retention and participate in journal
-deletion. Agent files are chosen explicitly and bounded; no desktop session tree
-is scanned, no shell command executes, and no agent session path is opened.
+deletion. Agent files are chosen explicitly and parsed locally before per-turn approval.
+Only selected text is uploaded; tool outputs, thinking, attachments and path/env
+metadata are not imported. Sessions have revision/size/count/retention bounds and
+are excluded from all model evidence. No desktop session tree is scanned, no shell
+command executes, and no agent session path is opened.
+
+Separate provider-bound brief scheduling consent is default off. It sends only
+bounded derived cards, at most two periods/pass with three durable attempts each.
+IANA timezone/DST determines completed periods. Provider changes stop the old
+schedule; journal deletion disables it and invalidates in-flight results. Owner
+configuration survives deletion, while all conversations, briefs, focus timers,
+agent sessions and replay images are erased. Scheduled outputs are plain text,
+never executable tools/HTML.

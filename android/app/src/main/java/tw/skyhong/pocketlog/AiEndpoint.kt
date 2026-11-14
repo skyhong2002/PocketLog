@@ -4,12 +4,13 @@ import java.net.URI
 
 /** Provider URLs describe a server-to-model connection; API credentials stay in request headers. */
 object AiEndpoint {
-    fun normalize(value: String): String {
+    fun normalize(value: String, openAi: Boolean = true): String {
         val raw = value.trim().trimEnd('/')
         val uri = URI(raw)
         require(uri.scheme == "https" || (uri.scheme == "http" && uri.host in setOf("127.0.0.1", "[::1]", "::1")))
         require(!uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null)
         require(raw.length <= 2048)
+        if (!openAi) return raw
         val path = uri.path.orEmpty()
         return when {
             path.endsWith("/chat/completions") -> raw

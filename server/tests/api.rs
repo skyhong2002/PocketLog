@@ -940,3 +940,1140 @@ async fn explicit_probe_is_synthetic_and_chat_sends_only_bounded_derived_cards()
         }
     }
 }
+
+#[tokio::test]
+async fn custom_categories_rules_preserve_replays_and_manual_edits() {
+    let app = app();
+    let activity = event("rule-example");
+    call(
+        &app,
+        "POST",
+        "/v1/activities",
+        json!({"activities":[activity.clone()]}),
+        true,
+    )
+    .await;
+    let mut prefs = call(&app, "GET", "/v1/workspace", json!({}), true).await.1;
+    prefs["categories"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"custom_reading","name":"深入閱讀","color":"#123abc","role":"focus"}));
+    prefs["rules"] = json!([{"id":"reading","category":"custom_reading","app":"org.example.reader","title_contains":null,"enabled":true}]);
+    assert_eq!(
+        call(&app, "PUT", "/v1/workspace", prefs, true).await.0,
+        StatusCode::OK
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    let path = format!("/v1/timeline?from_ms={}&to_ms={now}", now - 3600000);
+    assert_eq!(
+        call(&app, "GET", &path, json!({}), true).await.1["cards"][0]["category"],
+        "custom_reading"
+    );
+    let overview = format!("/v1/overview?from_ms={}&to_ms={now}", now - 3600000);
+    assert_eq!(
+        call(&app, "GET", &overview, json!({}), true).await.1["categories"][0]["category"],
+        "custom_reading"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/activities",
+            json!({"activities":[activity]}),
+            true
+        )
+        .await
+        .1["accepted"],
+        0
+    );
+    call(
+        &app,
+        "POST",
+        "/v1/cards",
+        json!({"id":"rule-example","title":"User correction","summary":"","category":"rest"}),
+        true,
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &path, json!({}), true).await.1["cards"][0]["category"],
+        "rest"
+    );
+    assert_eq!(
+        call(&app, "GET", &overview, json!({}), true).await.1["categories"][0]["category"],
+        "rest"
+    );
+    call(
+        &app,
+        "POST",
+        "/v1/cards",
+        json!({"id":"rule-example","title":"User custom","summary":"","category":"custom_reading"}),
+        true,
+    )
+    .await;
+    let mut prefs = call(&app, "GET", "/v1/workspace", json!({}), true).await.1;
+    prefs["categories"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|c| c["id"] != "custom_reading");
+    prefs["rules"] = json!([]);
+    assert_eq!(
+        call(&app, "PUT", "/v1/workspace", prefs, true).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/cards",
+            json!({"id":"rule-example","title":"Invalid","summary":"","category":"custom_missing"}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn durable_focus_is_shared_conflict_safe_idempotent_and_erased() {
+    let app = app();
+    let now = chrono::Utc::now().timestamp_millis();
+    for (method, path) in [
+        ("GET", "/v1/focus"),
+        ("POST", "/v1/focus"),
+        ("DELETE", "/v1/focus"),
+        ("POST", "/v1/focus/finish"),
+    ] {
+        assert_eq!(
+            call(&app, method, path, json!({}), false).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let session = json!({"id":"focus-one","at_ms":now-1000,"minutes":25,"text":"Synthetic focus"});
+    assert_eq!(
+        call(&app, "POST", "/v1/focus", session.clone(), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/focus", session.clone(), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "GET", "/v1/focus", json!({}), true).await.1["session"],
+        session
+    );
+    let other = json!({"id":"focus-two","at_ms":now,"minutes":30,"text":"Second"});
+    assert_eq!(
+        call(&app, "POST", "/v1/focus", other.clone(), true).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/focus/finish",
+            json!({"id":"focus-two"}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                "/v1/focus/finish",
+                json!({"id":"focus-one"}),
+                true
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        call(&app, "POST", "/v1/focus", session, true).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/focus", other.clone(), true).await.0,
+        StatusCode::OK
+    );
+    // A retry on an old ID cannot finish/discard the new timer.
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/focus/finish",
+            json!({"id":"focus-one"}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(&app, "DELETE", "/v1/focus", json!({"id":"focus-one"}), true)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(&app, "GET", "/v1/focus", json!({}), true).await.1["session"],
+        other
+    );
+    let path = format!("/v1/reviews?from_ms={}&to_ms={}", now - 60_000, now + 1000);
+    let records = call(&app, "GET", &path, json!({}), true).await.1;
+    assert_eq!(records["records"].as_array().unwrap().len(), 1);
+    assert_eq!(records["records"][0]["kind"], "flow");
+    assert_eq!(
+        call(&app, "DELETE", "/v1/journal", json!({}), true).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert!(call(&app, "GET", "/v1/focus", json!({}), true).await.1["session"].is_null());
+    assert_eq!(
+        call(&app, "GET", &path, json!({}), true).await.1["records"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+fn synthetic_model(replies: Vec<Value>) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let handle = std::thread::spawn(move || {
+        let mut received = Vec::new();
+        for reply in replies {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((s, _)) => break s,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(std::time::Instant::now() < deadline, "expected model call");
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(e) => panic!("{e}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                headers.push(byte[0]);
+                assert!(headers.len() < 16384);
+            }
+            let headers = String::from_utf8(headers).unwrap().to_lowercase();
+            let len: usize = headers
+                .lines()
+                .find_map(|s| s.strip_prefix("content-length: "))
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert!(len < 100000);
+            let mut bytes = vec![0; len];
+            stream.read_exact(&mut bytes).unwrap();
+            received.push((headers, serde_json::from_slice(&bytes).unwrap()));
+            let text = reply.to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",text.len(),text).unwrap();
+        }
+        received
+    });
+    (endpoint, handle)
+}
+#[tokio::test]
+async fn native_provider_headers_and_real_transport_preserve_secret_boundaries() {
+    for protocol in ["anthropic", "gemini"] {
+        let summary =
+            json!({"title":"Synthetic test","summary":"Connection only","category":"unsorted"})
+                .to_string();
+        let reply = if protocol == "anthropic" {
+            json!({"stop_reason":"end_turn","content":[{"type":"text","text":summary}]})
+        } else {
+            json!({"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":summary}]}}]})
+        };
+        let (base, capture) = synthetic_model(vec![reply]);
+        let endpoint = if protocol == "anthropic" {
+            format!("{base}/v1/messages")
+        } else {
+            format!("{base}/v1beta/models/synthetic:generateContent")
+        };
+        let (app, _dir) = configured_app();
+        let config=call(&app,"PUT","/v1/ai",json!({"protocol":protocol,"endpoint":endpoint,"model":"synthetic","api_key":"synthetic-provider-key"}),true).await;
+        assert_eq!(config.0, StatusCode::OK);
+        assert_eq!(config.1["protocol"], protocol);
+        assert!(!config.1.to_string().contains("synthetic-provider-key"));
+        assert_eq!(
+            call(&app, "POST", "/v1/ai/test", json!({}), true).await.0,
+            StatusCode::OK
+        );
+        let rows = capture.join().unwrap();
+        let (headers, body) = &rows[0];
+        assert!(headers.contains(if protocol == "anthropic" {
+            "x-api-key: synthetic-provider-key"
+        } else {
+            "x-goog-api-key: synthetic-provider-key"
+        }));
+        assert!(!headers.contains("authorization:"));
+        assert!(!headers.lines().next().unwrap().contains("key"));
+        assert!(!body.to_string().contains("synthetic-provider-key"));
+        assert!(!body.to_string().contains(TOKEN));
+        assert!(body.to_string().contains("Synthetic connection test"));
+    }
+}
+#[tokio::test]
+async fn conversation_and_brief_retries_persist_without_duplicate_outbound_requests() {
+    let reply =
+        |text: &str| json!({"choices":[{"finish_reason":"stop","message":{"content":text}}]});
+    let (base, capture) = synthetic_model(vec![
+        reply("first answer"),
+        reply("second answer"),
+        reply("saved brief"),
+    ]);
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let db = dir.0.join("journal.sqlite");
+    let config_dir = dir.0.join("config");
+    let app = router(
+        AppState::new(rusqlite::Connection::open(&db).unwrap(), TOKEN)
+            .unwrap()
+            .with_ai_settings(&config_dir)
+            .unwrap(),
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    let config = call(
+        &app,
+        "PUT",
+        "/v1/ai",
+        json!({"endpoint":format!("{base}/v1/chat/completions"),"model":"synthetic"}),
+        true,
+    )
+    .await
+    .1;
+    let first = json!({"question":"first question","from_ms":now-3600000,"to_ms":now,"provider_id":config["provider_id"],"consent":true,"conversation_id":"durable-thread","request_id":"first-turn"});
+    assert_eq!(
+        call(&app, "POST", "/v1/ask", first.clone(), true).await.1["stored"],
+        true
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/ask", first.clone(), true).await.1["replayed"],
+        true
+    );
+    let mut second = first.clone();
+    second["question"] = json!("followup");
+    second["request_id"] = json!("second-turn");
+    assert_eq!(
+        call(&app, "POST", "/v1/ask", second, true).await.0,
+        StatusCode::OK
+    );
+    let brief = json!({"id":"durable-brief","from_ms":now-3600000,"to_ms":now,"kind":"daily","provider_id":config["provider_id"],"consent":true});
+    assert_eq!(
+        call(&app, "POST", "/v1/briefs", brief.clone(), true)
+            .await
+            .1["text"],
+        "saved brief"
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/briefs", brief, true).await.1["text"],
+        "saved brief"
+    );
+    let captured = capture.join().unwrap();
+    assert_eq!(captured.len(), 3);
+    assert!(
+        captured[1].1["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["role"] == "assistant" && m["content"] == "first answer")
+    );
+    drop(app);
+    let app = router(
+        AppState::new(rusqlite::Connection::open(&db).unwrap(), TOKEN)
+            .unwrap()
+            .with_ai_settings(&config_dir)
+            .unwrap(),
+    );
+    let thread = call(
+        &app,
+        "GET",
+        "/v1/conversations/durable-thread",
+        json!({}),
+        true,
+    )
+    .await;
+    assert_eq!(thread.0, StatusCode::OK);
+    assert_eq!(thread.1["turns"].as_array().unwrap().len(), 2);
+    let path = format!("/v1/briefs?from_ms={}&to_ms={now}", now - 3600000);
+    assert_eq!(
+        call(&app, "GET", &path, json!({}), true).await.1["briefs"][0]["text"],
+        "saved brief"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "DELETE",
+            "/v1/conversations/durable-thread",
+            json!({}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            "/v1/conversations/durable-thread",
+            json!({}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    call(&app, "DELETE", "/v1/journal", json!({}), true).await;
+    assert!(
+        call(&app, "GET", &path, json!({}), true).await.1["briefs"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+#[tokio::test]
+async fn schedule_requires_separate_consent_revision_and_valid_timezone() {
+    let (app, _dir) = configured_app();
+    for (method, path) in [
+        ("GET", "/v1/briefs"),
+        ("POST", "/v1/briefs"),
+        ("DELETE", "/v1/briefs/example"),
+        ("GET", "/v1/briefs/schedule"),
+        ("PUT", "/v1/briefs/schedule"),
+    ] {
+        assert_eq!(
+            call(&app, method, path, json!({}), false).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let mut schedule = call(&app, "GET", "/v1/briefs/schedule", json!({}), true)
+        .await
+        .1;
+    assert_eq!(schedule["enabled"], false);
+    schedule["enabled"] = json!(true);
+    assert_eq!(
+        call(&app, "PUT", "/v1/briefs/schedule", schedule.clone(), true)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    let config = call(
+        &app,
+        "PUT",
+        "/v1/ai",
+        json!({"endpoint":"http://127.0.0.1:1/v1/chat/completions","model":"synthetic"}),
+        true,
+    )
+    .await
+    .1;
+    assert_eq!(
+        call(&app, "GET", "/v1/briefs/schedule", json!({}), true)
+            .await
+            .1["enabled"],
+        false
+    );
+    schedule["provider_id"] = config["provider_id"].clone();
+    schedule["timezone"] = json!("invalid/timezone");
+    assert_eq!(
+        call(&app, "PUT", "/v1/briefs/schedule", schedule.clone(), true)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    schedule["timezone"] = json!("Asia/Taipei");
+    assert_eq!(
+        call(&app, "PUT", "/v1/briefs/schedule", schedule.clone(), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "PUT", "/v1/briefs/schedule", schedule, true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    call(&app, "DELETE", "/v1/journal", json!({}), true).await;
+    let schedule = call(&app, "GET", "/v1/briefs/schedule", json!({}), true)
+        .await
+        .1;
+    assert_eq!(schedule["enabled"], false);
+    assert_eq!(schedule["revision"], 2);
+}
+
+#[tokio::test]
+async fn approved_agent_turns_are_private_versioned_bounded_and_deleted() {
+    let app = app();
+    let now = chrono::Utc::now().timestamp_millis();
+    for (method, path) in [
+        ("GET", "/v1/agent-sessions"),
+        ("PUT", "/v1/agent-sessions"),
+        ("GET", "/v1/agent-sessions/demo"),
+        ("DELETE", "/v1/agent-sessions/demo"),
+    ] {
+        assert_eq!(
+            call(&app, method, path, json!({}), false).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let item = json!({"id":"demo","revision":0,"at_ms":now,"source":"codex","project":"Demo","title":"Approved synthetic session","status":"completed","turns":[{"id":"turn-1","at_ms":now-1000,"role":"user","text":"approved question"},{"id":"turn-2","at_ms":now,"role":"assistant","text":"approved answer"}]});
+    let saved = call(&app, "PUT", "/v1/agent-sessions", item.clone(), true).await;
+    assert_eq!(saved.0, StatusCode::OK);
+    assert_eq!(saved.1["revision"], 1);
+    assert_eq!(
+        call(&app, "PUT", "/v1/agent-sessions", item.clone(), true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let list = call(&app, "GET", "/v1/agent-sessions", json!({}), true)
+        .await
+        .1;
+    assert_eq!(list["sessions"][0]["turn_count"], 2);
+    assert!(!list.to_string().contains("approved question"));
+    assert_eq!(
+        call(&app, "GET", "/v1/agent-sessions/demo", json!({}), true)
+            .await
+            .1["turns"][0]["text"],
+        "approved question"
+    );
+    let mut edit = saved.1;
+    edit["status"] = json!("waiting");
+    assert_eq!(
+        call(&app, "PUT", "/v1/agent-sessions", edit, true).await.0,
+        StatusCode::OK
+    );
+    for field in ["tool", "oversize", "duplicate"] {
+        let mut bad = item.clone();
+        bad["id"] = json!(format!("bad-{field}"));
+        match field {
+            "tool" => bad["turns"][0]["role"] = json!("tool"),
+            "oversize" => bad["turns"][0]["text"] = json!("x".repeat(1001)),
+            _ => bad["turns"][1]["id"] = json!("turn-1"),
+        };
+        assert_eq!(
+            call(&app, "PUT", "/v1/agent-sessions", bad, true).await.0,
+            if field == "tool" {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::BAD_REQUEST
+            }
+        );
+    }
+    call(&app, "DELETE", "/v1/journal", json!({}), true).await;
+    assert_eq!(
+        call(&app, "GET", "/v1/agent-sessions/demo", json!({}), true)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(
+        call(&app, "GET", "/v1/agent-sessions", json!({}), true)
+            .await
+            .1["sessions"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn remote_pause_rejects_capture_without_blocking_explicit_journaling() {
+    let app = app();
+    let now = chrono::Utc::now().timestamp_millis();
+    for method in ["GET", "PUT"] {
+        assert_eq!(
+            call(&app, method, "/v1/collection", json!({}), false)
+                .await
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let initial = call(&app, "GET", "/v1/collection", json!({}), true).await.1;
+    assert_eq!(initial["paused"], false);
+    let observation = json!({"id":"pre-pause","at_ms":now-1000,"app":"org.example.reader","text":"synthetic context","analysis_consent":true});
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", observation.clone(), true)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    let mut pause = initial.clone();
+    pause["paused"] = json!(true);
+    let paused = call(&app, "PUT", "/v1/collection", pause.clone(), true).await;
+    assert_eq!(paused.0, StatusCode::OK);
+    assert_eq!(paused.1["revision"], 1);
+    assert_eq!(
+        call(&app, "PUT", "/v1/collection", pause, true).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", observation, true)
+            .await
+            .0,
+        StatusCode::LOCKED
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/activities",
+            json!({"activities":[event("paused")]}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::LOCKED
+    );
+    assert_eq!(
+        call(&app, "GET", "/v1/status", json!({}), true).await.1["pending_context"],
+        0
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/checkins",
+            json!({"id":"feeling-during-pause","at_ms":now,"mood":3,"energy":3}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let mut resume = paused.1;
+    resume["paused"] = json!(false);
+    assert_eq!(
+        call(&app, "PUT", "/v1/collection", resume, true).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/activities",
+            json!({"activities":[event("resumed")]}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+#[tokio::test]
+async fn replay_is_separate_opt_in_worker_sanitized_authenticated_and_short_lived() {
+    use base64::Engine;
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("journal.sqlite");
+    let app = router(AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN).unwrap());
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 30)
+        .encode_image(&image::RgbImage::new(16, 16))
+        .unwrap();
+    let observation = json!({"id":"analysis-only","at_ms":now-1000,"app":"org.example.reader","text":"synthetic","analysis_consent":true,"jpeg_base64":base64::engine::general_purpose::STANDARD.encode(jpeg),"image_consent":true});
+    let window = format!("/v1/replay?from_ms={}&to_ms={now}", now - 3600000);
+    for (method, path) in [
+        ("GET", window.as_str()),
+        ("GET", "/v1/replay/image"),
+        ("GET", "/v1/replay/image/image"),
+        ("DELETE", "/v1/replay/image"),
+    ] {
+        assert_eq!(
+            call(&app, method, path, json!({}), false).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", observation.clone(), true)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    let mut approved = observation.clone();
+    approved["id"] = json!("approved-image");
+    approved["replay_consent"] = json!(true);
+    let mut invalid = approved.clone();
+    invalid["image_consent"] = json!(false);
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", invalid, true)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", approved.clone(), true)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        call(&app, "GET", &window, json!({}), true).await.1["images"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        call(&app, "GET", "/v1/replay/approved-image", json!({}), true)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    let mut db = rusqlite::Connection::open(&path).unwrap();
+    pocketlog_server::process_with_provider(&mut db, None).unwrap();
+    let result = call(&app, "GET", &window, json!({}), true).await.1;
+    assert_eq!(result["images"].as_array().unwrap().len(), 1);
+    assert_eq!(result["images"][0]["id"], "approved-image");
+    let result = call(&app, "GET", "/v1/replay/approved-image", json!({}), true)
+        .await
+        .1;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(result["jpeg_base64"].as_str().unwrap())
+        .unwrap();
+    assert!(bytes.len() <= 24576);
+    assert!(image::load_from_memory(&bytes).is_ok());
+    assert_eq!(
+        call(&app, "GET", "/v1/replay/analysis-only", json!({}), true)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    db.execute("UPDATE image_replay SET at_ms=?", [now - 86_400_001])
+        .unwrap();
+    assert_eq!(
+        call(&app, "GET", "/v1/replay/approved-image", json!({}), true)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM image_replay", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    approved["id"] = json!("delete-image");
+    call(&app, "POST", "/v1/observations", approved, true).await;
+    call(&app, "DELETE", "/v1/journal", json!({}), true).await;
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM image_replay", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+async fn call_token(
+    app: &Router,
+    method: &str,
+    path: &str,
+    body: Value,
+    token: &str,
+) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+#[tokio::test]
+async fn device_credentials_are_scoped_secret_once_expiring_revocable_and_owner_bound() {
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("journal.sqlite");
+    let app = router(AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN).unwrap());
+    for (method, path) in [
+        ("GET", "/v1/devices"),
+        ("POST", "/v1/devices"),
+        ("DELETE", "/v1/devices/example"),
+    ] {
+        assert_eq!(
+            call(&app, method, path, json!({}), false).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let now = chrono::Utc::now().timestamp_millis();
+    let timeline = format!("/v1/timeline?from_ms={}&to_ms={now}", now - 3600000);
+    let journal = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        json!({"label":"Synthetic phone","scope":"journal","days":30}),
+        true,
+    )
+    .await;
+    assert_eq!(journal.0, StatusCode::OK);
+    let token = journal.1["token"].as_str().unwrap();
+    assert_eq!(token.len(), 64);
+    assert_eq!(
+        call_token(&app, "GET", &timeline, json!({}), token).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call_token(&app, "GET", "/v1/devices", json!({}), token)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call_token(
+            &app,
+            "POST",
+            "/v1/devices",
+            json!({"label":"escalation","scope":"journal","days":90}),
+            token
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let list = call(&app, "GET", "/v1/devices", json!({}), true).await.1;
+    assert_eq!(list["devices"].as_array().unwrap().len(), 1);
+    assert!(!list.to_string().contains(token));
+    assert!(!list.to_string().contains("hash"));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/session")
+                .header("content-type", "application/json")
+                .header("x-pocketlog", "1")
+                .body(Body::from(json!({"token":token}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let collector = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        json!({"label":"Synthetic collector","scope":"collector","days":1}),
+        true,
+    )
+    .await
+    .1;
+    let collect_token = collector["token"].as_str().unwrap();
+    assert_eq!(
+        call_token(
+            &app,
+            "POST",
+            "/v1/activities",
+            json!({"activities":[event("device-event")]}),
+            collect_token
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call_token(&app, "GET", &timeline, json!({}), collect_token)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call_token(&app, "GET", "/v1/collection", json!({}), collect_token)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call_token(&app, "DELETE", "/v1/journal", json!({}), collect_token)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let bytes: Vec<u8> = db
+        .query_row(
+            "SELECT hash FROM device_credentials WHERE id=?",
+            [journal.1["id"].as_str().unwrap()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(bytes.len(), 32);
+    assert_ne!(bytes, token.as_bytes());
+    db.execute(
+        "UPDATE device_credentials SET expires_ms=? WHERE id=?",
+        rusqlite::params![now - 1, collector["id"].as_str().unwrap()],
+    )
+    .unwrap();
+    assert_eq!(
+        call_token(&app, "GET", "/v1/collection", json!({}), collect_token)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let revoke = format!("/v1/devices/{}", journal.1["id"].as_str().unwrap());
+    assert_eq!(
+        call(&app, "DELETE", &revoke, json!({}), true).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call_token(&app, "GET", &timeline, json!({}), token).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let other = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        json!({"label":"Before rotation","scope":"journal","days":30}),
+        true,
+    )
+    .await
+    .1;
+    drop(app);
+    let app =
+        router(AppState::new(rusqlite::Connection::open(&path).unwrap(), &"a".repeat(64)).unwrap());
+    assert_eq!(
+        call_token(
+            &app,
+            "GET",
+            &timeline,
+            json!({}),
+            other["token"].as_str().unwrap()
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM device_credentials", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn conversation_cursor_preserves_all_tied_timestamps() {
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("journal.sqlite");
+    let app = router(AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN).unwrap());
+    let now = chrono::Utc::now().timestamp_millis();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute(
+        "INSERT INTO chat_threads VALUES('tied-thread',?,'Synthetic','synthetic-provider')",
+        [now],
+    )
+    .unwrap();
+    for i in 0..60 {
+        db.execute(
+            "INSERT INTO chat_turns VALUES(?,'tied-thread',?,'question','answer',?,?)",
+            rusqlite::params![format!("turn-{i:03}"), now, now - 1000, now],
+        )
+        .unwrap();
+    }
+    let first = call(
+        &app,
+        "GET",
+        "/v1/conversations/tied-thread",
+        json!({}),
+        true,
+    )
+    .await
+    .1;
+    assert_eq!(first["turns"].as_array().unwrap().len(), 50);
+    assert_eq!(first["truncated"], true);
+    let cursor = &first["next_cursor"];
+    let second = call(
+        &app,
+        "GET",
+        &format!(
+            "/v1/conversations/tied-thread?before_ms={}&before_id={}",
+            cursor["before_ms"],
+            cursor["before_id"].as_str().unwrap()
+        ),
+        json!({}),
+        true,
+    )
+    .await
+    .1;
+    assert_eq!(second["turns"].as_array().unwrap().len(), 10);
+    assert_eq!(second["truncated"], false);
+    let ids: std::collections::BTreeSet<&str> = first["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(second["turns"].as_array().unwrap())
+        .map(|t| t["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 60);
+}
+
+#[tokio::test]
+async fn updating_agent_status_never_extends_old_turn_retention() {
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("journal.sqlite");
+    let app = router(AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN).unwrap());
+    let now = chrono::Utc::now().timestamp_millis();
+    let item = json!({"id":"retained-session","revision":0,"at_ms":now,"source":"claude","project":"Synthetic","title":"Retention","status":"active","turns":[{"id":"older","at_ms":now-1000,"role":"user","text":"older turn"},{"id":"newer","at_ms":now,"role":"assistant","text":"current turn"}]});
+    assert_eq!(
+        call(&app, "PUT", "/v1/agent-sessions", item, true).await.0,
+        StatusCode::OK
+    );
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute(
+        "UPDATE agent_sessions SET json=json_set(json,'$.turns[0].at_ms',?)",
+        [now - 30 * 86_400_000 - 1000],
+    )
+    .unwrap();
+    let data = call(
+        &app,
+        "GET",
+        "/v1/agent-sessions/retained-session",
+        json!({}),
+        true,
+    )
+    .await
+    .1;
+    assert_eq!(data["turns"].as_array().unwrap().len(), 1);
+    assert_eq!(data["turns"][0]["id"], "newer");
+    assert_eq!(data["revision"], 2);
+    let stored: String = db
+        .query_row("SELECT json FROM agent_sessions", [], |r| r.get(0))
+        .unwrap();
+    assert!(!stored.contains("older turn"));
+}
+
+#[tokio::test]
+async fn scheduled_briefs_require_explicit_current_provider_and_skip_empty_periods() {
+    use chrono::Timelike;
+    let reply = json!({"choices":[{"finish_reason":"stop","message":{"content":"Synthetic scheduled brief"}}]});
+    let (base, capture) = synthetic_model(vec![reply]);
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("journal.sqlite");
+    let config_dir = dir.0.join("config");
+    let app = router(
+        AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN)
+            .unwrap()
+            .with_ai_settings(&config_dir)
+            .unwrap(),
+    );
+    let config = call(
+        &app,
+        "PUT",
+        "/v1/ai",
+        json!({"endpoint":format!("{base}/v1/chat/completions"),"model":"synthetic"}),
+        true,
+    )
+    .await
+    .1;
+    let run = |path: std::path::PathBuf, config_dir: std::path::PathBuf| {
+        tokio::task::spawn_blocking(move || {
+            let mut db = rusqlite::Connection::open(path).unwrap();
+            let provider = pocketlog_server::Provider::from_config_directory(&config_dir).unwrap();
+            pocketlog_server::process_briefs(&mut db, provider.as_ref()).unwrap()
+        })
+    };
+    assert_eq!(run(path.clone(), config_dir.clone()).await.unwrap(), 0);
+    let tz = if chrono::Utc::now().hour() < 4 {
+        "Asia/Taipei"
+    } else {
+        "UTC"
+    };
+    let mut schedule = call(&app, "GET", "/v1/briefs/schedule", json!({}), true)
+        .await
+        .1;
+    schedule["enabled"] = json!(true);
+    schedule["provider_id"] = config["provider_id"].clone();
+    schedule["minute_of_day"] = json!(240);
+    schedule["timezone"] = json!(tz);
+    schedule["weekly"] = json!(false);
+    assert_eq!(
+        call(&app, "PUT", "/v1/briefs/schedule", schedule, true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        run(path.clone(), config_dir.clone()).await.unwrap(),
+        0,
+        "empty periods never incur model calls"
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut activity = event("scheduled-card");
+    activity["start_ms"] = json!(now - 24 * 3_600_000);
+    activity["end_ms"] = json!(now - 23 * 3_600_000);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/activities",
+            json!({"activities":[activity]}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(run(path.clone(), config_dir.clone()).await.unwrap(), 1);
+    assert_eq!(
+        run(path.clone(), config_dir.clone()).await.unwrap(),
+        0,
+        "completed period never repeats a paid call"
+    );
+    assert_eq!(capture.join().unwrap().len(), 1);
+    let rotated = call(
+        &app,
+        "PUT",
+        "/v1/ai",
+        json!({"endpoint":"http://127.0.0.1:1/v1/chat/completions","model":"new-synthetic"}),
+        true,
+    )
+    .await
+    .1;
+    assert_ne!(rotated["provider_id"], config["provider_id"]);
+    assert_eq!(
+        run(path.clone(), config_dir).await.unwrap(),
+        0,
+        "old scheduled consent does not authorize a new provider"
+    );
+    let db = rusqlite::Connection::open(path).unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM briefs", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}

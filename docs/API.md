@@ -61,13 +61,14 @@ No tokens belong in URLs or localStorage. All API routes below require owner aut
   `provider_id`; API key never returned.
 - `PUT /v1/ai`: `{endpoint,model,api_key?,image_support?,response_format?}`;
   response_format json_schema(default)/json_object; each save rotates provider_id.
-  Omitted key retains it only on same enabled endpoint; empty explicitly clears.
+  Omitted key retains it only on same enabled endpoint and protocol; empty explicitly clears.
 - `DELETE /v1/ai`: removes key, writes disabled tombstone, invalidates analysis.
 - `POST /v1/ai/test`: fixed synthetic prompt only; no journal; one concurrent
   test/chat request, eight-second model timeout; returns `{ok,journal_data_sent:false}`.
 - `POST /v1/ask`: `{question,from_ms,to_ms,provider_id,consent:true}`; question
-  max1000 chars, range max7days within retention. Sends up to100 derived cards,
-  max24,000 bytes of evidence. Returns `{answer,scope,stored:false}`. No history,
+  max1000 chars, range max169hours (seven local days across DST) within retention. Sends up to100 derived cards,
+  max24,000 bytes of evidence. Optional conversation/request IDs save bounded history;
+  returns `{answer,scope,stored}`. No
   raw context, screenshots, feelings, reflection or model tools. Refuses stale
   identity and invalidates output if journal deletion/provider epoch changes.
 - `POST /v1/reviews`: strict `{id,at_ms,kind,text,end_ms,rating,source}`; optional
@@ -84,3 +85,64 @@ binding per-observation model consent to saved provider configuration. Omitted
 IDs preserve legacy receipt hashes but cannot authorize a dynamically configured
 provider. Changing model settings invalidates pending model jobs/epoch; it does
 not erase source journal or retract requests already sent to the provider.
+
+## Extended private APIs
+
+All routes below require owner authentication or a journal device key, except device
+management, which requires owner token/browser session. Body limit remains 64 KiB.
+
+- `GET/PUT /v1/workspace`: ten built-ins plus up to 30 `custom_…` categories;
+  optional `rules` array (32 max) of `{id,category,app,title_contains,enabled}`.
+  First match wins; specified conditions must both match. Manual edits win.
+  Unknown custom IDs are rejected; deleting a used category returns 409.
+- `GET /v1/conversations`: 100 thread summaries. `GET /v1/conversations/{id}`:
+  50 recent pairs / 460 KiB, oldest first, `truncated` and `next_cursor`.
+  Cursor query uses `before_ms` **and** `before_id` to preserve tied timestamps.
+  DELETE removes the thread and invalidates in-flight results. Optional ask fields
+  `conversation_id` and `request_id` must both be present or absent; same payload ID
+  replays the saved answer, conflicting reuse is 409. 500 pairs / 100 threads / 30d.
+- `GET/POST/DELETE /v1/focus`: GET returns `{session:null|{id,at_ms,minutes,text}}`;
+  POST starts one session (1–180 minutes, 300-char text, timestamp within one minute).
+  DELETE body `{id}` discards only that session. `POST /v1/focus/finish` body `{id}`
+  atomically creates a flow review and clears the timer. Finishing is idempotent,
+  and an old ID cannot finish a newer timer. Timers expire after 30 days.
+- `GET /v1/briefs?from_ms=…&to_ms=…`: bounded saved briefs (100 / 30d).
+  `POST /v1/briefs`: `{id,from_ms,to_ms,kind:"daily"|"weekly",provider_id,consent:true}`,
+  up to 26h / 169h respectively; stable IDs replay results without another call.
+  `DELETE /v1/briefs/{id}` removes one. `GET/PUT /v1/briefs/schedule`:
+  `{revision,enabled,provider_id,timezone,minute_of_day,daily,weekly}`. Time is
+  04:00–23:59, timezone is IANA; enabling requires current provider identity and
+  independent ongoing consent. Three durable attempts/period, two periods/pass;
+  no historical catch-up. Owner deletion disables schedules.
+- `GET/PUT /v1/agent-sessions`, `GET/DELETE /v1/agent-sessions/{id}`. PUT body:
+  `{id,revision,at_ms,source:"codex"|"claude",project,title,status,turns}`;
+  status `active|waiting|completed`; 40 turns `{id,at_ms,role:"user"|"assistant",text}`,
+  1000 chars/turn, ordered times, unique IDs, 100 sessions / 30d. List excludes text.
+  Only locally previewed, explicitly approved turns should be uploaded. Never model evidence.
+- `GET/PUT /v1/collection`: `{revision,paused,changed_ms}`; PUT checks revision,
+  server assigns changed_ms. Paused ingest returns 423 and deletes pending raw
+  context/jobs/unvalidated replay. Explicit check-ins/reflections remain available.
+  Phones apply on existing sync cadence; offline stop is not immediate.
+- Observation optional `replay_consent:true` additionally requires image consent
+  and a JPEG. Independent archive, max256 / 24h; pending images are unreadable.
+  Worker validates, resizes/re-encodes, strips metadata and bounds to 480px/24KiB.
+  `GET /v1/replay?from_ms=…&to_ms=…` lists validated metadata; GET
+  `/v1/replay/{id}` returns `{jpeg_base64}`; GET `/v1/replay/{id}/image` returns
+  authenticated image/jpeg. DELETE `/v1/replay/{id}` removes the archive copy.
+  Ordinary analysis-only images remain unreadable. No images in ordinary exports.
+- `GET/POST /v1/devices`, `DELETE /v1/devices/{id}`: owner only. POST body
+  `{label,scope:"journal"|"collector",days:1..90}`; returns one-time `{id,token,scope,expires_ms}`.
+  List never returns token/hash. At most32 active credentials, SHA-256 digests only.
+  Journal scope accesses private APIs except device management; collector scope
+  only POSTs activities/observations and GETs collection/AI configuration. Neither
+  can log into owner browser sessions. Revocation affects new requests; rotation
+  of the owner token invalidates all device keys at service startup.
+
+AI configuration adds optional `protocol:"openai"|"anthropic"|"gemini"` (default
+openai for compatibility). Missing keys are retained only for the same endpoint
+**and protocol**. Native endpoint paths must match the protocol and Gemini model.
+
+Journal deletion includes all new content tables, disables brief schedules and
+invalidates results. Workspace/provider/device configuration remains; other trusted
+devices can still upload until paused or revoked. Exports are private derived data,
+not a complete backup of every new content type.

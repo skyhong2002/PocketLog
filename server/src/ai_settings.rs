@@ -14,6 +14,8 @@ pub struct AiSettingsStore {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StoredSettings {
+    #[serde(default)]
+    pub protocol: Protocol,
     pub enabled: bool,
     pub endpoint: String,
     pub model: String,
@@ -21,6 +23,14 @@ pub(crate) struct StoredSettings {
     pub provider_id: String,
     pub image_support: bool,
     pub response_format: OutputFormat,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Protocol {
+    #[default]
+    Openai,
+    Anthropic,
+    Gemini,
 }
 #[derive(Clone, Copy, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -32,6 +42,8 @@ pub(crate) enum OutputFormat {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Update {
+    #[serde(default)]
+    protocol: Protocol,
     endpoint: String,
     model: String,
     // Missing retains a key only if the endpoint is identical. Empty explicitly clears it.
@@ -108,7 +120,7 @@ impl AiSettingsStore {
 fn redacted(value: Option<&StoredSettings>) -> serde_json::Value {
     match value {
         Some(s) => {
-            serde_json::json!({"available":true,"enabled":s.enabled,"endpoint":s.endpoint,"model":s.model,"provider_id":s.provider_id,"has_key":!s.key.is_empty(),"image_support":s.image_support,"response_format":s.response_format})
+            serde_json::json!({"available":true,"protocol":s.protocol,"enabled":s.enabled,"endpoint":s.endpoint,"model":s.model,"provider_id":s.provider_id,"has_key":!s.key.is_empty(),"image_support":s.image_support,"response_format":s.response_format})
         }
         None => serde_json::json!({"available":true,"enabled":false,"has_key":false}),
     }
@@ -143,16 +155,21 @@ async fn update(
             let key = match change.api_key {
                 Some(key) => key,
                 None => previous
-                    .filter(|s| s.enabled && s.endpoint == change.endpoint)
+                    .filter(|s| {
+                        s.enabled && s.endpoint == change.endpoint && s.protocol == change.protocol
+                    })
                     .map(|s| s.key)
                     .unwrap_or_default(),
             };
             analysis::validate_configuration(&change.endpoint, &change.model, &key)
                 .map_err(|_| invalid())?;
+            analysis::validate_protocol(change.protocol, &change.endpoint, &change.model)
+                .map_err(|_| invalid())?;
             let mut nonce = [0u8; 32];
             getrandom::fill(&mut nonce).map_err(storage_error)?;
             let id = format!("{:x}", Sha256::digest(nonce));
             let settings = StoredSettings {
+                protocol: change.protocol,
                 enabled: true,
                 endpoint: change.endpoint,
                 model: change.model,
@@ -180,6 +197,7 @@ async fn clear(State(state): State<AppState>) -> Result<StatusCode> {
     state
         .database(move |db| {
             let settings = StoredSettings {
+                protocol: Protocol::Openai,
                 enabled: false,
                 endpoint: String::new(),
                 model: String::new(),

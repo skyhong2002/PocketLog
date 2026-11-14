@@ -51,11 +51,13 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
             } catch (_: Exception) { files.remove(name); dropped() } finally { bytes.fill(0) }
         }
     }
-    fun clearContexts() {
+    fun clearContexts() = clearPaths(setOf("/v1/observations"))
+    fun clearCollected() = clearPaths(setOf("/v1/observations", "/v1/activities"))
+    private fun clearPaths(paths: Set<String>) {
         (files.names("q_") + files.names("r_")).forEach { name ->
             val bytes = runCatching { files.read(name) }.getOrNull()
             if (bytes == null) { files.remove(name); dropped(); return@forEach }
-            try { if (JSONObject(String(bytes)).getString("path") == "/v1/observations") files.remove(name) }
+            try { if (JSONObject(String(bytes)).getString("path") in paths) files.remove(name) }
             catch (_: Exception) { files.remove(name); dropped() }
             finally { bytes.fill(0) }
         }

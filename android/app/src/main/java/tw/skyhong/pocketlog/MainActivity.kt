@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.WindowManager
 import android.widget.*
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.ZoneId
@@ -22,13 +23,17 @@ class MainActivity : Activity() {
     private var busy = false
     private var credentials: Credentials? = null
     private var workspace: JSONObject? = null
-    private var flowStart: Long? = null
-    private var flowId: String? = null
     private var day = journalDay()
     private var loaded: JSONObject? = null
     private var reflectionInput: EditText? = null
     private var exportBytes: ByteArray? = null
-    private val categories = listOf("unsorted", "work", "learning", "communication", "social_media", "entertainment", "news_reading", "life_admin", "rest", "idle")
+    private val baseCategories = listOf("unsorted", "work", "learning", "communication", "social_media", "entertainment", "news_reading", "life_admin", "rest", "idle")
+    private val categories: List<String> get() = workspace?.optJSONArray("categories")?.let { styles -> (0 until styles.length()).map { styles.getJSONObject(it).getString("id") } } ?: baseCategories
+    private var agentImportSource = "codex"
+    private var pendingAsk: JSONObject? = null
+    private var pendingAskWeekly = false
+    private var chatWeekly = false
+    private var conversationId = UUID.randomUUID().toString()
     private val categoryLabels = listOf("未分類", "工作", "學習", "溝通", "社群", "娛樂", "新聞／閱讀", "生活事務", "休息", "閒置")
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -64,9 +69,9 @@ class MainActivity : Activity() {
     }
     private fun setup() {
         root.removeAllViews(); text("PocketLog", 30f); text("回看一天，理解自己的節奏。")
-        text("連接自己的私人伺服器。活動紀錄與畫面文字需要另外同意，預設關閉。")
+        text("連接自己的私人伺服器。可先在網站「裝置金鑰與撤銷」建立日誌權限金鑰，每台手機獨立撤銷。活動紀錄與畫面文字需要另外同意，預設關閉。")
         val endpoint = input("https://your-server.example")
-        val token = input("Owner token", true)
+        val token = input("裝置金鑰（建議）或 owner token", true)
         val status = text("")
         button("驗證並儲存連線") {
             val candidate = runCatching {
@@ -96,7 +101,7 @@ class MainActivity : Activity() {
         val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         navigation.addView(links); root.addView(navigation)
         listOf<Pair<String, () -> Unit>>(
-            "每日" to { dailyReview() }, "每週" to { weeklyTimeline() }, "Chat" to { chatPage() },
+            "縮圖回放" to { replayPage() }, "每日" to { dailyReview() }, "每週" to { weeklyTimeline() }, "Chat" to { chatPage() },
             "Flow" to { flowPage() }, "Agents" to { agentsPage() }, "目標" to { sharedSettings() },
             "設定" to { settings() }, "支援" to { supportPage() }
         ).forEach { (name, action) -> links.addView(Button(this).apply { text = name; setOnClickListener { if (!busy) action() } }) }
@@ -179,7 +184,7 @@ class MainActivity : Activity() {
     private fun label(category: String): String {
         val styles = workspace?.optJSONArray("categories")
         if (styles != null) for (i in 0 until styles.length()) if (styles.getJSONObject(i).optString("id") == category) return styles.getJSONObject(i).getString("name")
-        return categoryLabels.getOrElse(categories.indexOf(category)) { category }
+        return categoryLabels.getOrElse(baseCategories.indexOf(category)) { category }
     }
     private fun render(data: JSONObject) {
         loaded = data
@@ -226,6 +231,15 @@ class MainActivity : Activity() {
         val status = text(settings.status())
         text(if (settings.enabled) "活動紀錄：啟用" else "活動紀錄：暫停")
         text("只記錄同意之後的 app 套件名稱及前景時段，不讀取文字或截圖。背景整理最短每 15 分鐘，由 Android 決定實際時間。多視窗與系統遺漏事件可能影響精準度。")
+        text(if(settings.remotePaused) "遠端收集已暫停；恢復伺服器接收不會開啟未同意的權限。" else "可從網站或此處暫停所有裝置。離線裝置須等同步才會收到狀態。")
+        button("管理所有裝置的收集暫停") {
+            task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/collection")}) { control ->
+                AlertDialog.Builder(this).setTitle(if(control.getBoolean("paused"))"恢復伺服器收集？" else "暫停所有裝置收集？").setMessage("暫停會拒絕新的活動與情境並刪除待分析原始資料。離線手機須等待同步；恢復不取代本機同意。").setNegativeButton("取消",null).setPositiveButton("確認") { _,_->
+                    val paused=!control.getBoolean("paused")
+                    task(status,{synchronized(SyncEngine.lock){val result=PocketLogApi(requireNotNull(credentials)).request("/v1/collection",JSONObject(control.toString()).put("paused",paused),"PUT");settings.remotePaused=paused;UsageCollector(this).reset();if(paused)JournalQueue(this).clearCollected();result}}){settings()}
+                }.show()
+            }
+        }
         button(if (settings.enabled) "暫停活動與畫面文字紀錄" else "同意並啟用 app 使用紀錄") {
             task(status, { synchronized(SyncEngine.lock) { UsageCollector(this).reset(); settings.enabled = !settings.enabled; JournalQueue(this).clearContexts() } }) {
                 if (settings.enabled && !settings.hasUsagePermission()) startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
@@ -256,6 +270,15 @@ class MainActivity : Activity() {
                         task(status, { synchronized(SyncEngine.lock) { require(settings.enabled && settings.allowed.isNotEmpty()); settings.contextEnabled = true; settings.analysisConsent = true } }) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); settings() }
                     }.show()
             }
+        }
+        text(if(settings.privacyShield) "隱私防護：可見文字疑似金鑰或長數字時跳過整個視窗" else "文字敏感模式檢查：關閉")
+        button(if(settings.privacyShield) "設定文字隱私防護" else "開啟文字隱私防護") {
+            AlertDialog.Builder(this).setTitle("文字隱私防護").setMessage("啟用後，畫面文字疑似 API 金鑰、Bearer token、密碼欄位值或 13–19 位長數字時，在截圖前跳過整個視窗。密碼／可編輯欄位與安全視窗仍一律排除。這是保守文字檢查，可能誤判，也無法辨識只有像素的秘密；不提供 OCR 自動遮罩。請繼續使用 app 排除與允許清單。").setNegativeButton("取消",null).setPositiveButton(if(settings.privacyShield)"關閉疑似秘密檢查" else "啟用") {_,_->task(status,{synchronized(SyncEngine.lock){settings.privacyShield=!settings.privacyShield;JournalQueue(this).clearContexts()}}){settings()}}.show()
+        }
+        text(if(settings.replayConsent) "短期縮圖回放：已另行同意" else "短期縮圖回放：關閉")
+        button(if(settings.replayConsent) "關閉回放保存並清除待傳情境" else "另行同意保存縮圖供回放") {
+            if(settings.replayConsent){task(status,{synchronized(SyncEngine.lock){settings.replayConsent=false;JournalQueue(this).clearContexts()}}){settings()}}
+            else AlertDialog.Builder(this).setTitle("保存畫面供私人回放？").setMessage("需先啟用縮圖。這是與分析分開的同意：未來縮圖可從網站與手機讀回，最多 24 小時、256 張，最長邊 480 px。可能包含私人資訊；沒有 OCR 自動遮罩。只允許你願意保存的 app。關閉不刪除已傳送的縮圖，可另行刪除或等待到期；不代表同意傳給模型。").setNegativeButton("取消",null).setPositiveButton("同意短期回放") {_,_->task(status,{synchronized(SyncEngine.lock){require(settings.imagesEnabled);settings.replayConsent=true;JournalQueue(this).clearContexts()}}){settings()}}.show()
         }
         text(if (settings.imagesEnabled) "選擇性畫面縮圖：啟用" else "選擇性畫面縮圖：關閉")
         button(if (settings.imagesEnabled) "關閉縮圖並清除待傳情境" else "閱讀畫面縮圖同意說明") {
@@ -304,15 +327,16 @@ class MainActivity : Activity() {
     }
     private fun aiSettings() {
         root.removeAllViews(); text("Bring your own AI", 28f)
-        text("使用你自己的 OpenAI-compatible API 與模型。可連接 OpenAI、OpenRouter，或經 HTTPS 提供的 Ollama／LM Studio。沒有預設供應商，也不會自動使用 infovore 的 AI。本機模型也由 PocketLog 伺服器連線，請填該伺服器可連到的網址。")
+        text("使用自己的 OpenAI 相容、Anthropic Messages 或 Gemini generateContent API。可連接 OpenAI、OpenRouter，或經 HTTPS 提供的 Ollama／LM Studio。沒有預設供應商，也不會自動使用 infovore 的 AI。本機模型也由 PocketLog 伺服器連線，請填該伺服器可連到的網址。")
         val status = text("載入私人伺服器的 AI 設定…")
-        text("Chat Completions 端點或 API base URL")
+        val protocol = spinner(listOf("OpenAI 相容", "Anthropic Messages", "Gemini generateContent"))
+        text("OpenAI base URL；原生協定請填完整 API URL（Gemini 路徑需包含模型 ID）")
         val endpoint = input("https://your-provider.example/v1")
-        button("填入 OpenAI 端點") { endpoint.setText("https://api.openai.com/v1") }
-        button("填入 OpenRouter 端點") { endpoint.setText("https://openrouter.ai/api/v1") }
+        button("填入 OpenAI 端點") { protocol.setSelection(0); endpoint.setText("https://api.openai.com/v1") }
+        button("填入 OpenRouter 端點") { protocol.setSelection(0); endpoint.setText("https://openrouter.ai/api/v1") }
         text("模型 ID"); val model = input("輸入供應商提供的完整模型 ID")
         text("API key（可留白；不需要金鑰的本機服務也支援）")
-        val key = input("相同端點留白保留金鑰；換端點不會沿用", true)
+        val key = input("相同端點及協定留白保留金鑰；變更則不沿用", true)
         val forget = CheckBox(this).apply { text = "這次儲存時清除現有 API key"; root.addView(this) }
         text("結構化輸出格式")
         val format = spinner(listOf("JSON Schema（建議）", "JSON mode（相容模式）"))
@@ -320,7 +344,7 @@ class MainActivity : Activity() {
         text("金鑰只透過 HTTPS 傳到你的 PocketLog 伺服器，保存在受限制的設定檔，不會讀回手機或放入日誌。伺服器管理者可讀取金鑰；請使用可信任且有加密磁碟的主機。儲存只設定模型，不代表同意傳送日誌。", 13f)
         button("儲存 AI 設定") {
             val body = runCatching {
-                JSONObject().put("endpoint", AiEndpoint.normalize(endpoint.text.toString())).put("model", model.text.toString().trim().also { require(it.isNotBlank() && it.length <= 200) })
+                JSONObject().put("protocol", listOf("openai", "anthropic", "gemini")[protocol.selectedItemPosition]).put("endpoint", AiEndpoint.normalize(endpoint.text.toString(), protocol.selectedItemPosition == 0)).put("model", model.text.toString().trim().also { require(it.isNotBlank() && it.length <= 200) })
                     .put("response_format", if (format.selectedItemPosition == 0) "json_schema" else "json_object").put("image_support", images.isChecked)
                     .also { if (forget.isChecked || key.text.isNotBlank()) it.put("api_key", if (forget.isChecked) "" else key.text.toString().trim()) }
             }.getOrNull()
@@ -360,6 +384,7 @@ class MainActivity : Activity() {
             if (!config.optBoolean("available")) { status.text = "伺服器尚未開放 app 內 AI 設定，請先更新伺服器。"; return@task }
             endpoint.setText(config.optString("endpoint"))
             model.setText(config.optString("model"))
+            protocol.setSelection(listOf("openai", "anthropic", "gemini").indexOf(config.optString("protocol", "openai")).coerceAtLeast(0))
             images.isChecked = config.optBoolean("image_support")
             format.setSelection(if (config.optString("response_format") == "json_object") 1 else 0)
             status.text = if (config.optBoolean("enabled")) "已設定。${if (config.optBoolean("has_key")) "伺服器已保存金鑰，不會讀回。" else "目前沒有 API key。"} 是否可送日誌取決於這台裝置的同意。" else "尚未啟用 AI，活動卡片仍可使用。"
@@ -380,7 +405,7 @@ class MainActivity : Activity() {
             0 -> { text("把一天，收進口袋。", 25f); text("活動卡、每日回顧與你的感受，幫助你理解生活節奏。這份設定在網站與手機共用；完成一次即可。") }
             1 -> { text("先選擇，才開始記錄。", 25f); text("使用紀錄、畫面文字、圖片與 AI 各別同意，預設關閉。排除清單優先於允許清單；密碼、輸入欄位、鎖定畫面與安全視窗會在擷取前排除。原始情境最多 24 小時，活動與反思最多 30 天。伺服器管理者可以讀取日誌。") }
             2 -> { text("為自己留一點專注。", 25f); text("目標與分類角色會同步到網站；它們不是對你的一天評分。") }
-            3 -> { text("帶上你自己的 AI。", 25f); text("可設定 OpenAI 相容端點與模型，也可先使用無 AI 的活動卡。設定模型不代表同意傳送畫面；手機還需明確授予權限。") }
+            3 -> { text("帶上你自己的 AI。", 25f); text("可設定 OpenAI 相容、Anthropic 或 Gemini API 與模型，也可先使用無 AI 的活動卡。設定模型不代表同意傳送畫面；手機還需明確授予權限。") }
         }
         val focus = if (step == 2) input("每日專注分鐘").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText((workspace?.optInt("focus_minutes") ?: 270).toString()) } else null
         val budget = if (step == 2) input("分心預算分鐘").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText((workspace?.optInt("distraction_minutes") ?: 60).toString()) } else null
@@ -406,26 +431,64 @@ class MainActivity : Activity() {
             workspace = current
             val focus = input("每日專注分鐘").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(current.getInt("focus_minutes").toString()) }
             val budget = input("分心預算分鐘").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(current.getInt("distraction_minutes").toString()) }
-            val styles = current.getJSONArray("categories")
-            val editors = (0 until styles.length()).map { i ->
-                val c = styles.getJSONObject(i); text(c.getString("id"), 13f)
-                val name = input("分類名稱").apply { setText(c.getString("name")) }
-                val color = input("#RRGGBB").apply { setText(c.getString("color")) }
-                val role = spinner(listOf("專注", "一般", "分心"), listOf("focus", "neutral", "distraction").indexOf(c.getString("role")))
-                Triple(name, color, role)
-            }
-            button("儲存共用設定") {
+            button("編輯分類與自動規則") { categoryRulesEditor(JSONObject(current.toString())) }
+            button("儲存共用目標") {
                 val a = focus.text.toString().toIntOrNull(); val b = budget.text.toString().toIntOrNull()
                 if (a == null || b == null || a !in 0..1440 || b !in 0..1440) { status.text = "分鐘必須介於 0–1440"; return@button }
                 val next = JSONObject(current.toString()).put("focus_minutes", a).put("distraction_minutes", b)
-                editors.forEachIndexed { i, (name, color, role) -> next.getJSONArray("categories").getJSONObject(i).put("name", name.text.toString().trim()).put("color", color.text.toString().trim()).put("role", listOf("focus", "neutral", "distraction")[role.selectedItemPosition]) }
                 task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/workspace", next, "PUT") }) { workspace = it; current.put("revision", it.getLong("revision")); status.text = "網站與手機的共用設定已更新" }
             }
             button("重新閱讀 onboarding") { onboarding(0) }
         }
     }
+    private fun categoryRulesEditor(draft: JSONObject) {
+        root.removeAllViews(); text("分類與自動規則", 27f)
+        text("由上到下套用第一個符合的規則；app 與關鍵字同時指定時必須都符合。手動修改永遠優先。分類被活動使用時不能移除。")
+        val status = text("")
+        val styles = draft.getJSONArray("categories")
+        val rules = draft.optJSONArray("rules") ?: JSONArray().also { draft.put("rules", it) }
+        val capture = mutableListOf<() -> Unit>()
+        fun remember() { capture.forEach { it() } }
+        for (i in 0 until styles.length()) {
+            val c = styles.getJSONObject(i); text(c.getString("id"), 13f)
+            val name = input("分類名稱（最多 40 字）").apply { setText(c.getString("name")) }
+            val color = input("#RRGGBB").apply { setText(c.getString("color")) }
+            val role = spinner(listOf("專注", "一般", "分心"), listOf("focus", "neutral", "distraction").indexOf(c.getString("role")))
+            capture.add { c.put("name", name.text.toString().trim()).put("color", color.text.toString().trim()).put("role", listOf("focus", "neutral", "distraction")[role.selectedItemPosition]); Unit }
+            if (c.getString("id").startsWith("custom_")) button("移除此分類") {
+                remember(); styles.remove(i)
+                for (j in rules.length() - 1 downTo 0) if (rules.getJSONObject(j).getString("category") == c.getString("id")) rules.remove(j)
+                categoryRulesEditor(draft)
+            }
+        }
+        button("新增分類") {
+            if (styles.length() >= 40) { status.text = "最多 40 個分類"; return@button }
+            remember(); styles.put(JSONObject().put("id", "custom_" + UUID.randomUUID().toString().replace("-", "")).put("name", "新分類").put("color", "#9bbce1").put("role", "neutral")); categoryRulesEditor(draft)
+        }
+        text("自動分類規則", 23f)
+        val ids = (0 until styles.length()).map { styles.getJSONObject(it).getString("id") }
+        for (i in 0 until rules.length()) {
+            val r = rules.getJSONObject(i)
+            val enabled = CheckBox(this).apply { text = "規則 ${i + 1} 啟用"; isChecked = r.optBoolean("enabled", true); root.addView(this) }
+            val app = input("完整 app 套件名稱（留白不限）").apply { setText(r.optString("app").takeUnless { it == "null" } ?: "") }
+            val keyword = input("標題包含（留白不限）").apply { setText(r.optString("title_contains").takeUnless { it == "null" } ?: "") }
+            val category = spinner((0 until styles.length()).map { styles.getJSONObject(it).getString("name") }, ids.indexOf(r.getString("category")).coerceAtLeast(0))
+            capture.add { r.put("enabled", enabled.isChecked).put("app", app.text.toString().trim().ifBlank { null } ?: JSONObject.NULL).put("title_contains", keyword.text.toString().trim().ifBlank { null } ?: JSONObject.NULL).put("category", ids[category.selectedItemPosition]); Unit }
+            if (i > 0) button("規則上移") { remember(); val previous = rules.getJSONObject(i - 1); rules.put(i - 1, r); rules.put(i, previous); categoryRulesEditor(draft) }
+            button("刪除規則") { remember(); rules.remove(i); categoryRulesEditor(draft) }
+        }
+        button("新增規則") {
+            if (rules.length() >= 32) { status.text = "最多 32 條規則"; return@button }
+            remember(); rules.put(JSONObject().put("id", UUID.randomUUID().toString()).put("category", ids.first()).put("app", JSONObject.NULL).put("title_contains", JSONObject.NULL).put("enabled", true)); categoryRulesEditor(draft)
+        }
+        button("儲存分類與規則") {
+            remember()
+            task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/workspace", draft, "PUT") }) { workspace = it; sharedSettings() }
+        }
+        button("放棄修改並返回") { sharedSettings() }
+    }
     private fun weeklyTimeline() {
-        root.removeAllViews(); text("每週時間軸", 27f); button("返回每日時間軸") { home() }; val status = text("載入本週…")
+        root.removeAllViews(); text("每週時間軸", 27f); button("每週 AI 回顧與排程") { briefsPage(true) }; button("返回每日時間軸") { home() }; val status = text("載入本週…")
         val first = day.minusDays((day.dayOfWeek.value - 1).toLong())
         val dates = (0L..6L).map { first.plusDays(it) }.filter { it <= journalDay() && it >= journalDay().minusDays(28) }
         task(status, { dates.map { it to SyncEngine.readTimeline(this, dayPath(it)) } }) { days ->
@@ -438,7 +501,7 @@ class MainActivity : Activity() {
         }
     }
     private fun dailyReview() {
-        root.removeAllViews(); text("$day · 每日回顧", 27f); val status = text("載入…"); button("返回時間軸與反思") { home() }
+        root.removeAllViews(); text("$day · 每日回顧", 27f); button("每日 AI 回顧與排程") { briefsPage(false) }; val status = text("載入…"); button("返回時間軸與反思") { home() }
         task(status, { SyncEngine.readTimeline(this, dayPath()) }) { data ->
             val cards = data.getJSONArray("cards"); val styles = workspace?.optJSONArray("categories")
             var focus = 0L; var distraction = 0L; val totals = mutableMapOf<String, Long>(); val intervals = mutableListOf<Pair<Long, Long>>()
@@ -466,39 +529,145 @@ class MainActivity : Activity() {
             }
         }
     }
+    private fun briefsPage(weekly: Boolean) {
+        root.removeAllViews(); text(if (weekly) "每週 AI 回顧" else "每日 AI 回顧", 27f)
+        text("AI 回顧可能有誤，請核對活動。只傳送最多 100 張活動卡（24 KB），不含畫面、原始文字、感受與反思。摘要保留 30 天。")
+        val status=text("載入…"); button("返回時間軸") { home() }
+        val first=if(weekly) day.minusDays((day.dayOfWeek.value-1).toLong()) else day
+        val zone=ZoneId.systemDefault(); val from=first.atTime(4,0).atZone(zone).toInstant().toEpochMilli()
+        val to=minOf(first.plusDays(if(weekly)7 else 1).atTime(4,0).atZone(zone).toInstant().toEpochMilli(),System.currentTimeMillis())
+        task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/briefs?from_ms=$from&to_ms=$to") }) { data ->
+            val rows=data.getJSONArray("briefs")
+            if(rows.length()==0)text("尚無摘要，可自行產生或明確開啟排程。")
+            for(i in 0 until rows.length()) {
+                val b=rows.getJSONObject(i);text(b.getString("kind"),18f);text(b.getString("text"))
+                button("刪除這份摘要") { AlertDialog.Builder(this).setTitle("永久刪除這份摘要？").setNegativeButton("取消",null).setPositiveButton("刪除") { _,_->task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/briefs/${b.getString("id")}",method="DELETE")}){briefsPage(weekly)} }.show() }
+            }
+        }
+        button("產生並保存回顧") {
+            task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/ai")}) { config ->
+                if(!config.optBoolean("enabled")){status.text="請先設定 AI";return@task}
+                AlertDialog.Builder(this).setTitle("這次傳送活動卡？").setMessage("會將上述範圍送到 ${config.getString("model")}，可能產生 API 費用，並保存摘要 30 天。").setNegativeButton("取消",null).setPositiveButton("同意並產生") { _,_->
+                    val body=JSONObject().put("id",UUID.randomUUID().toString()).put("from_ms",from).put("to_ms",to).put("kind",if(weekly)"weekly" else "daily").put("provider_id",config.getString("provider_id")).put("consent",true)
+                    task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/briefs",body)}){briefsPage(weekly)}
+                }.show()
+            }
+        }
+        button("摘要排程設定") { briefScheduleSettings() }
+    }
+    private fun briefScheduleSettings() {
+        root.removeAllViews();text("AI 摘要排程",27f)
+        text("獨立同意：自動傳送已完成日／週的最多 100 張活動卡（24 KB），不含原始畫面、感受與反思；可能產生模型費用，每期最多三次嘗試，不補跑歷史。更換模型後需重新同意，刪除日誌會停用排程。")
+        val status=text("載入…");button("返回時間軸"){home()}
+        task(status,{val api=PocketLogApi(requireNotNull(credentials));api.request("/v1/briefs/schedule") to api.request("/v1/ai")}){(schedule,config)->
+            val enabled=CheckBox(this).apply {text="同意持續傳送給 ${config.optString("model","尚未設定模型")}，並保存摘要 30 天";isChecked=schedule.getBoolean("enabled") && schedule.optString("provider_id")==config.optString("provider_id");root.addView(this)}
+            val timezone=input("IANA 時區").apply{setText(schedule.getString("timezone"))}
+            val minutes=input("每天幾點幾分（04:00–23:59）").apply{setText("%02d:%02d".format(schedule.getInt("minute_of_day")/60,schedule.getInt("minute_of_day")%60))}
+            val daily=CheckBox(this).apply{text="每日摘要";isChecked=schedule.getBoolean("daily");root.addView(this)}
+            val weekly=CheckBox(this).apply{text="每週摘要（上一個完整的週一到週一）";isChecked=schedule.getBoolean("weekly");root.addView(this)}
+            button("儲存排程") {
+                val time=runCatching{java.time.LocalTime.parse(minutes.text.toString())}.getOrNull()
+                if(time==null || time.hour<4){status.text="請填寫 04:00–23:59";return@button}
+                val body=JSONObject(schedule.toString()).put("enabled",enabled.isChecked).put("provider_id",config.optString("provider_id","")).put("timezone",timezone.text.toString().trim()).put("minute_of_day",time.hour*60+time.minute).put("daily",daily.isChecked).put("weekly",weekly.isChecked)
+                task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/briefs/schedule",body,"PUT")}){status.text="排程已更新";schedule.put("revision",it.getLong("revision"))}
+            }
+        }
+    }
     private fun chatPage() {
-        root.removeAllViews(); text("Chat · 詢問自己的 AI", 26f); text("每次只送所選日期最多 100 張活動卡的 app、時間、標題與摘要；不含原始文字、圖片、感受或反思。每次提問獨立處理，對話不持久保存。")
+        root.removeAllViews(); text("Chat · 詢問自己的 AI", 26f); text("每次只送所選日期最多 100 張活動卡的 app、時間、標題與摘要；不含原始文字、圖片、感受或反思。可接續私人對話，保留 30 天；每次最多送最近 6 輪、6,000 字上下文。")
         val status = text("載入提供者…"); button("返回時間軸") { home() }
-        task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/ai") }) { config ->
+        task(status, {
+            val api=PocketLogApi(requireNotNull(credentials));val config=api.request("/v1/ai");val list=api.request("/v1/conversations").getJSONArray("conversations")
+            val thread=if((0 until list.length()).any{list.getJSONObject(it).getString("id")==conversationId})api.request("/v1/conversations/$conversationId") else null
+            config to thread
+        }) { (config,savedThread) ->
+            val historyPanel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;root.addView(this)}
+            val historyTurns=mutableListOf<JSONObject>();var cursor:JSONObject?=null
+            fun renderHistory(){historyPanel.removeAllViews();historyTurns.forEach{t->historyPanel.addView(TextView(this).apply{text="你：${t.getString("question")}\nAI：${t.getString("answer")}";setPadding(0,12,0,12)})}}
+            fun acceptHistory(thread:JSONObject,prepend:Boolean){val rows=thread.getJSONArray("turns");val turns=(0 until rows.length()).map{rows.getJSONObject(it)};if(prepend)historyTurns.addAll(0,turns)else{historyTurns.clear();historyTurns.addAll(turns)};cursor=thread.optJSONObject("next_cursor");renderHistory()}
+            if(savedThread!=null)acceptHistory(savedThread,false)
+            button("載入更早的問答") {
+                val before=cursor
+                if(before==null){status.text="已顯示目前載入對話的所有問答";return@button}
+                task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/conversations/$conversationId?before_ms=${before.getLong("before_ms")}&before_id=${before.getString("before_id")}")}){acceptHistory(it,true)}
+            }
+            button("已保存的對話") {
+                task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/conversations") }) { list ->
+                    val rows=list.getJSONArray("conversations")
+                    AlertDialog.Builder(this).setTitle("選擇私人對話").setItems((0 until rows.length()).map { rows.getJSONObject(it).getString("title") }.toTypedArray()) { _, index ->
+                        conversationId=rows.getJSONObject(index).getString("id")
+                        chatPage()
+                    }.setNegativeButton("取消", null).show()
+                }
+            }
+            button("開啟新對話") { conversationId=UUID.randomUUID().toString();chatPage() }
+            button("刪除此對話") {
+                AlertDialog.Builder(this).setTitle("永久刪除此對話？").setNegativeButton("取消", null).setPositiveButton("刪除") { _, _ ->
+                    task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/conversations/$conversationId", method="DELETE") }) { conversationId=UUID.randomUUID().toString();chatPage() }
+                }.show()
+            }
             if (!config.optBoolean("enabled")) { status.text = "請先設定 AI"; button("Bring your own AI") { aiSettings() }; return@task }
             text("${config.getString("model")}\n${config.getString("endpoint")}")
+            button(if(chatWeekly)"目前本週：切換為所選日" else "目前所選日：切換為本週"){chatWeekly=!chatWeekly;chatPage()}
+            val first=if(chatWeekly)day.minusDays((day.dayOfWeek.value-1).toLong()).coerceAtLeast(journalDay().minusDays(28)) else day
+            val last=if(chatWeekly)day.minusDays((day.dayOfWeek.value-1).toLong()).plusDays(7) else day.plusDays(1)
+            button("查看提問範圍的分類圖表") {
+                val from=first.atTime(4,0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();val to=minOf(last.atTime(4,0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),System.currentTimeMillis())
+                task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/overview?from_ms=$from&to_ms=$to")}) {overview->
+                    val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(24,24,24,24)};val rows=overview.getJSONArray("categories");val max=(0 until rows.length()).maxOfOrNull{rows.getJSONObject(it).getLong("duration_ms")}?.coerceAtLeast(1) ?: 1
+                    for(i in 0 until rows.length()){val c=rows.getJSONObject(i);panel.addView(TextView(this).apply{text="${label(c.getString("category"))} · ${c.getLong("duration_ms")/60000} 分鐘"});panel.addView(ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{this.max=1000;progress=(c.getLong("duration_ms")*1000/max).toInt()})}
+                    AlertDialog.Builder(this).setTitle("所選範圍的實際活動分類").setView(ScrollView(this).apply{addView(panel)}).setPositiveButton("關閉",null).show()
+                }
+            }
             val question = input("你想問 $day 的什麼？")
-            val consent = CheckBox(this).apply { text = "同意這次將上述活動卡與問題送到此提供者，並承擔 API 費用。"; root.addView(this) }
+            val consent = CheckBox(this).apply { text = "同意這次將活動卡、問題與最近 6 輪對話送到這個提供者，並在私人伺服器保存問答 30 天，承擔 API 費用。"; root.addView(this) }
             button("傳送這次提問") {
                 if (!consent.isChecked || question.text.isBlank()) { status.text = "請輸入問題並同意傳送"; return@button }
-                val zone = ZoneId.systemDefault(); val from = day.atTime(4, 0).atZone(zone).toInstant().toEpochMilli(); val to = minOf(day.plusDays(1).atTime(4, 0).atZone(zone).toInstant().toEpochMilli(), System.currentTimeMillis())
-                val body = JSONObject().put("question", RecordingRules.cap(question.text.toString(), 1000)).put("from_ms", from).put("to_ms", to).put("provider_id", config.getString("provider_id")).put("consent", true)
+                val zone = ZoneId.systemDefault(); val from = first.atTime(4, 0).atZone(zone).toInstant().toEpochMilli(); val to = minOf(last.atTime(4, 0).atZone(zone).toInstant().toEpochMilli(), System.currentTimeMillis())
+                val fresh = JSONObject().put("conversation_id", conversationId).put("request_id", UUID.randomUUID().toString()).put("question", RecordingRules.cap(question.text.toString(), 1000)).put("from_ms", from).put("to_ms", to).put("provider_id", config.getString("provider_id")).put("consent", true)
+                val body=pendingAsk?.takeIf{pendingAskWeekly==chatWeekly && it.optString("conversation_id")==conversationId && it.optString("question")==fresh.getString("question") && it.optLong("from_ms")==from && it.optString("provider_id")==config.getString("provider_id")} ?: fresh.also{pendingAsk=it;pendingAskWeekly=chatWeekly}
                 consent.isChecked = false
-                task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/ask", body) }) { text("AI 回答，請核對：\n${it.getString("answer")}") }
+                task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/ask", body) }) { pendingAsk=null;text("AI 回答，請核對：\n${it.getString("answer")}") }
             }
         }
     }
     private fun recordBody(id: String, at: Long, kind: String, text: String) = JSONObject().put("id", id).put("at_ms", at).put("kind", kind).put("text", text).put("end_ms", JSONObject.NULL).put("rating", JSONObject.NULL).put("source", JSONObject.NULL)
     private fun flowPage() {
-        root.removeAllViews(); text("Flow · 私人專注", 28f); text("手動開始並儲存一段專注。這是你填寫的紀錄，不代表 app 擷取的實際活動。重新啟動 app 會捨棄尚未儲存的計時；不會連接 Dayflow 雲端。")
-        val topic = input("這次想專注什麼？"); val status = text(flowStart?.let { "已開始 ${(System.currentTimeMillis() - it) / 60000} 分鐘" } ?: "尚未開始")
-        button("開始") { if (flowStart == null) { flowStart = System.currentTimeMillis(); flowId = UUID.randomUUID().toString(); status.text = "已開始，完成時請儲存成果。" } }
-        button("儲存並結束") {
-            val at = flowStart
-            if (at == null || topic.text.isBlank()) { status.text = "請先開始並填寫主題／成果。"; return@button }
-            val body = recordBody(requireNotNull(flowId), at, "flow", RecordingRules.cap(topic.text.toString(), 4000)).put("end_ms", minOf(System.currentTimeMillis(), at + 86_400_000L))
-            task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/reviews", body) }) { flowStart = null; flowId = null; flowPage() }
+        root.removeAllViews(); text("Flow · 私人專注", 28f)
+        text("計時保存在私人伺服器，可從網站或手機接續；完成時才存為手動專注紀錄。這不會開啟畫面擷取或 AI，也不代表實際使用活動。")
+        val status = text("讀取計時…"); button("返回時間軸") { home() }
+        task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/focus") }) { data ->
+            val session = data.optJSONObject("session")
+            if (session == null) {
+                val topic = input("這次想專注什麼？（最多 300 字）")
+                val minutes = input("預計分鐘（1–180）").apply { inputType = InputType.TYPE_CLASS_NUMBER; setText("25") }
+                button("開始專注") {
+                    val duration = minutes.text.toString().toIntOrNull()
+                    if (duration == null || duration !in 1..180 || topic.text.isBlank() || topic.text.toString().codePointCount(0, topic.text.length) > 300) { status.text = "請填寫主題與 1–180 分鐘"; return@button }
+                    val body = JSONObject().put("id", UUID.randomUUID().toString()).put("at_ms", System.currentTimeMillis()).put("minutes", duration).put("text", topic.text.toString().trim())
+                    task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/focus", body) }) { flowPage() }
+                }
+            } else {
+                text(session.getString("text"), 22f)
+                val remaining = ((session.getLong("at_ms") + session.getLong("minutes") * 60_000 - System.currentTimeMillis()).coerceAtLeast(0) + 59_999) / 60_000
+                text(if (remaining == 0L) "計時已結束，可以儲存成果。" else "剩餘約 $remaining 分鐘")
+                val identity = JSONObject().put("id", session.getString("id"))
+                button("儲存並結束") { task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/focus/finish", identity) }) { flowPage() } }
+                button("捨棄這次紀錄") { task(status, { PocketLogApi(requireNotNull(credentials)).request("/v1/focus", identity, "DELETE") }) { flowPage() } }
+            }
+            button("重新整理計時") { flowPage() }
+            loadRecords("flow", status)
         }
-        button("捨棄這次紀錄") { flowStart = null; flowId = null; flowPage() }; button("返回時間軸") { home() }
-        loadRecords("flow", status)
     }
     private fun agentsPage() {
         root.removeAllViews(); text("Agents · 工作紀錄", 27f); text("記下或明確選取 Codex／Claude 工作摘要。尚未自動掃描桌面 session、執行工具或回放錄影。請移除金鑰、私密對話後才匯入。")
+        button("匯入原生 JSONL 並預覽") {
+            AlertDialog.Builder(this).setTitle("紀錄來源").setItems(arrayOf("Codex", "Claude")) { _, index ->
+                agentImportSource=if(index==0)"codex" else "claude"
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type="*/*";addCategory(Intent.CATEGORY_OPENABLE)},22)
+            }.setNegativeButton("取消",null).show()
+        }
+        button("專案工作線與對話回放") { agentSessionsPage() }
         val source = spinner(listOf("Codex", "Claude")); val note = input("專案、成果與待辦"); val status = text("")
         button("儲存工作摘要") {
             if (note.text.isBlank()) { status.text = "請填寫摘要"; return@button }
@@ -541,9 +710,80 @@ class MainActivity : Activity() {
                 }.setNegativeButton("取消", null).setPositiveButton("填入清單") { _, _ -> field.setText(chosen.sorted().joinToString("\n")) }.show()
         }
     }
+    private fun replayPage() {
+        root.removeAllViews();text("短期畫面回放",27f);text("只有另行同意保存的縮圖可回放，最長 24 小時、256 張；只供分析的原始畫面仍不可讀回。沒有 OCR 自動遮罩，請先設定排除與允許清單。")
+        val status=text("載入…");button("返回時間軸"){home()}
+        val from=day.atTime(4,0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();val to=minOf(day.plusDays(1).atTime(4,0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),System.currentTimeMillis())
+        task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/replay?from_ms=$from&to_ms=$to")}) {data->
+            val images=data.getJSONArray("images")
+            if(images.length()==0)text("沒有已同意且仍在期限內的縮圖。")
+            for(i in 0 until images.length()) {val item=images.getJSONObject(i);button("${InstantFormat(item.getLong("at_ms"))} · ${item.getString("app")}") {
+                task(status,{
+                    val response=PocketLogApi(requireNotNull(credentials)).request("/v1/replay/${item.getString("id")}")
+                    val bytes=android.util.Base64.decode(response.getString("jpeg_base64"),android.util.Base64.DEFAULT)
+                    try{require(bytes.size<=24576);val bounds=android.graphics.BitmapFactory.Options().apply{inJustDecodeBounds=true};android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds);require(bounds.outWidth in 1..480 && bounds.outHeight in 1..480);requireNotNull(android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.size))}finally{bytes.fill(0)}
+                }) {bitmap->
+                    val image=ImageView(this).apply{setImageBitmap(bitmap);adjustViewBounds=true}
+                    AlertDialog.Builder(this).setTitle("已核准的短期縮圖").setView(image).setNegativeButton("關閉",null).setPositiveButton("刪除") {_,_->task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/replay/${item.getString("id")}",method="DELETE")}){replayPage()}}.create().apply{setOnDismissListener{image.setImageDrawable(null);bitmap.recycle()};show();window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)}
+                }
+            }}
+        }
+    }
+    private fun agentImportPreview(rows: JSONArray, source: String) {
+        root.removeAllViews();text("核准要匯入的對話",27f)
+        text("只在手機解析所選檔案。顯示近 30 天最後 40 則文字，每則最多 1000 字；工具輸出與附件不會匯入。請移除金鑰與私密內容。只有勾選的文字會傳到私人伺服器，不會傳到 AI。")
+        val project=input("專案／工作線名稱（最多 80 字，不要填完整路徑）");val title=input("工作標題（最多 200 字）");val status=text("")
+        val selections=(0 until rows.length()).map { i ->
+            val turn=rows.getJSONObject(i)
+            val selected=CheckBox(this).apply{text="${turn.getString("role")} · ${InstantFormat(turn.getLong("at_ms"))}";root.addView(this)}
+            val value=input("核准後保存的文字").apply{setText(turn.getString("text"))}
+            Triple(turn,selected,value)
+        }
+        if(rows.length()==0)text("沒有近 30 天可匯入的文字。")
+        button("只匯入勾選的文字") {
+            val turns=JSONArray();selections.filter{it.second.isChecked}.forEach{(turn,_,value)->turns.put(JSONObject(turn.toString()).put("text",value.text.toString().trim()))}
+            if(turns.length()==0 || project.text.isBlank() || title.text.isBlank()){status.text="請填寫專案、標題並勾選要保存的文字";return@button}
+            val body=JSONObject().put("id",UUID.randomUUID().toString()).put("revision",0).put("at_ms",turns.getJSONObject(turns.length()-1).getLong("at_ms")).put("source",source).put("project",project.text.toString().trim()).put("title",title.text.toString().trim()).put("status","completed").put("turns",turns)
+            if(body.toString().toByteArray(Charsets.UTF_8).size>64000){status.text="超過 64 KB，請減少選取文字";return@button}
+            task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/agent-sessions",body,"PUT")}){agentSessionsPage()}
+        }
+        button("放棄並返回"){agentsPage()}
+    }
+    private fun InstantFormat(at: Long): String = java.time.Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+    private fun agentSessionsPage() {
+        root.removeAllViews();text("專案工作線",27f);val status=text("載入…");button("返回 Agents"){agentsPage()}
+        task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/agent-sessions")}) { data ->
+            val rows=data.getJSONArray("sessions")
+            (0 until rows.length()).map{rows.getJSONObject(it)}.groupBy{it.getString("project")}.forEach{(project,sessions)->
+                text(project,23f);sessions.forEach{s->button("${s.getString("title")} · ${s.getString("source")} · ${s.getString("status")} · ${s.getInt("turn_count")} 則"){agentSessionReplay(s.getString("id"))}}
+            }
+            if(rows.length()==0)text("尚無已核准的工作紀錄。")
+        }
+    }
+    private fun agentSessionReplay(id: String) {
+        root.removeAllViews();text("核准對話回放",27f);val status=text("載入…");button("返回工作線"){agentSessionsPage()}
+        task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/agent-sessions/$id")}){session->
+            text(session.getString("title"),23f);text("${session.getString("project")} · ${session.getString("source")}。只顯示核准文字，不執行工具或連結。")
+            val state=spinner(listOf("進行中","待接續","已完成"),listOf("active","waiting","completed").indexOf(session.getString("status")))
+            button("儲存狀態") {val body=JSONObject(session.toString()).put("status",listOf("active","waiting","completed")[state.selectedItemPosition]);task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/agent-sessions",body,"PUT")}){session.put("revision",it.getLong("revision"));status.text="已儲存"}}
+            val turns=session.getJSONArray("turns");var index=0;val position=text("");val content=text("")
+            fun render(){val t=turns.getJSONObject(index);position.text="${index+1} / ${turns.length()} · ${t.getString("role")} · ${InstantFormat(t.getLong("at_ms"))}";content.text=t.getString("text")}
+            button("上一則"){index=(index-1).coerceAtLeast(0);render()};button("下一則"){index=(index+1).coerceAtMost(turns.length()-1);render()};render()
+            button("刪除工作與核准對話") {AlertDialog.Builder(this).setTitle("永久刪除這個工作紀錄？").setNegativeButton("取消",null).setPositiveButton("刪除"){_,_->task(status,{PocketLogApi(requireNotNull(credentials)).request("/v1/agent-sessions/$id",method="DELETE")}){agentSessionsPage()}}.show()}
+        }
+    }
     @Deprecated("Legacy result API for the platform Activity")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 22) {
+            if(resultCode!=RESULT_OK || data?.data==null)return
+            val uri=requireNotNull(data.data);val source=agentImportSource
+            task(text("在手機檢查所選檔案…"),{
+                val bytes=contentResolver.openInputStream(uri).use{requireNotNull(it).readNBytes(524289)}
+                try{AgentImport.parse(bytes,source)}finally{bytes.fill(0)}
+            }){agentImportPreview(it,source)}
+            return
+        }
         if (requestCode == 21) {
             if (resultCode != RESULT_OK || data?.data == null) return
             val uri = requireNotNull(data.data)
@@ -569,6 +809,7 @@ class MainActivity : Activity() {
         task(text("匯出中…"), { try { contentResolver.openOutputStream(requireNotNull(data.data), "wt").use { requireNotNull(it).write(bytes) } } finally { bytes.fill(0) } }) { text("已匯出私人 JSON。") }
     }
     private fun <T> task(status: TextView, work: () -> T, done: (T) -> Unit) {
+        if (busy) { status.text = "上一個操作尚在處理中"; return }
         busy = true; status.text = "處理中…"
         executor.execute {
             val result = runCatching(work)
@@ -578,5 +819,5 @@ class MainActivity : Activity() {
             }
         }
     }
-    override fun onDestroy() { executor.shutdown(); exportBytes?.fill(0); credentials = null; super.onDestroy() }
+    override fun onDestroy() { executor.shutdown(); exportBytes?.fill(0); pendingAsk = null; credentials = null; super.onDestroy() }
 }

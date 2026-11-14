@@ -2,6 +2,9 @@
 const $ = (s) => document.querySelector(s);
 const root = $("#app");
 let chatScope = "day";
+let conversationId = crypto.randomUUID();
+let chatCursor = null,
+  pendingAsk = null;
 let prefs,
   ai,
   page = "timeline",
@@ -176,14 +179,20 @@ function row(...nodes) {
 }
 function modal(title, build) {
   const p = $("#modal-body");
-  p.replaceChildren(el("h2", title));
-  safe(() => build(p));
+  const content = el("div");
+  p.replaceChildren(el("h2", title), content);
+  // Late async builders retain a detached container after close, never a newer dialog.
+  safe(() => build(content));
   $("#modal").showModal();
 }
 function close() {
   $("#modal").close();
+  $("#modal-body").replaceChildren();
 }
 function login() {
+  pendingAsk = null;
+  chatCursor = null;
+  conversationId = crypto.randomUUID();
   $("#modal").close();
   $("#modal-body").replaceChildren();
   current = [];
@@ -309,7 +318,7 @@ function onboard(step) {
       el("h1", "帶上你自己的 AI。"),
       el(
         "p",
-        "可使用 OpenAI 相容端點，例如 OpenAI、OpenRouter 或你的私人模型伺服器。也可以先使用無 AI 的活動卡。",
+        "支援 OpenAI 相容、Anthropic Messages 與 Gemini generateContent API。也可以先使用無 AI 的活動卡。",
       ),
       el(
         "p",
@@ -424,7 +433,7 @@ async function shell() {
   add(head, controls);
   add(main, head);
   if (page === "settings") {
-    settings(main);
+    await settings(main);
     return;
   }
   if (page === "support") {
@@ -465,9 +474,9 @@ async function shell() {
       el("p", "資料已達顯示上限；統計僅涵蓋目前載入的活動卡。", "danger"),
     );
   if (page === "timeline") timeline(main, days);
-  if (page === "daily" || page === "weekly") review(main, days);
-  if (page === "chat") chatPage(main);
-  if (page === "agents") agents(main);
+  if (page === "daily" || page === "weekly") await review(main, days);
+  if (page === "chat") await chatPage(main);
+  if (page === "agents") await agents(main);
 }
 function metrics(cards) {
   const totals = {};
@@ -534,6 +543,7 @@ function timeline(parent, days) {
       },
       mode === "week" ? "active" : "",
     ),
+    btn("查看已同意保存的縮圖", replayDialog),
     btn("複製時間軸", copyTimeline),
     btn("匯出 JSON", () => exportData(days)),
   );
@@ -788,7 +798,7 @@ function editCard(c) {
     );
   });
 }
-function review(parent, days) {
+async function review(parent, days) {
   const m = metrics(current);
   stats(parent, m);
   const panel = el("section");
@@ -894,23 +904,120 @@ function review(parent, days) {
   add(
     panel,
     row(
-      btn("用自己的 AI 整理回顧", async () => {
-        const weekly = page === "weekly";
-        chatScope = weekly ? "week" : "day";
-        page = "chat";
-        chat.push({
-          role: "user",
-          text: weekly
-            ? "請整理這週的活動、進展與可回顧的問題。"
-            : "請整理今天的活動重點與可回顧的問題。",
+      btn("產生並保存 AI 回顧", async () => {
+        if (!ai.enabled) throw Error("請先設定自己的 AI");
+        if (
+          !confirm(
+            `這次傳送最多 100 張活動卡（不含原始畫面、感受、反思）到 ${ai.model}，並保存摘要 30 天；可能產生 API 費用。繼續？`,
+          )
+        )
+          return;
+        const [from] = windowFor(days[0].date);
+        const [, to] = windowFor(days.at(-1).date);
+        await api("/v1/briefs", {
+          id: crypto.randomUUID(),
+          from_ms: from,
+          to_ms: to,
+          kind: page === "weekly" ? "weekly" : "daily",
+          provider_id: ai.provider_id,
+          consent: true,
         });
         await shell();
       }),
+      btn("摘要排程", briefScheduleDialog),
       btn("匯出 JSON", () => exportData(days)),
     ),
   );
+  const [briefFrom] = windowFor(days[0].date);
+  const [, briefTo] = windowFor(days.at(-1).date);
+  const savedBriefs = await api(
+    `/v1/briefs?from_ms=${briefFrom}&to_ms=${briefTo}`,
+  );
+  add(panel, el("h3", "已保存的 AI 回顧"));
+  if (!savedBriefs.briefs.length)
+    add(panel, el("p", "尚無摘要；可自行產生，或明確開啟排程。"));
+  savedBriefs.briefs.forEach((b) =>
+    add(
+      panel,
+      add(
+        el("article", null, "card"),
+        el("h3", b.kind === "weekly" ? "每週摘要" : "每日摘要"),
+        el(
+          "small",
+          `${new Date(b.from_ms).toLocaleString()} – ${new Date(b.to_ms).toLocaleString()}`,
+        ),
+        el("p", b.text, "message"),
+        btn("刪除這份摘要", async () => {
+          if (!confirm("永久刪除這份摘要？")) return;
+          await api(`/v1/briefs/${b.id}`, null, "DELETE");
+          await shell();
+        }),
+      ),
+    ),
+  );
 }
-function chatPage(parent) {
+async function briefScheduleDialog() {
+  const schedule = await api("/v1/briefs/schedule");
+  modal("每日／每週 AI 摘要排程", (p) => {
+    add(
+      p,
+      el(
+        "p",
+        "獨立同意：排程只傳送已完成日／週的最多 100 張活動卡（24 KB），不含原始畫面、心情或反思。使用你的模型並產生 API 費用；每期最多三次嘗試。不補跑歷史。更換模型後需重新同意。刪除日誌會停用排程。",
+      ),
+    );
+    const enabled = check(
+      p,
+      `同意持續將上述活動卡送到 ${ai.model || "尚未設定的模型"}，並保存摘要 30 天`,
+      schedule.enabled && schedule.provider_id === ai.provider_id,
+    );
+    const timezone = field(
+      p,
+      "IANA 時區",
+      schedule.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+    const time = field(
+      p,
+      "每天產生時間（04:00–23:59）",
+      `${String(Math.floor(schedule.minute_of_day / 60)).padStart(2, "0")}:${String(schedule.minute_of_day % 60).padStart(2, "0")}`,
+      "time",
+    );
+    const daily = check(p, "每日摘要", schedule.daily),
+      weekly = check(
+        p,
+        "每週摘要（上一個已完成的週一到週一）",
+        schedule.weekly,
+      );
+    add(
+      p,
+      btn(
+        "儲存排程",
+        async () => {
+          const parts = time.value.split(":").map(Number);
+          if (parts.length !== 2 || !parts.every(Number.isInteger))
+            throw Error("請填寫有效時間");
+          await api(
+            "/v1/briefs/schedule",
+            {
+              revision: schedule.revision,
+              enabled: enabled.checked,
+              provider_id: ai.provider_id || "",
+              timezone: timezone.value.trim(),
+              minute_of_day: parts[0] * 60 + parts[1],
+              daily: daily.checked,
+              weekly: weekly.checked,
+            },
+            "PUT",
+          );
+          close();
+          notice("摘要排程已更新");
+        },
+        "primary",
+      ),
+    );
+  });
+}
+async function chatPage(parent) {
   const p = el("section");
   add(parent, p);
   add(
@@ -934,6 +1041,53 @@ function chatPage(parent) {
     return;
   }
   add(p, el("p", `${ai.model} · ${ai.endpoint}`, "muted"));
+  const saved = (await api("/v1/conversations")).conversations;
+  const history = select(
+    p,
+    "接續已保存的對話",
+    [["", "選擇對話"], ...saved.map((t) => [t.id, t.title])],
+    saved.some((t) => t.id === conversationId) ? conversationId : "",
+  );
+  history.onchange = () =>
+    safe(async () => {
+      if (!history.value) return;
+      conversationId = history.value;
+      const thread = await api(`/v1/conversations/${conversationId}`);
+      chatCursor = thread.next_cursor;
+      chat = thread.turns.flatMap((t) => [
+        { role: "user", text: t.question },
+        { role: "assistant", text: t.answer },
+      ]);
+      await shell();
+    });
+  add(
+    p,
+    btn("開啟新對話", async () => {
+      conversationId = crypto.randomUUID();
+      chatCursor = null;
+      pendingAsk = null;
+      chat = [];
+      await shell();
+    }),
+  );
+  if (chatCursor)
+    add(
+      p,
+      btn("載入更早的問答", async () => {
+        const thread = await api(
+          `/v1/conversations/${conversationId}?before_ms=${chatCursor.before_ms}&before_id=${encodeURIComponent(chatCursor.before_id)}`,
+        );
+        chatCursor = thread.next_cursor;
+        chat = [
+          ...thread.turns.flatMap((t) => [
+            { role: "user", text: t.question },
+            { role: "assistant", text: t.answer },
+          ]),
+          ...chat,
+        ];
+        await shell();
+      }),
+    );
   chat.forEach((m) => add(p, el("div", m.text, `message ${m.role}`)));
   add(
     p,
@@ -947,6 +1101,48 @@ function chatPage(parent) {
       "muted",
     ),
   );
+  add(
+    p,
+    btn("查看這次範圍的分類圖表", async () => {
+      const dates =
+        chatScope === "week"
+          ? weekDates().filter(
+              (d) => d <= journalDate() && d >= shift(journalDate(), -28),
+            )
+          : [day];
+      const [from] = windowFor(dates[0]);
+      const [, to] = windowFor(dates.at(-1));
+      const data = await api(`/v1/overview?from_ms=${from}&to_ms=${to}`);
+      modal("活動分類圖表", (body) => {
+        add(
+          body,
+          el(
+            "p",
+            "直接從所選範圍的實際活動計算，不需要模型。重疊裝置活動可能同時計入；分類可由你修改。",
+          ),
+        );
+        const max = Math.max(1, ...data.categories.map((c) => c.duration_ms));
+        if (!data.categories.length) add(body, el("p", "這個範圍沒有活動。"));
+        data.categories.forEach((c) => {
+          const bar = el("progress");
+          bar.max = max;
+          bar.value = c.duration_ms;
+          bar.setAttribute(
+            "aria-label",
+            `${styleFor(c.category).name} ${duration(c.duration_ms)}`,
+          );
+          add(
+            body,
+            el(
+              "p",
+              `${styleFor(c.category).name} · ${duration(c.duration_ms)}`,
+            ),
+            bar,
+          );
+        });
+      });
+    }),
+  );
   const question = field(
     p,
     "你想問什麼？",
@@ -956,7 +1152,7 @@ function chatPage(parent) {
   question.maxLength = 1000;
   const consent = check(
     p,
-    "我同意這次將上述範圍的活動卡與問題傳給這個模型，並承擔提供者費用。",
+    "我同意這次將活動卡、問題與本對話最近最多 6 輪（6,000 字）的內容傳給這個模型，並將問答保存在私人伺服器 30 天；API 費用由我承擔。",
   );
   add(
     p,
@@ -974,13 +1170,29 @@ function chatPage(parent) {
             : [day];
         const [from] = windowFor(dates[0]);
         const [, to] = windowFor(dates.at(-1));
-        const result = await api("/v1/ask", {
-          question: q,
-          from_ms: from,
-          to_ms: to,
-          provider_id: ai.provider_id,
-          consent: true,
-        });
+        const requestKey = JSON.stringify([
+          conversationId,
+          q,
+          day,
+          chatScope,
+          ai.provider_id,
+        ]);
+        if (pendingAsk?.key !== requestKey)
+          pendingAsk = {
+            key: requestKey,
+            body: {
+              conversation_id: conversationId,
+              request_id: crypto.randomUUID(),
+              question: q,
+              from_ms: from,
+              to_ms: to,
+              provider_id: ai.provider_id,
+              consent: true,
+            },
+          };
+        consent.checked = false;
+        const result = await api("/v1/ask", pendingAsk.body);
+        pendingAsk = null;
         chat.push(
           { role: "user", text: q },
           { role: "assistant", text: result.answer },
@@ -990,18 +1202,76 @@ function chatPage(parent) {
       },
       "primary",
     ),
-    btn("清除本頁對話", async () => {
+    btn("刪除此對話", async () => {
+      if (!confirm("永久刪除這個對話的所有問答？")) return;
+      await api(`/v1/conversations/${conversationId}`, null, "DELETE");
+      conversationId = crypto.randomUUID();
+      chatCursor = null;
+      pendingAsk = null;
       chat = [];
       await shell();
     }),
     el(
       "p",
-      "對話只留在目前頁面的記憶體，重新整理或登出即清除。每次提問獨立處理。",
+      "對話保留 30 天，可於網站與手機接續。更換模型設定後，請開啟新對話；舊對話不會轉送給新提供者。",
       "muted",
     ),
   );
 }
+async function replayDialog() {
+  const [from, to] = windowFor(day);
+  const images = (await api(`/v1/replay?from_ms=${from}&to_ms=${to}`)).images;
+  modal("短期畫面回放", (p) => {
+    add(
+      p,
+      el(
+        "p",
+        "只有在手機另外同意保存供回放的縮圖會顯示，最多 24 小時／256 張，最長邊 480 px。原本只供分析的原始畫面仍不可讀回。圖片可能含有私人資訊；預先排除並不等於 OCR 遮罩。",
+      ),
+    );
+    const stage = el("div"),
+      position = el("p");
+    add(p, position, stage);
+    let index = 0;
+    const render = () => {
+      stage.replaceChildren();
+      if (!images.length) {
+        position.textContent = "沒有已同意且仍在保存期限內的縮圖。";
+        return;
+      }
+      const item = images[index];
+      position.textContent = `${index + 1} / ${images.length} · ${time(item.at_ms)} · ${item.app}`;
+      const image = el("img");
+      image.src = `/v1/replay/${item.id}/image`;
+      image.alt = `${item.app} ${time(item.at_ms)} 的核准縮圖`;
+      image.style.maxWidth = "100%";
+      add(stage, image);
+    };
+    add(
+      p,
+      row(
+        btn("上一張", () => {
+          index = Math.max(0, index - 1);
+          render();
+        }),
+        btn("下一張", () => {
+          index = Math.min(images.length - 1, index + 1);
+          render();
+        }),
+        btn("刪除這張", async () => {
+          if (!images.length || !confirm("永久刪除這張回放縮圖？")) return;
+          await api(`/v1/replay/${images[index].id}`, null, "DELETE");
+          images.splice(index, 1);
+          index = Math.max(0, Math.min(index, images.length - 1));
+          render();
+        }),
+      ),
+    );
+    render();
+  });
+}
 async function flowPage(parent) {
+  flow = (await api("/v1/focus")).session;
   const p = el("section");
   add(parent, p);
   add(
@@ -1037,14 +1307,7 @@ async function flowPage(parent) {
         flow ? "儲存並結束" : "開始專注",
         async () => {
           if (flow) {
-            const end = Math.min(Date.now(), flow.at_ms + flow.minutes * 60000);
-            await saveRecord({
-              id: flow.id,
-              at_ms: flow.at_ms,
-              end_ms: end,
-              kind: "flow",
-              text: flow.text,
-            });
+            await api("/v1/focus/finish", { id: flow.id });
             flow = null;
             await shell();
           } else {
@@ -1055,18 +1318,20 @@ async function flowPage(parent) {
               !name.value.trim()
             )
               throw Error("請填寫主題與 1–180 分鐘");
-            flow = {
+            const session = {
               id: crypto.randomUUID(),
               at_ms: Date.now(),
               minutes: +minutes.value,
               text: name.value,
             };
+            flow = (await api("/v1/focus", session)).session;
             await shell();
           }
         },
         "primary",
       ),
       btn("放下這次計時", async () => {
+        if (flow) await api("/v1/focus", { id: flow.id }, "DELETE");
         flow = null;
         await shell();
       }),
@@ -1076,7 +1341,7 @@ async function flowPage(parent) {
     p,
     el(
       "p",
-      "離開分頁後計時不會中斷；重新整理或登出會捨棄尚未儲存的計時。這是 PocketLog 的私人專注功能；Dayflow 的 Flow 雲端服務未與本工具連接。",
+      "計時保存在私人伺服器，可在手機與網站接續；重新整理後可恢復。完成時才會儲存為專注紀錄。這是 PocketLog 的私人專注功能；Dayflow 的 Flow 雲端服務未與本工具連接。",
       "muted",
     ),
   );
@@ -1099,7 +1364,155 @@ async function flowPage(parent) {
       ),
     );
 }
-function agents(parent) {
+function agentImportDialog() {
+  modal("預覽原生 Agent 工作紀錄", (p) => {
+    add(
+      p,
+      el(
+        "p",
+        "只在瀏覽器解析你選取的檔案。顯示近 30 天最後 40 則文字，每則最多 1000 字；工具輸出、附件、環境與路徑中繼資料不會匯入。請逐則檢查並移除金鑰、個資與不想保存的內容，只有勾選的文字會送到私人伺服器，不會送到 AI。",
+      ),
+    );
+    const source = select(
+      p,
+      "來源",
+      [
+        ["codex", "Codex response_item JSONL"],
+        ["claude", "Claude user/assistant JSONL"],
+      ],
+      "codex",
+    );
+    const file = field(p, "選取 JSONL（最多 512 KiB／2000 行）", "", "file");
+    file.accept = ".jsonl,application/json,text/plain";
+    const project = field(p, "專案／工作線名稱（不要填私人完整路徑）", ""),
+      title = field(p, "工作標題", "");
+    project.maxLength = 80;
+    title.maxLength = 200;
+    const preview = el("div");
+    add(p, preview);
+    let choices = [];
+    add(
+      p,
+      btn("在此裝置預覽", async () => {
+        const f = file.files[0];
+        if (!f || f.size > 524288) throw Error("請選擇 512 KiB 內的 JSONL");
+        const turns = parseAgentJsonl(await f.text(), source.value);
+        preview.replaceChildren();
+        choices = [];
+        if (!turns.length) add(preview, el("p", "沒有近 30 天可匯入的文字。"));
+        turns.forEach((t) => {
+          const block = el("article", null, "card");
+          add(preview, block);
+          const selected = check(
+            block,
+            `${t.role} · ${new Date(t.at_ms).toLocaleString()}`,
+          );
+          const text = field(block, "核准後保存的文字", t.text, "textarea");
+          text.maxLength = 1000;
+          choices.push({ t, selected, text, source: source.value });
+        });
+      }),
+      btn(
+        "只匯入勾選的文字",
+        async () => {
+          const selected = choices.filter((c) => c.selected.checked);
+          if (!selected.length) throw Error("請先預覽並勾選要保存的文字");
+          if (selected.some((c) => c.source !== source.value))
+            throw Error("來源已改變，請重新預覽");
+          if (!project.value.trim() || !title.value.trim())
+            throw Error("請填寫專案與標題");
+          const turns = selected.map((c) => ({
+            ...c.t,
+            text: c.text.value.trim(),
+          }));
+          const body = {
+            id: crypto.randomUUID(),
+            revision: 0,
+            at_ms: turns.at(-1).at_ms,
+            source: source.value,
+            project: project.value.trim(),
+            title: title.value.trim(),
+            status: "completed",
+            turns,
+          };
+          if (new TextEncoder().encode(JSON.stringify(body)).length > 64000)
+            throw Error("選取內容超過 64 KB，請減少文字");
+          await api("/v1/agent-sessions", body, "PUT");
+          close();
+          await shell();
+        },
+        "primary",
+      ),
+    );
+  });
+}
+async function agentReplay(id) {
+  const session = await api(`/v1/agent-sessions/${id}`);
+  modal(session.title, (p) => {
+    add(
+      p,
+      el(
+        "p",
+        `${session.project} · ${session.source} · 這些是你核准的文字紀錄；不會執行其中的工具或連結。`,
+      ),
+    );
+    const status = select(
+      p,
+      "工作狀態",
+      [
+        ["active", "進行中"],
+        ["waiting", "待接續"],
+        ["completed", "已完成"],
+      ],
+      session.status,
+    );
+    add(
+      p,
+      btn("儲存狀態", async () => {
+        await api(
+          "/v1/agent-sessions",
+          { ...session, status: status.value },
+          "PUT",
+        );
+        close();
+        await shell();
+      }),
+    );
+    let index = 0;
+    const stage = el("div", null, "card"),
+      position = el("p");
+    add(p, position, stage);
+    const render = () => {
+      const t = session.turns[index];
+      position.textContent = `${index + 1} / ${session.turns.length} · ${t.role} · ${new Date(t.at_ms).toLocaleString()}`;
+      stage.replaceChildren(el("p", t.text, "message"));
+    };
+    add(
+      p,
+      row(
+        btn("上一則", () => {
+          index = Math.max(0, index - 1);
+          render();
+        }),
+        btn("下一則", () => {
+          index = Math.min(session.turns.length - 1, index + 1);
+          render();
+        }),
+      ),
+    );
+    render();
+    add(
+      p,
+      btn("刪除整個工作紀錄", async () => {
+        if (!confirm("永久刪除這個工作紀錄與核准的對話？")) return;
+        await api(`/v1/agent-sessions/${id}`, null, "DELETE");
+        close();
+        await shell();
+      }),
+    );
+  });
+}
+async function agents(parent) {
   const p = el("section");
   add(parent, p);
   add(
@@ -1110,6 +1523,38 @@ function agents(parent) {
       "官方 Dayflow 的 Agents 會讀取桌面的 Codex／Claude 工作紀錄。PocketLog 目前提供明確選取 JSON 匯入與手動摘要，讓你決定哪些工作內容進入私人日誌；不會掃描電腦或取得工具執行權限。",
     ),
   );
+  add(p, btn("選取 Codex／Claude 原生 JSONL 並預覽", agentImportDialog));
+  const sessions = (await api("/v1/agent-sessions")).sessions;
+  const projects = [...new Set(sessions.map((s) => s.project))];
+  const project = select(
+    p,
+    "工作線／專案",
+    [["", "全部專案"], ...projects.map((s) => [s, s])],
+    "",
+  );
+  const sessionList = el("div");
+  add(p, sessionList);
+  function renderSessions() {
+    sessionList.replaceChildren();
+    sessions
+      .filter((s) => !project.value || s.project === project.value)
+      .forEach((s) =>
+        add(
+          sessionList,
+          add(
+            el("article", null, "card"),
+            el("h3", s.title),
+            el(
+              "p",
+              `${s.project} · ${s.source} · ${{ active: "進行中", waiting: "待接續", completed: "已完成" }[s.status]} · ${s.turn_count} 則`,
+            ),
+            btn("回放已核准的對話", () => agentReplay(s.id)),
+          ),
+        ),
+      );
+  }
+  project.onchange = renderSessions;
+  renderSessions();
   const file = field(p, "匯入 PocketLog Agents JSON", "", "file");
   file.accept = "application/json,.json";
   add(
@@ -1208,13 +1653,94 @@ function agents(parent) {
     ),
   );
 }
-function settings(parent) {
+async function devicesDialog() {
+  const data = await api("/v1/devices");
+  modal("裝置連線與撤銷", (p) => {
+    add(
+      p,
+      el(
+        "p",
+        "為每台手機建立獨立金鑰，最多 32 個，有效 1–90 天。日誌權限可操作私人日誌與 AI 設定，但不能管理裝置或登入 owner 網站；收集權限只可上傳活動／情境及讀取暫停與模型資訊。撤銷後的新請求立即失效，已開始的請求無法撤回；離線手機待同步後才會知道。",
+      ),
+    );
+    data.devices.forEach((d) =>
+      add(
+        p,
+        add(
+          el("article", null, "card"),
+          el("h3", d.label),
+          el(
+            "p",
+            `${d.scope} · 到期 ${new Date(d.expires_ms).toLocaleString()}`,
+          ),
+          btn("撤銷此裝置", async () => {
+            if (!confirm(`撤銷 ${d.label} 的連線？已存入的日誌仍保留。`))
+              return;
+            await api(`/v1/devices/${d.id}`, null, "DELETE");
+            close();
+            await devicesDialog();
+          }),
+        ),
+      ),
+    );
+    const label = field(p, "裝置名稱", ""),
+      scope = select(
+        p,
+        "權限",
+        [
+          ["journal", "日誌（手機 app）"],
+          ["collector", "僅收集（上傳工具）"],
+        ],
+        "journal",
+      ),
+      days = field(p, "有效天數（1–90）", 30, "number");
+    label.maxLength = 80;
+    days.min = "1";
+    days.max = "90";
+    add(
+      p,
+      btn(
+        "建立獨立裝置金鑰",
+        async () => {
+          const result = await api("/v1/devices", {
+            label: label.value.trim(),
+            scope: scope.value,
+            days: +days.value,
+          });
+          close();
+          modal("金鑰僅顯示這一次", (body) => {
+            add(
+              body,
+              el(
+                "p",
+                "在手機連線設定填入私人伺服器網址與這個裝置金鑰。金鑰具有上述權限，請妥善保管；關閉後不能再次讀取，可撤銷並重建。",
+              ),
+            );
+            const secret = field(body, "裝置金鑰", result.token, "password");
+            secret.readOnly = true;
+            add(
+              body,
+              btn("複製金鑰", async () => {
+                await navigator.clipboard.writeText(secret.value);
+                notice("已複製裝置金鑰；請妥善保管剪貼簿內容");
+              }),
+              btn("關閉", () => close()),
+            );
+          });
+        },
+        "primary",
+      ),
+    );
+  });
+}
+async function settings(parent) {
   const p = el("section");
   add(parent, p);
   add(
     p,
     el("h2", "讓 PocketLog 適合你的節奏。"),
     row(
+      btn("裝置金鑰與撤銷", devicesDialog),
       btn("每日目標", goalsDialog),
       btn("分類與專注角色", categoriesDialog),
       btn("Bring your own AI", () =>
@@ -1225,6 +1751,31 @@ function settings(parent) {
       ),
       btn("重新閱讀 onboarding", () => onboard(0)),
     ),
+  );
+  const control = await api("/v1/collection");
+  add(
+    p,
+    el("h3", control.paused ? "伺服器活動收集已暫停" : "伺服器接受活動收集"),
+    el(
+      "p",
+      "暫停會立即拒絕新的活動／情境並刪除待分析原始資料。手機在既有同步時段取得狀態後停止擷取、清除待傳活動；離線手機無法立即收到遠端暫停。恢復不會開啟手機權限或取代同意。",
+    ),
+    btn(control.paused ? "恢復伺服器收集" : "暫停所有裝置收集", async () => {
+      if (
+        !confirm(
+          control.paused
+            ? "恢復接收仍有本機同意的手機紀錄？"
+            : "暫停所有裝置的活動收集並刪除待分析情境？",
+        )
+      )
+        return;
+      await api(
+        "/v1/collection",
+        { ...control, paused: !control.paused },
+        "PUT",
+      );
+      await shell();
+    }),
   );
   const privacy = el("section");
   add(parent, privacy);
@@ -1237,7 +1788,7 @@ function settings(parent) {
     ),
     el(
       "p",
-      "畫面安全防護採保守排除；尚未提供 Dayflow 式 OCR 自動遮罩。請勿把它視為可放心擷取密碼、銀行或敏感 app 的保證。",
+      "手機隱私防護在截圖前排除疑似金鑰、密碼值與長數字的可見文字視窗（預設開啟）；仍未提供 Dayflow 式 OCR 像素遮罩。請勿把它視為可放心擷取密碼、銀行或敏感 app 的保證。",
     ),
     btn("查看服務狀態", async () =>
       modal("服務狀態", async (body) => {
@@ -1307,11 +1858,14 @@ function categoriesDialog() {
       p,
       el(
         "p",
-        "這些名稱、顏色與角色會在手機和網站共用。固定分類 ID 可保留既有紀錄與模型的相容性。",
+        "這些名稱、顏色與角色會在手機和網站共用。可新增分類與自動規則；已被活動使用的分類需先重新分類才能移除。",
       ),
     );
     const draft = structuredClone(prefs);
-    draft.categories.forEach((c) => {
+    draft.rules ||= [];
+    const categoryList = el("div");
+    add(p, categoryList);
+    function renderCategory(c) {
       const r = el("div", null, "category-row"),
         color = el("input");
       color.type = "color";
@@ -1336,8 +1890,105 @@ function categoriesDialog() {
       color.oninput = () => (c.color = color.value);
       name.oninput = () => (c.name = name.value);
       role.onchange = () => (c.role = role.value);
-      add(p, add(r, color, name, role));
-    });
+      const wrapper = el("div");
+      add(wrapper, r);
+      add(categoryList, wrapper);
+      add(r, color, name, role);
+      if (c.id.startsWith("custom_"))
+        add(
+          wrapper,
+          btn("移除此分類", () => {
+            draft.categories = draft.categories.filter((x) => x.id !== c.id);
+            draft.rules = draft.rules.filter((x) => x.category !== c.id);
+            wrapper.remove();
+            renderRules();
+          }),
+        );
+    }
+    draft.categories.forEach(renderCategory);
+    add(
+      p,
+      btn("新增分類", () => {
+        if (draft.categories.length >= 40) throw Error("最多 40 個分類");
+        const c = {
+          id: "custom_" + crypto.randomUUID().replaceAll("-", ""),
+          name: "新分類",
+          color: "#9bbce1",
+          role: "neutral",
+        };
+        draft.categories.push(c);
+        renderCategory(c);
+        renderRules();
+      }),
+    );
+    add(
+      p,
+      el("h3", "自動分類規則"),
+      el(
+        "p",
+        "由上到下採第一個符合的規則。指定 app 與標題關鍵字時必須同時符合；你的手動修改永遠優先。",
+      ),
+    );
+    const ruleList = el("div");
+    add(p, ruleList);
+    function renderRules() {
+      ruleList.replaceChildren();
+      draft.rules.forEach((r, i) => {
+        const block = el("div", null, "card");
+        add(ruleList, block);
+        const enabled = check(block, `規則 ${i + 1}：啟用`, r.enabled);
+        enabled.onchange = () => (r.enabled = enabled.checked);
+        const app = field(block, "完整 app 套件名稱（留白不限）", r.app || "");
+        app.oninput = () => (r.app = app.value.trim() || null);
+        const title = field(
+          block,
+          "標題包含（留白不限，忽略大小寫）",
+          r.title_contains || "",
+        );
+        title.maxLength = 80;
+        title.oninput = () => (r.title_contains = title.value.trim() || null);
+        const category = select(
+          block,
+          "套用分類",
+          draft.categories.map((c) => [c.id, c.name]),
+          r.category,
+        );
+        category.onchange = () => (r.category = category.value);
+        add(
+          block,
+          row(
+            btn("上移", () => {
+              if (i) {
+                [draft.rules[i - 1], draft.rules[i]] = [
+                  draft.rules[i],
+                  draft.rules[i - 1],
+                ];
+                renderRules();
+              }
+            }),
+            btn("刪除規則", () => {
+              draft.rules.splice(i, 1);
+              renderRules();
+            }),
+          ),
+        );
+      });
+    }
+    renderRules();
+    add(
+      p,
+      btn("新增規則", () => {
+        if (draft.rules.length >= 32) throw Error("最多 32 條規則");
+        draft.rules.push({
+          id: crypto.randomUUID(),
+          category: draft.categories[0].id,
+          app: null,
+          title_contains: null,
+          enabled: true,
+        });
+        renderRules();
+      }),
+    );
     add(
       p,
       btn(
@@ -1358,33 +2009,42 @@ function providerDialog(done) {
       p,
       el(
         "p",
-        "使用 OpenAI 相容的 chat completions 端點。API key 以 HTTPS 送到你的私人伺服器，存於獨立 0600 設定檔，不會回傳給瀏覽器。伺服器管理者仍可讀取。",
+        "支援 OpenAI 相容、Anthropic Messages 與 Gemini generateContent 原生 API。API key 以 HTTPS 送到你的私人伺服器，存於獨立 0600 設定檔，不會回傳給瀏覽器。伺服器管理者仍可讀取。",
       ),
+    );
+    const protocol = select(
+      p,
+      "API 協定",
+      [
+        ["openai", "OpenAI 相容"],
+        ["anthropic", "Anthropic Messages"],
+        ["gemini", "Gemini generateContent"],
+      ],
+      ai.protocol || "openai",
     );
     const endpoint = field(
       p,
-      "完整 chat completions HTTPS URL",
+      "完整模型 API HTTPS URL",
       ai.endpoint || "https://api.openai.com/v1/chat/completions",
     );
     add(
       p,
       row(
-        btn(
-          "OpenAI",
-          () => (endpoint.value = "https://api.openai.com/v1/chat/completions"),
-        ),
-        btn(
-          "OpenRouter",
-          () =>
-            (endpoint.value = "https://openrouter.ai/api/v1/chat/completions"),
-        ),
+        btn("OpenAI", () => {
+          protocol.value = "openai";
+          endpoint.value = "https://api.openai.com/v1/chat/completions";
+        }),
+        btn("OpenRouter", () => {
+          protocol.value = "openai";
+          endpoint.value = "https://openrouter.ai/api/v1/chat/completions";
+        }),
       ),
     );
     const model = field(p, "模型 ID", ai.model || ""),
       key = field(
         p,
         ai.has_key
-          ? "API key（同端點留白保留；換端點不沿用）"
+          ? "API key（同端點及協定留白保留；變更則不沿用）"
           : "API key（本機模型可留白）",
         "",
         "password",
@@ -1419,6 +2079,7 @@ function providerDialog(done) {
           "儲存設定",
           async () => {
             const body = {
+              protocol: protocol.value,
               endpoint: endpoint.value.trim(),
               model: model.value.trim(),
               image_support: images.checked,
@@ -1517,7 +2178,9 @@ function exportData(days) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-$("#modal").addEventListener("close", () => $("#modal-body").replaceChildren());
+$("#modal").addEventListener("close", () => {
+  if (!$("#modal").open) $("#modal-body").replaceChildren();
+});
 boot().catch((error) => {
   if (error.message !== "請重新登入私人日誌")
     notice(error.message || "無法載入，請重新整理");

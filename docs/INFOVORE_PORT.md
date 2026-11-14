@@ -42,9 +42,10 @@ leave an incomplete session; a gap over 24 hours resets the cursor.
 Health Connect, infovore article browsing, desktop Dayflow views, public publishing
 and bulk historic migration are not phone-journal implementations in PocketLog.
 An owner-approved infovore publishing connector is still a separately scoped
-feature; this port does not grant infovore journal access. Device pairing/revocation,
-encrypted backup/import and automatic reminders remain roadmap work, not shipped
-claims.
+feature; this port does not grant infovore journal access. Expiring/revocable device
+keys are now implemented; physical pairing acceptance, encrypted backup/import and
+automatic reminders still require work. See the newer [Dayflow matrix](DAYFLOW_PARITY.md)
+for shared timelines, provider protocols, Chat, brief schedules and approved session replay.
 
 ## Validation and remaining real-device work
 

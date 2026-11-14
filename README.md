@@ -20,8 +20,9 @@
 > **Early development.** The timeline reader, mood check-ins, and self-hosted API
 > now include opt-in app/context capture, encrypted offline sync, editable activity
 > cards, daily reflection, shared onboarding, a private responsive website and BYO AI.
-> Daily/weekly review, single-turn Chat, private focus records and explicit Agents
-> summary imports are available; full Dayflow parity is not shipped. Real-device capture and
+> Daily/weekly saved AI briefs and opt-in schedules, durable Chat, shared focus timers,
+> native agent JSONL preview/replay, custom categories/rules and revocable device keys
+> are available; full desktop Dayflow parity is not shipped. Real-device capture and
 > full-day battery validation are still required. There is no stable release yet.
 
 ## Your Day, in Context
@@ -52,11 +53,13 @@ Feelings are self-reported; screen time alone cannot tell us how you feel.
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; quotas, retention and deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
 | Text and optional image context | Separate opt-ins, explicit app allowlist, event-driven capture, secure-window gate |
-| Activity cards and summaries | App-only/excerpt fallback; editable categories; app-configured OpenAI-compatible BYO model with provider-bound consent |
+| Activity cards and summaries | App-only/excerpt fallback; editable categories; app-configured OpenAI-compatible, Anthropic or Gemini BYO model with provider-bound consent |
 | Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
-| Chat, Flow, Agents | Explicit day/week AI questions, private focus records and chosen Codex/Claude summary import; see parity boundaries below |
+| Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |
 | Export | Private JSON + timeline clipboard; Android document picker |
-| Device pairing, import and infovore publishing | Planned; no shared database or automatic publishing |
+| Device credentials | Owner-issued journal/collector keys, expiry and individual revocation; phone Keystore storage |
+| Short-term image replay | Independent opt-in; worker-sanitized 480 px thumbnails, 24 hours / 256 images |
+| infovore publishing | Not enabled; PocketLog operates independently |
 
 See the [infovore port coverage](docs/INFOVORE_PORT.md), [analysis setup](docs/ANALYSIS.md),
 [Dayflow feature matrix](docs/DAYFLOW_PARITY.md), [UI guidelines](docs/UI_GUIDELINES.md),
@@ -67,12 +70,13 @@ and [roadmap](docs/ROADMAP.md) for exact boundaries and remaining work.
 PocketLog separates a lightweight Android client from a server you control.
 Heavier analysis runs in a separate server worker. No external AI provider is
 configured by default; model processing requires independent per-capture consent
-and explicit provider setup. No native Gemini/Anthropic protocol or CLI model is
-implemented; use an OpenAI-compatible endpoint. There are no analytics or public journal endpoints.
+and explicit provider setup. Native Anthropic Messages and Gemini generateContent
+are supported alongside OpenAI-compatible endpoints. No CLI process is executed. There are no analytics or public journal endpoints.
 
 Credentials are protected by Android Keystore. The API authenticates journal
 requests and limits input size, storage, and retention. The current server is
-single-owner and uses one owner token; device-specific access is planned.
+single-owner. Keep the owner token for recovery/browser login, and issue separate
+expiring journal/collector keys for devices; keys can be individually revoked.
 
 SQLite is not encrypted by the application: use encrypted host storage and
 backups. A server that analyzes your activity can read it. This is not end-to-end

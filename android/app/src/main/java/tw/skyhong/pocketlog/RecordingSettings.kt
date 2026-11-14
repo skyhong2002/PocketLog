@@ -11,8 +11,12 @@ class RecordingSettings(private val context: Context) {
     // Fail closed if a consent change cannot be persisted. Caller holds SyncEngine.lock.
     private fun update(editor: SharedPreferences.Editor) { check(editor.putLong("revision", revision + 1).commit()) }
     var enabled: Boolean
-        get() = prefs.getBoolean("enabled", false)
+        get() = prefs.getBoolean("enabled", false) && !remotePaused
         set(value) = update(prefs.edit().putBoolean("enabled", value))
+    // Remote resume only releases this gate; it never changes local consent bits.
+    var remotePaused: Boolean
+        get() = prefs.getBoolean("remote_paused", false)
+        set(value) { if (value != remotePaused) update(prefs.edit().putBoolean("remote_paused", value)) }
     var contextEnabled: Boolean
         get() = enabled && prefs.getBoolean("context", false)
         set(value) = update(prefs.edit().putBoolean("context", value))
@@ -22,6 +26,12 @@ class RecordingSettings(private val context: Context) {
     var imagesEnabled: Boolean
         get() = contextEnabled && prefs.getBoolean("images", false)
         set(value) = update(prefs.edit().putBoolean("images", value))
+    var privacyShield: Boolean
+        get() = prefs.getBoolean("privacy_shield", true)
+        set(value) = update(prefs.edit().putBoolean("privacy_shield", value))
+    var replayConsent: Boolean
+        get() = imagesEnabled && prefs.getBoolean("replay", false)
+        set(value) = update(prefs.edit().putBoolean("replay", value))
     var externalAiConsent: Boolean
         get() = analysisConsent && prefs.getBoolean("external_ai", false)
         set(value) = update(prefs.edit().putBoolean("external_ai", value))
