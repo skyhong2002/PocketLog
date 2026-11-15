@@ -69,6 +69,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 result.putString("stream", "Synthetic replay secure dialog, dismissal/recreation and undelivered-bitmap disposal passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
+            if ("yes".equals(args.getString("ruleAppPicker"))) {
+                new RuleAppPickerChecks(this,args).run();
+                result.putString("stream", "Synthetic secure single rule app picker search/select/cancel/manual/draft/stale checks passed; settings and consent unchanged.\n");
+                finish(Activity.RESULT_OK,result); return;
+            }
             if ("yes".equals(args.getString("appPicker"))) {
                 new AppPickerChecks(this,args).run();
                 result.putString("stream", "Synthetic secure native app picker search/select/cancel checks passed; settings and consent unchanged.\n");
@@ -121,7 +126,7 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }

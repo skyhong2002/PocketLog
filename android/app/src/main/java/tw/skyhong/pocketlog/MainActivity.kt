@@ -1991,6 +1991,7 @@ class MainActivity : Activity() {
             val enabled = ui.checkbox(card, "規則 ${i + 1} 啟用", r.optBoolean("enabled", true))
             val app = ui.field(card, "完整 app 套件名稱", "留白不限", Field.TEXT, r.optString("app").takeUnless { it == "null" } ?: "")
             continueAt(r.getString("id"), "app", app)
+            ui.button(card, "從已安裝 app 選擇", Tone.TONAL) { chooseRuleApp(app) }
             val keyword = ui.field(card, "標題包含", "留白不限", Field.TEXT, r.optString("title_contains").takeUnless { it == "null" } ?: "")
             val category = ui.spinner(card, "套用分類", (0 until styles.length()).map { styles.getJSONObject(it).getString("name") }, ids.indexOf(r.getString("category")).coerceAtLeast(0))
             capture.add { r.put("enabled", enabled.isChecked).put("app", app.text.toString().trim().ifBlank { null } ?: JSONObject.NULL).put("title_contains", keyword.text.toString().trim().ifBlank { null } ?: JSONObject.NULL).put("category", ids[category.selectedItemPosition]) }
@@ -2018,6 +2019,32 @@ class MainActivity : Activity() {
             if (index == 0) { sharedSettings(); return@actions }
             remember()
             saveClassification(draft, baseline)
+        }
+    }
+
+    private fun chooseRuleApp(field: EditText) {
+        val token = generation
+        fun current() = token == generation && field.isAttachedToWindow && !isDestroyed && !isFinishing
+        task("讀取已安裝 app…", {
+            packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), android.content.pm.PackageManager.ResolveInfoFlags.of(0))
+                .take(AppPicker.MAX_APPS).map { AppPicker.App(it.activityInfo.packageName, RecordingRules.cap(it.loadLabel(packageManager).toString(), 80)) }
+                .distinctBy { it.packageName }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        }) { apps ->
+            if (!current()) return@task
+            RuleAppPicker.show(this@MainActivity, apps) { chosen ->
+                if (current()) {
+                    field.setText(chosen)
+                    field.error = null
+                    field.setSelection(field.text.length)
+                }
+            }.setOnDismissListener {
+                field.post {
+                    if (current()) {
+                        field.requestFocus()
+                        field.requestRectangleOnScreen(android.graphics.Rect(0, 0, field.width, field.height), true)
+                    }
+                }
+            }
         }
     }
 

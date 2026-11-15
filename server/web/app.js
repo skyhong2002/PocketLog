@@ -3899,6 +3899,59 @@ function categoriesDialog() {
         enabled.onchange = () => (r.enabled = enabled.checked);
         const app = field(block, "完整 app 套件名稱（留白不限）", r.app || "");
         app.oninput = () => (r.app = app.value.trim() || null);
+        const choices = el("div");
+        choices.hidden = true;
+        choices.id = "rule-apps-" + crypto.randomUUID();
+        const pick = btn("從最近活動選擇 app", async () => {
+          const seq = renderSeq;
+          const current = () => seq === renderSeq && block.isConnected && $("#modal").open;
+          if (choices.childElementCount && !choices.dataset.failed) {
+            choices.hidden = !choices.hidden;
+            pick.setAttribute("aria-expanded", String(!choices.hidden));
+            return;
+          }
+          choices.hidden = false;
+          pick.setAttribute("aria-expanded", "true");
+          const state = el("p", "正在讀取最近活動中的 app…", "muted");
+          state.setAttribute("role", "status");
+          choices.replaceChildren(state);
+          const to = Date.now(), from = to - 29 * 86400000;
+          try {
+            const overview = await api(`/v1/overview?from_ms=${from}&to_ms=${to}`, null, undefined, current);
+            if (!current()) return;
+            delete choices.dataset.failed;
+            choices.replaceChildren();
+            add(choices, el("p", "只列出私人日誌近 29 天活動時間最多的 20 個 app 套件，不是手機安裝清單；未列出的 app 仍可手動輸入。選擇後只填入這條尚未儲存的規則。", "hint"));
+            if (!overview.apps.length) {
+              add(choices, el("p", "目前沒有已記錄的 app。你可以手動輸入，或收到手機活動後重新開啟這個表單。", "muted"));
+              return;
+            }
+            const choose = select(choices, "選擇已記錄的 app", [["", "請選擇（不會清除手動輸入）"], ...overview.apps.slice(0, 20).map(a => [a.app, a.app])], "");
+            const filled = el("p", "", "muted");
+            filled.setAttribute("role", "status");
+            add(choices, filled);
+            choose.onchange = () => {
+              if (!choose.value || !current()) return;
+              app.value = choose.value;
+              app.dispatchEvent(new Event("input", { bubbles: true }));
+              filled.textContent = "已填入這條規則；按表單的儲存才會套用。";
+            };
+            // A slow read must not interrupt typing in another draft field.
+            if (document.activeElement === pick || document.activeElement === document.body) {
+              choose.focus();
+              choose.scrollIntoView({ block: "nearest" });
+            }
+          } catch (error) {
+            if (!current()) return;
+            choices.dataset.failed = "true";
+            state.textContent = error.status === 404
+              ? "伺服器暫時無法提供最近 app；請更新伺服器或手動輸入。再按選擇按鈕可重試。"
+              : "暫時讀不到最近 app；手動輸入與草稿仍保留。再按選擇按鈕可重試。";
+          }
+        });
+        pick.setAttribute("aria-controls", choices.id);
+        pick.setAttribute("aria-expanded", "false");
+        add(block, pick, choices);
         const title = field(
           block,
           "標題包含（留白不限，忽略大小寫）",

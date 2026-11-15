@@ -1853,3 +1853,37 @@ This is an update indication, not streaming or proof of phone capture success.
 
 - [Desktop update action](screenshots/web-timeline-update-desktop.png)
 - [390px update action, user-selected grid](screenshots/web-timeline-update-phone.png)
+
+
+## Classification app selection (#74 / #75)
+
+Native rules now offer a local single-app chooser with label/package search,
+bounded to 2,000 visible launcher entries. It changes only the selected unsaved
+rule field. Normal and 2× text on Android 34 passed actual IME checks with visible
+results and Cancel; search by name/package, no match, empty list, unknown manual
+entry, category/keyword/second-rule draft retention and stale-page query rejection
+passed. Every View capture asserts FLAG_SECURE; these are secure Canvas snapshots,
+not compositor/physical-device/TalkBack evidence. No capture permission, installed
+list upload, provider request or workspace write occurs.
+
+Web rules use the existing authenticated 29-day overview only after an explicit
+action and show at most the top 20 recorded packages. The copy distinguishes
+recorded apps from installed apps. Built-image Chromium at 1280×800 and 390×844
+passed the opt-in loopback `scripts/check-web-rule-app-picker.js`: bounded reads,
+selection/placeholder/manual draft, category draft, collapse/reopen without a new
+read, 503 and 404 retry, empty response, typing while a read completes, detached
+dialog completion and zero workspace writes. A slow response cannot steal focus
+from a different field. Initial script selector matched the category selector; it
+was corrected to target the app chooser and both sizes re-run successfully.
+Actual fixture read includes a long package; desktop dialog/document do not overflow.
+
+Dayflow's supplied private screenshot retains the category-strip/editor hierarchy;
+`DayCategorySelectionEditor.swift` separates the chooser and helper text. This
+package chooser is a PocketLog authoring improvement, not a claim that Dayflow
+implements the same Android rules. Existing AND/first-match/manual-override/save
+semantics remain in place. The four synthetic captures below were inspected.
+
+![Web phone rule chooser](screenshots/web-rule-app-picker-phone.png)
+![Web desktop rule chooser](screenshots/web-rule-app-picker-desktop.png)
+![Native large-font chooser with IME](screenshots/native-rule-app-picker-large.png)
+![Native selected rule and retained draft](screenshots/native-rule-app-picker-filled.png)
