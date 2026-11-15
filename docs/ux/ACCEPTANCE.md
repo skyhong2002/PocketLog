@@ -1120,3 +1120,21 @@ pre-existing category-row/modal overflow, tracked separately in #51; do not trea
 this as a pass for browser zoom, screen readers, or full Dayflow parity.
 
 - [390px classification recovery](screenshots/web-classification-conflict-mobile.png)
+
+## Scaled classification editor and dialogs (#51)
+
+Final embedded Docker image, synthetic browser fixture. At390×844, normal and
+CSSzoom2, category roles stay inside the modal and can receive focus fully inside
+the viewport. Category controls stack the role below colour/name at narrow widths;
+the modal height uses its containing viewport percentage rather than an unscaled
+vh limit. All modal edges remain visible and internal horizontal overflow is zero.
+Actual goals-conflict recovery at2× retains its retry action; focusing it scrolls
+it fully into view. Goals, provider and confirmation dialogs also pass bounds and
+horizontal-overflow checks. At1280×800 normal/2×, classification dialog bounds pass
+and normal desktop rows retain three columns. Synthetic workspace restored; no
+provider test or inference was called. Screenshots below were inspected. CSS zoom
+is not native browser zoom or a screen-reader test. Node regressions and final
+Docker private smoke pass; unchanged Rust/native checks are recorded in #50 above.
+
+- [Scaled category role](screenshots/web-classification-scaled-role.png)
+- [Scaled conflict retry](screenshots/web-classification-scaled-recovery.png)

@@ -1280,7 +1280,7 @@ dialog {
   border: 1px solid var(--line);
   border-radius: 16px;
   width: min(620px, calc(100vw - 24px));
-  max-height: calc(100vh - 32px);
+  max-height: calc(100% - 32px);
   padding: 24px;
   overflow-y: auto;
 }
@@ -1556,6 +1556,18 @@ summary:focus-visible,
   }
 }
 @media (max-width: 440px) {
+  .category-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .category-row input {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .category-row select {
+    grid-column: 1 / -1;
+    min-width: 0;
+    max-width: 100%;
+  }
   .chart-row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px 10px;
