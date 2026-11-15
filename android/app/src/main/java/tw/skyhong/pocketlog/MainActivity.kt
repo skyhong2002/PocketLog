@@ -1833,12 +1833,13 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- shared goals, categories and rules
 
-    private fun sharedSettings() {
+    private fun sharedSettings(retainedDraft: JSONObject? = null, retainedBaseline: JSONObject? = null) {
         val body = screen("目標與分類", "網站與手機共用", tab = Tab.SETTINGS, back = { settings() })
         val slot = ui.column(body)
-        load(slot, "讀取共用設定…", { api().request("/v1/workspace") }) { response ->
+        val render: (JSONObject) -> Unit = { response ->
             var current = response
-            workspace = current
+            var baseline = JSONObject((retainedBaseline ?: response).toString())
+            if (retainedDraft == null) workspace = current
             val card = ui.card(slot)
             ui.heading(card, "每日目標")
             val focus = ui.field(card, "每日專注目標（分鐘）", "270", Field.NUMBER, current.getInt("focus_minutes").toString())
@@ -1847,7 +1848,7 @@ class MainActivity : Activity() {
                 val a = focus.text.toString().toIntOrNull(); val b = budget.text.toString().toIntOrNull()
                 if (a == null || b == null || a !in 0..1440 || b !in 0..1440) { notice("分鐘必須介於 0–1440", Kind.WARN); return@button }
                 val next = JSONObject(current.toString()).put("focus_minutes", a).put("distraction_minutes", b)
-                task("儲存共用設定…", { api().request("/v1/workspace", next, "PUT") }) { workspace = it; current = it; notice("網站與手機的共用目標已更新") }
+                saveGoals(next, baseline) { workspace = it; current = it; baseline = JSONObject(it.toString()); notice("網站與手機的共用目標已更新") }
             }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
             val styles = current.getJSONArray("categories")
             ui.card(slot).apply {
@@ -1861,6 +1862,43 @@ class MainActivity : Activity() {
                 }
                 ui.button(this, "編輯分類與自動規則", Tone.TONAL) { categoryRulesEditor(JSONObject(current.toString())) }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
             }
+        }
+        if (retainedDraft != null) render(retainedDraft)
+        else load(slot, "讀取共用設定…", { api().request("/v1/workspace") }, render)
+    }
+
+    private fun saveGoals(draft: JSONObject, baseline: JSONObject, saved: (JSONObject) -> Unit = {
+        workspace = it; sharedSettings(); notice("網站與手機的共用目標已更新")
+    }) {
+        val payload = JSONObject(draft.toString())
+        task("儲存共用設定…", { api().request("/v1/workspace", payload, "PUT") }, failed = { error ->
+            if (error is ApiFailure && error.status == 409) goalRecovery(draft, baseline)
+        }, done = saved)
+    }
+
+    private fun goalRecovery(draft: JSONObject, baseline: JSONObject) {
+        val body = screen("目標草稿已保留", "尚未重試儲存", tab = Tab.SETTINGS, back = { sharedSettings(draft, baseline) })
+        ui.banner(body, "專注目標與分心預算仍保留在手機的這個編輯流程中。核對最新設定後再決定；不用放棄草稿或重新登入。離開這個流程或關閉 app 前，請先完成儲存。")
+        ui.button(body, "返回編輯目標", Tone.OUTLINE) { sharedSettings(draft, baseline) }
+        val slot = ui.column(body)
+        load(slot, "核對最新設定…", { api().request("/v1/workspace") }) { latest ->
+            val card = ui.card(slot)
+            ui.body(card, "你的草稿：專注目標 ${draft.getInt("focus_minutes")} 分鐘、分心預算 ${draft.getInt("distraction_minutes")} 分鐘。")
+            if (!GoalRecovery.goalsChanged(baseline, latest)) {
+                ui.heading(card, "分類設定已更新，目標草稿仍在")
+                ui.body(card, "遠端目標未變。重試時保留剛讀取的最新分類、規則及其他設定，只儲存你的目標草稿。")
+                ui.button(card, "保留最新分類，重試儲存目標") { saveGoals(GoalRecovery.candidate(draft, latest), baseline) }
+            } else {
+                ui.heading(card, "遠端目標也已變更")
+                ui.body(card, "剛讀取的遠端目標：專注 ${latest.getInt("focus_minutes")} 分鐘、分心預算 ${latest.getInt("distraction_minutes")} 分鐘。你的草稿尚未覆蓋遠端版本。")
+                ui.button(card, "確認以我的草稿取代遠端目標", Tone.DANGER) {
+                    dialog().setTitle("取代剛讀取的遠端目標？")
+                        .setMessage("會以你的專注目標 ${draft.getInt("focus_minutes")} 分鐘、分心預算 ${draft.getInt("distraction_minutes")} 分鐘取代剛讀取的遠端目標。保留最新分類、規則及其他設定。如果遠端再更新，會重新核對。")
+                        .setNegativeButton("保留草稿", null)
+                        .setPositiveButton("取代目標") { _, _ -> saveGoals(GoalRecovery.candidate(draft, latest), baseline) }.showSecure()
+                }
+            }
+            ui.button(slot, "重新核對最新設定", Tone.OUTLINE) { goalRecovery(draft, baseline) }
         }
     }
 

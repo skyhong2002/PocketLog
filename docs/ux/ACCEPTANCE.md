@@ -1165,3 +1165,27 @@ at2c79e161 inform explicit category intent; multi-client recovery is PocketLog-s
 - [Retained draft and current goals](screenshots/native-classification-conflict.png)
 - [2× retry action](screenshots/native-classification-conflict-large.png)
 - [2× explicit replacement confirmation](screenshots/native-classification-replace-large.png)
+
+## Native retained goal drafts (#53)
+
+Old0.4.19 APK reproduced repeated goal409 after a second client renamed a category;
+entered minutes remain in the form but cannot recover without reloading. Sol6.1
+implementation reviewed and exercised against the synthetic HTTPS fixture at
+normal/2× system font: preserve entered focus/budget, return to edit and retry,
+retain remote classifications on successful goal save, remote-goal cancel/confirm,
+remote classification update during confirmation guarded by revision, and actual
+airplane/WiFi-off refresh failure followed by return/edit/reconnect/save. API
+readback and original workspace restoration pass after each run. Policy tests
+also cover remote rules/other fields, independent nested snapshots, either goal
+changing and valid request bounds. Drafts are scoped to the current editing flow.
+52unit tests, assembleDebug, instrumentation build and lint pass. Final full
+8-page HTTPS/offline regression plus goal-save→classification-save regression pass.
+Same-wave Rust58/fmt/clippy/audit1509/185 and web regressions pass; server unchanged.
+Private backup restore, prior-row preservation and production assets/auth checks pass.
+The actual supplied Dayflow target/category hierarchy and DayGoalPlan persistence
+at2c79e161 inform preserving separate edit intent. Captures below are inspected
+secure View/dialog renders, not compositor/physical-device/TalkBack evidence.
+
+- [Retained goals and explicit retry](screenshots/native-goal-conflict.png)
+- [2× goal retry](screenshots/native-goal-conflict-large.png)
+- [2× goal replacement confirmation](screenshots/native-goal-replace-large.png)

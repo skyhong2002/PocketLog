@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("goalsConflictOnly"))) { goalsConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("classificationConflictOnly"))) { classificationConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsThenCategoriesOnly"))) { goalsThenCategoriesCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("controlFailureOnly"))) { controlFailureCheck(fixtureOwner, endpoint); return; }
@@ -181,6 +182,53 @@ final class ConnectedUiChecks {
             // Keep only the successful synthetic key's metadata for the web evidence;
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
+        }
+    }
+    private void goalsConflictCheck(PocketLogApi owner) throws Exception {
+        stage="native goal draft conflict recovery";
+        JSONObject original=owner.request("/v1/workspace",null,"GET");
+        int focus=(original.getInt("focus_minutes")+37)%1441,budget=(original.getInt("distraction_minutes")+19)%1441;
+        String remoteName="合成：網站分類已更新";
+        try {
+            click("設定");await("目標與分類");click("目標與分類");await("儲存目標");awaitSettled();
+            setEditor("270",String.valueOf(focus));setEditor("60",String.valueOf(budget));
+            JSONObject r=owner.request("/v1/workspace",null,"GET");r.getJSONArray("categories").getJSONObject(0).put("name",remoteName);owner.request("/v1/workspace",r,"PUT");
+            revealAction("儲存目標");click("儲存目標");
+            if("yes".equals(args.getString("expectLegacy"))) {
+                await("資料已在其他裝置更新，請重新載入後再試。");awaitSettled();assertEditor("270",String.valueOf(focus));assertEditor("60",String.valueOf(budget));
+                click("儲存目標");await("資料已在其他裝置更新，請重新載入後再試。");awaitSettled();
+                if(has("保留最新分類，重試儲存目標"))throw new IllegalStateException("Legacy unexpectedly recovers goals");
+                r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")==focus||!remoteName.equals(r.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Legacy modified conflict");
+                revealEditor("270");capture("goals-legacy-conflict");return;
+            }
+            await("分類設定已更新，目標草稿仍在");awaitSettled();revealFullRow("保留最新分類，重試儲存目標");capture("goals-classification-conflict");
+            revealAction("返回編輯目標");click("返回編輯目標");await("儲存目標");awaitSettled();assertEditor("270",String.valueOf(focus));assertEditor("60",String.valueOf(budget));
+            revealAction("儲存目標");click("儲存目標");await("分類設定已更新，目標草稿仍在");awaitSettled();
+            revealAction("保留最新分類，重試儲存目標");click("保留最新分類，重試儲存目標");await("網站與手機的共用目標已更新");awaitSettled();
+            r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")!=focus||r.getInt("distraction_minutes")!=budget||!remoteName.equals(r.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Goals retry reverted remote classification");
+            setEditor("270",String.valueOf((focus+1)%1441));setEditor("60",String.valueOf((budget+1)%1441));
+            r=owner.request("/v1/workspace",null,"GET");r.put("focus_minutes",(focus+2)%1441);owner.request("/v1/workspace",r,"PUT");
+            revealAction("儲存目標");click("儲存目標");await("遠端目標也已變更");awaitSettled();
+            revealAction("確認以我的草稿取代遠端目標");click("確認以我的草稿取代遠端目標");awaitProbeDialog("取代剛讀取的遠端目標？");captureProbeDialog("goals-replace-confirm");probeDialogClick("保留草稿");
+            if(owner.request("/v1/workspace",null,"GET").getInt("focus_minutes")!=(focus+2)%1441)throw new IllegalStateException("Goal cancel wrote server");
+            click("確認以我的草稿取代遠端目標");awaitProbeDialog("取代剛讀取的遠端目標？");
+            r=owner.request("/v1/workspace",null,"GET");r.getJSONArray("categories").getJSONObject(0).put("name",remoteName+"二");owner.request("/v1/workspace",r,"PUT");
+            probeDialogClick("取代目標");await("遠端目標也已變更");awaitSettled();
+            r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")!=(focus+2)%1441||!(remoteName+"二").equals(r.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Goal race overwrote remote");
+            revealAction("確認以我的草稿取代遠端目標");click("確認以我的草稿取代遠端目標");awaitProbeDialog("取代剛讀取的遠端目標？");probeDialogClick("取代目標");await("網站與手機的共用目標已更新");awaitSettled();
+            r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")!=(focus+1)%1441||r.getInt("distraction_minutes")!=(budget+1)%1441||!(remoteName+"二").equals(r.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Explicit goal replacement lost unrelated fields");
+            setEditor("270",String.valueOf((focus+3)%1441));setEditor("60",String.valueOf((budget+3)%1441));
+            r=owner.request("/v1/workspace",null,"GET");r.getJSONArray("categories").getJSONObject(0).put("name",remoteName+"離線");owner.request("/v1/workspace",r,"PUT");
+            revealAction("儲存目標");click("儲存目標");await("分類設定已更新，目標草稿仍在");awaitSettled();
+            shell("svc wifi disable");shell("svc data disable");shell("cmd connectivity airplane-mode enable");
+            revealAction("重新核對最新設定");click("重新核對最新設定");await("無法載入");awaitSettled();
+            click("返回編輯目標");await("儲存目標");awaitSettled();assertEditor("270",String.valueOf((focus+3)%1441));assertEditor("60",String.valueOf((budget+3)%1441));
+            shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();
+            revealAction("儲存目標");click("儲存目標");await("分類設定已更新，目標草稿仍在");awaitSettled();revealAction("保留最新分類，重試儲存目標");click("保留最新分類，重試儲存目標");await("網站與手機的共用目標已更新");awaitSettled();
+            r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")!=(focus+3)%1441||r.getInt("distraction_minutes")!=(budget+3)%1441||!(remoteName+"離線").equals(r.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Offline goal recovery lost values or classification");assertConsentOff();
+        } finally {
+            shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();
+            JSONObject current=owner.request("/v1/workspace",null,"GET");original.put("revision",current.getLong("revision"));owner.request("/v1/workspace",original,"PUT");
         }
     }
     private void classificationConflictCheck(PocketLogApi owner) throws Exception {
