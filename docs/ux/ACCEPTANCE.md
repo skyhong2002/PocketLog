@@ -1,5 +1,13 @@
 # UI acceptance evidence
 
+For a concise capability/gap map, see [Dayflow parity](../DAYFLOW_PARITY.md).
+The latest first-run/capture recovery evidence is in [known rejected credentials](#known-rejected-phone-credentials-87),
+[first device creation](#first-device-creation-before-optional-guidance-89) and
+[scope-specific issued-key setup](#issued-key-guidance-follows-its-scope-90).
+Earlier sections below are chronological acceptance records, including superseded
+UI states; they are not a statement that every Dayflow feature is implemented.
+
+
 ## Native first iteration, 2026-11-15
 
 The screenshots below render the actual Activity View hierarchy on an Android34

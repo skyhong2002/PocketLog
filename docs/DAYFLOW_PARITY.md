@@ -24,7 +24,7 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | Privacy shield | Pre-capture exclusions/allowlist, password/editable-field/secure-window checks and default-on suspected-secret/long-number text gate before pixels on Android; **not** OCR/image redaction or a promise to remove all visual secrets |
 | Pause | Local pause plus shared server stop switch, immediate rejection/clearing of pending context, phone propagation on existing sync cadence; offline phones cannot receive an immediate stop; saved local capture grants stay visible and revocable while paused, and upstream resume discloses retained downstream choices without granting OS permissions |
 | Copy/export | Website clipboard + JSON; Android clipboard + daily JSON document picker; raw observations never exported |
-| Support/settings | Local guidance, source/documentation links and private configuration; no automatic support messages or telemetry |
+| Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; local diagnostics and documentation links; no automatic support messages or telemetry |
 | Recording and replay | Opt-in bounded Android app-switch metadata/text/thumbnails; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription or high-frequency sampling |
 
 ## Shared setup
