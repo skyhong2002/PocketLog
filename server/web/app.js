@@ -1501,6 +1501,20 @@ async function timelinePage(parent, seq) {
     }
     add(scroll, weekGrid);
     add(left, scroll);
+    mounted.push(() => {
+      // Focus restoration owns the viewport when returning to an activity.
+      if (scroll.contains(document.activeElement) && document.activeElement.closest(".event")) return;
+      const active = weekGrid.querySelector(".week-day.active");
+      if (active) {
+        const bounds = scroll.getBoundingClientRect(), column = active.getBoundingClientRect();
+        scroll.scrollLeft += column.left - bounds.left;
+      }
+      const first = selected.cards.find((c) => !filter || c.category === filter);
+      const [start, end] = fullDayBounds(day);
+      const anchor = first ? first.start_ms : day === journalDate() ? Date.now() : start;
+      // Tracks begin below the sticky date header; retain some leading context.
+      scroll.scrollTop = Math.max(0, ((anchor - start) / (end - start)) * 1536 - 48);
+    });
   } else {
     const viewport = el("div", null, "timeline-window");
     viewport.tabIndex = 0;

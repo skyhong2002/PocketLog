@@ -1310,3 +1310,28 @@ physical-device or TalkBack evidence.
 - [Lost snapshot retry guidance](screenshots/native-export-lost-state.png)
 - [2× lost snapshot guidance](screenshots/native-export-lost-state-large.png)
 - [2× failed write guidance](screenshots/native-export-write-failure-large.png)
+
+
+## Week entry anchor (#58)
+
+The rebuilt synthetic fixture now opens the selected week column fully in view
+and scrolls to its first matching activity with leading context. At1280×800
+selected Saturday is fully visible (scrollLeft245, scrollTop464); at390×844
+it is fully visible (643,464), with the dense synthetic activity band below the
+sticky date header. No document overflow. Switching to Sunday keeps that column
+visible; manually changing both scroll offsets stays unchanged while idle.
+Scripted DOM focus/click navigation preserves the week control and the disabled
+today button falls back to the date input. Cancelling a mobile card dialog
+returns focus to the visible originating card. These are Chromium scripted-focus
+checks, not real Tab/TalkBack or physical-device evidence.
+
+Official WeekTimelineGridView.swift at2c79e161 calls scrollToRelevantHour and
+prefers selected-day content; PocketLog uses actual elapsed day bounds. Empty
+past selected days retain04:00 and today without matching content uses now.
+The separate missing hour-axis finding remains #59.
+Node syntax/timeline/agent-import checks, Rust fmt/clippy-Dwarnings/58tests/audit
+and disposable Docker privacy/API/worker smoke pass. Android unchanged from
+#57's passing56unit/build/lint and connected/offline checks.
+
+- [Desktop selected Saturday](screenshots/web-week-anchor-desktop.png)
+- [Phone selected Saturday](screenshots/web-week-anchor-phone.png)
