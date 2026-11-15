@@ -286,9 +286,15 @@ async function request(path, body, method = body ? "POST" : "GET") {
   }
 }
 async function api(path, body, method, isCurrent) {
+  const seq = renderSeq;
+  const current = isCurrent || (() => seq === renderSeq);
+  const read = (method || (body ? "POST" : "GET")) === "GET";
   const r = await request(path, body, method);
+  // Ordinary reads and errors belong to their dispatch page. Successful writes
+  // retain completion bookkeeping (notably logout/deletion) across navigation;
+  // dialog/draft callers can explicitly own every response more narrowly.
+  if ((isCurrent || read || !r.ok) && !current()) throw STALE;
   if (r.status === 401) {
-    if (isCurrent && !isCurrent()) throw STALE;
     login("expired");
     throw new ApiError("請重新登入私人日誌", 401);
   }
@@ -299,14 +305,16 @@ async function api(path, body, method, isCurrent) {
         : statusText[r.status] || `操作未完成 (${r.status})`,
       r.status,
     );
-  return r.status === 204 ? {} : r.json();
+  const value = r.status === 204 ? {} : await r.json();
+  if ((isCurrent || read) && !current()) throw STALE;
+  return value;
 }
 /* Optional data: a failure leaves the page usable and is reported beside the control. */
 async function soft(path) {
   try {
     return await api(path);
   } catch (e) {
-    if (e.status === 401) throw STALE;
+    if (e === STALE || e.status === 401) throw STALE;
     return null;
   }
 }

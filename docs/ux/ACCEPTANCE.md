@@ -2086,3 +2086,32 @@ are Canvas View snapshots, not compositor/physical-device/TalkBack/battery evide
 ![Retained paused consent remains revocable](screenshots/native-saved-consent-paused.png)
 ![Large resume disclosure names retained choices](screenshots/native-saved-consent-resume-large.png)
 ![Large resume dialog retains both actions](screenshots/native-saved-consent-resume-large-end.png)
+
+## Ordinary page API response ownership (#86)
+
+Built e3d0858 reproduced a held Settings status401 expiring the newer successful
+Timeline. The common API helper now owns ordinary reads/errors by dispatch render,
+checks ownership again after asynchronous JSON parsing and propagates optional
+STALE cancellation. Explicit dialog/draft/conversation owners still govern their
+own responses. Successful default mutations retain their existing completion
+bookkeeping across navigation; this is essential for logout and journal deletion.
+Astra6 review identified those exceptions before integration, so default success
+cancellation was deliberately narrowed to reads. Same-page dialogs still need
+explicit owners; no claim that every mutation race is solved by this helper.
+
+Built1280/390 opt-in `scripts/check-web-api-render-ownership.js` passed4controlled
+status reads,1slow JSON body and4local Flow write responses per size: stale
+GET200/503/401, no stale workspace assignment/follow-up read, stale write503/401,
+normal Flow start/finish and genuine currentGET401 expiry. Separate
+`scripts/check-web-api-bookkeeping.js` passed2localDELETE responses per size:
+retained chat clears on journal deletion after navigation, and successful logout
+still resets private UI after opening onboarding. No service deletion, journal
+mutation, configuration change or model call occurred.
+
+Final phone #82/#83/#84 dialog suites also pass on this helper; Node/web timeline/
+import regressions and final Docker smoke pass. Root inspected both synthetic
+captures: a new focused activity-title draft survives the old page401. Unchanged
+Rust checks and integrated Android63unit/build/lint remain applicable.
+
+![Current activity editor survives old page response on phone](screenshots/web-api-page-owner-phone.png)
+![Current activity editor survives old page response on desktop](screenshots/web-api-page-owner-desktop.png)
