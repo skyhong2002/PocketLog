@@ -84,7 +84,7 @@ Package metadata confirms sandbox36; the owner package remains36 / `0.4.31-dev`.
 The new workstation uses its own debug identity. No owner APK update, uninstall,
 data clear, signing-key import, credential entry or capture/model grant occurred.
 
-## Physical UI blocker and next checkpoint
+## Initial physical UI blocker (resolved below)
 
 The supplied remote T3 host ID is not registered in this environment; local
 discovery found the same Pixel as host `local`. `device_open` succeeded and
@@ -99,7 +99,7 @@ published or used to claim layout/readability acceptance. The reported empty
 URL/key and expanded help state comes from the root handoff, not a successful
 new accessibility-tree inspection here.
 
-**Remaining:** the owning root session must release its own device connection.
+**Original next step:** the owning root session must release its own device connection.
 Then open **PocketLog Dev** with the newly returned bound driver and verify empty
 submit, malformed origin/key, password semantics, help, actual keyboard bounds
 and large-text scrolling using synthetic values. Do not connect production or
@@ -107,3 +107,79 @@ grant capture permissions. No new product UI defect was established while the
 driver was blocked; no first-run UI fix or full physical-debugging completion is
 claimed. Physical capture/exclusions/Doze/TalkBack/full-day battery and trusted
 HTTPS synthetic-server pairing remain unverified in this migration.
+
+## Physical first-run continuation — 2026-11-16
+
+After the root released its own connection, local device discovery and a **new**
+bound driver session successfully opened `tw.skyhong.pocketlog.sandbox` on the
+physical Pixel 7 / Android 16. All UI actions used that session's `agent-device`
+command. No old session was reused and no ADB/SSH UI bypass was used.
+
+### Observed checks
+
+| Check | Physical result |
+| --- | --- |
+| Fresh setup | Empty URL/key fields, zero-character counter, connect/help controls present in the accessibility tree |
+| Empty submit | `請填寫伺服器網址。` appeared |
+| HTTP origin | `http://example.invalid` rejected with the HTTPS requirement |
+| Origin with path | `https://example.invalid/path` rejected with the no-path requirement |
+| Empty key | `https://example.invalid` with no key produced `請貼上裝置金鑰。` |
+| Short key | Synthetic `1234` produced the specific 4-of-64 length error |
+| Non-hex key | 64 synthetic `g` characters passed the length counter and were rejected with `金鑰只能包含 0–9 與 a–f。` |
+| Password semantics | Key node reported `password=true`, masked bullets; keyboard exposed Done and disabled voice input for the field |
+| Keyboard, font scale 1.0 | Keyboard frame `(0,1352,1080,1048)`; scroll viewport ended at y=1352. After scrolling, key bounds were `(84,505,912,124)` and submit bounds `(84,874,912,126)`; submit worked with the keyboard open |
+| Large text, font scale 2.0 | After relaunch and scrolling with the keyboard open, key bounds `(84,572,912,169)` and submit bounds `(84,884,912,162)` remained above the same keyboard top; submit showed the missing-origin error |
+| Help and scrolling | Help expanded at scales 1.0 and 2.0. Its origin/key instructions were exposed by the tree; scrolling reached the final separate-consent explanation at scale 2.0 |
+| Secure screenshot | `device_screenshot` returned black protected app pixels. `FLAG_SECURE` was retained; this is **not** visual readability/color/clipping acceptance |
+| Cleanup | Restored and read back original font scale 1.0; relaunched sandbox showed empty URL/key and zero counter. Both synthetic password-manager save prompts were declined. Bound driver close succeeded; Device panel close used `shutdown=false` |
+
+The driver briefly exercised scale 3.2 (header and first card tree only) and 1.75
+(scrolling only). Those are exploratory observations, not complete acceptance.
+Two argument/reference errors were corrected using a current snapshot/reference;
+neither was `DEVICE_IN_USE` or an application failure. No raw device tree, screenshot,
+private content or key is checked into the repository or attached to an issue.
+
+No first-run product defect was established. The connection attempts above all
+failed local validation: no valid credentials were entered, no successful pairing
+or authenticated API/model call was attempted, and shared onboarding after
+successful pairing was not reached. Password-manager save prompts are observed
+third-party/system behavior, not evidence of a PocketLog regression. No capture,
+model or Android permission grants were made. The owner application was not
+launched, installed over, reset or otherwise modified.
+
+### Bootstrap review and small fix
+
+Reviewed the sandbox build identity, manifest label, guarded installer, development
+Containerfile, check script and documented commands. The installer checks actual
+APK package metadata before installation and requires an explicit serial; the
+Rust check mounts only specified source/manifests/tests/web read-only, and build
+limits remain explicit. No safety defect was established in those scripts.
+
+One concrete coverage gap was found in `.github/workflows/check.yml`: CI ran only
+the regular debug build/lint, allowing the new sandbox variant to break without a
+CI failure. CI now also runs `:app:assembleSandbox :app:lintSandbox`, matching the
+existing local Android check. This is a build-coverage fix under #93, not a claim
+of a physical UI bug. No production/container deployment configuration changed.
+
+### Continuation checks
+
+- `scripts/dev-check.sh android`: **passed**, including `testDebugUnitTest`,
+  `assembleDebug`, `lintDebug`, `assembleSandbox`, `lintSandbox`. Gradle reported
+  89 tasks, 2 executed / 87 up-to-date; unit-test/build/lint outputs were reused
+  because application sources did not change. The earlier 65-test result and
+  zero-error / 16-warning lint reports remain the baseline, not a fresh test run.
+- `scripts/dev-check.sh rust`: **passed**, fmt, locked all-target clippy with
+  warnings denied, 20 unit + 32 API + 6 classifier-preview tests; cargo-audit
+  loaded 1,509 advisories and scanned 185 dependencies without a reported finding.
+- `scripts/dev-check.sh web`, shell syntax for both bootstrap scripts and
+  `git diff --check`: **passed**. No Docker smoke rerun: deployment inputs did not
+  change; the preceding bootstrap smoke result remains the recorded evidence.
+- Check logs: `/home/deck/.local/state/pocketlog-dev/2026-11-16-physical-acceptance/`.
+  These contain build/check output only; device evidence above is sanitized prose.
+
+**Still open:** visual layout/readability, TalkBack navigation, trusted-HTTPS
+synthetic pairing and the four shared onboarding steps, automatic capture and
+exclusions, classification/display/API integration, AndroidKeyStore recovery,
+revocation, Doze and measured full-day battery acceptance. No Dayflow parity or
+routine personal-use readiness claim. Production and old 12-hour schedules were
+not accessed or resumed.

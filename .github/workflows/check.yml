@@ -36,7 +36,7 @@ jobs:
           # The action default includes the retired SDK package "tools".
           packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
-      - run: ./gradlew testDebugUnitTest assembleDebug lintDebug
+      - run: ./gradlew testDebugUnitTest assembleDebug lintDebug :app:assembleSandbox :app:lintSandbox
         working-directory: android
   container:
     runs-on: ubuntu-latest
