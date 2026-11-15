@@ -102,6 +102,9 @@ cd android
 ./gradlew assembleDebug
 ```
 
+For bounded checks and an isolated phone build that preserves an existing
+installation, see [development setup](docs/DEVELOPMENT.md).
+
 Put the service behind a trusted HTTPS proxy or Tailscale Serve. Open its HTTPS
 origin in a browser and sign in with the owner key to complete onboarding. In
 Settings → Connection and devices, create a journal device key for your phone;
