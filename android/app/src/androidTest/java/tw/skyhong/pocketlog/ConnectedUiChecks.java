@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("goalsThenCategoriesOnly"))) { goalsThenCategoriesCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("controlFailureOnly"))) { controlFailureCheck(fixtureOwner, endpoint); return; }
             if ("yes".equals(args.getString("captureAiOnly"))) { captureAiConsentCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("probeOnly"))) { providerProbeCheck(fixtureOwner); return; }
@@ -179,6 +180,22 @@ final class ConnectedUiChecks {
             // Keep only the successful synthetic key's metadata for the web evidence;
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
+        }
+    }
+    private void goalsThenCategoriesCheck(PocketLogApi owner) throws Exception {
+        stage="new goals followed by classification save";
+        JSONObject original=owner.request("/v1/workspace",null,"GET");
+        int focus=(original.getInt("focus_minutes")+37)%1441,budget=(original.getInt("distraction_minutes")+19)%1441;
+        String name="待分類 UX 測試";
+        try {
+            click("設定");await("目標與分類");click("目標與分類");await("儲存目標");awaitSettled();
+            setEditor("270",String.valueOf(focus));setEditor("60",String.valueOf(budget));revealAction("儲存目標");click("儲存目標");await("網站與手機的共用目標已更新");awaitSettled();
+            JSONObject saved=owner.request("/v1/workspace",null,"GET");if(saved.getInt("focus_minutes")!=focus||saved.getInt("distraction_minutes")!=budget)throw new IllegalStateException("Goal save failed");
+            click("編輯分類與自動規則");await("儲存分類與規則");awaitSettled();setEditor("最多 40 字",name);revealAction("儲存分類與規則");click("儲存分類與規則");await("已儲存並同步到網站");await("儲存目標");awaitSettled();
+            JSONObject result=owner.request("/v1/workspace",null,"GET");if(result.getInt("focus_minutes")!=focus||result.getInt("distraction_minutes")!=budget||!name.equals(result.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Classification save reverted new goals or lost category");
+            assertEditor("270",String.valueOf(focus));assertEditor("60",String.valueOf(budget));revealEditor("270");capture("goals-after-classification");revealAction(name);capture("classification-after-goals");
+        } finally {
+            JSONObject current=owner.request("/v1/workspace",null,"GET");original.put("revision",current.getLong("revision"));owner.request("/v1/workspace",original,"PUT");
         }
     }
     private void controlFailureCheck(PocketLogApi owner,String endpoint) throws Exception {

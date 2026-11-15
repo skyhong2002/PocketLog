@@ -61,7 +61,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             }
             if ("yes".equals(args.getString("connected"))) {
                 new ConnectedUiChecks(this, args).run();
-                result.putString("stream", "yes".equals(args.getString("controlFailureOnly"))
+                result.putString("stream", "yes".equals(args.getString("goalsThenCategoriesOnly"))
+                    ? "Synthetic HTTPS native goal-save then classification-save preserves both goals and category; fixture restored.\n"
+                    : "yes".equals(args.getString("controlFailureOnly"))
                     ? "Synthetic HTTPS server-outage collection/backoff, paused/auth stops and restored upload checks passed; capture settings cleared.\n"
                     : "yes".equals(args.getString("captureAiOnly"))
                     ? "Synthetic HTTPS future-capture provider rotation, renewal/cancel, offline readiness and queue identity checks passed; capture settings cleared.\n"

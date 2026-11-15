@@ -1836,7 +1836,8 @@ class MainActivity : Activity() {
     private fun sharedSettings() {
         val body = screen("目標與分類", "網站與手機共用", tab = Tab.SETTINGS, back = { settings() })
         val slot = ui.column(body)
-        load(slot, "讀取共用設定…", { api().request("/v1/workspace") }) { current ->
+        load(slot, "讀取共用設定…", { api().request("/v1/workspace") }) { response ->
+            var current = response
             workspace = current
             val card = ui.card(slot)
             ui.heading(card, "每日目標")
@@ -1846,7 +1847,7 @@ class MainActivity : Activity() {
                 val a = focus.text.toString().toIntOrNull(); val b = budget.text.toString().toIntOrNull()
                 if (a == null || b == null || a !in 0..1440 || b !in 0..1440) { notice("分鐘必須介於 0–1440", Kind.WARN); return@button }
                 val next = JSONObject(current.toString()).put("focus_minutes", a).put("distraction_minutes", b)
-                task("儲存共用設定…", { api().request("/v1/workspace", next, "PUT") }) { workspace = it; current.put("revision", it.getLong("revision")); notice("網站與手機的共用目標已更新") }
+                task("儲存共用設定…", { api().request("/v1/workspace", next, "PUT") }) { workspace = it; current = it; notice("網站與手機的共用目標已更新") }
             }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
             val styles = current.getJSONArray("categories")
             ui.card(slot).apply {

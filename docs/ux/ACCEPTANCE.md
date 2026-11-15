@@ -1076,3 +1076,24 @@ audit1509/185 and web checks passed this same wave; server/image unchanged.
 
 - [Private server unavailable](screenshots/native-server-outage.png)
 - [2× text recovery status](screenshots/native-server-outage-large.png)
+
+## Classification saves preserve freshly saved native goals (#49)
+
+The native shared-settings screen now replaces its local workspace snapshot with
+the complete successful goal-save response. Previously it changed only revision;
+opening the category editor afterward cloned old goal values under the new
+revision, and a classification save silently reverted those goals.
+
+Real synthetic HTTPS emulator tests at normal/2× font use the visible goal form,
+save two new targets, open the classification editor, rename a category and save.
+API readback and reloaded native fields retain both new targets and the category
+change. Original synthetic workspace is restored after each run. Inspected secure
+View snapshots show the saved goals and renamed category; no real journals.
+The supplied Dayflow targets/category reference and separate DayGoalPlan persistence
+in StorageManager+DayGoals.swift at2c79e161 inform maintaining independent intent.
+Android44unit/build/lint and full eight-page HTTPS/offline regression pass, as do
+Rust58/fmt/clippy-Dwarnings/audit1509/185 and web regressions. Server unchanged;
+physical-device/TalkBack/battery validation remains separate.
+
+- [Goals retained after category save](screenshots/native-goals-after-classification.png)
+- [2× text goals and category](screenshots/native-goals-after-classification-large.png)
