@@ -957,3 +957,37 @@ is unchanged by this native fix. Physical-device/TalkBack/battery not claimed.
 
 - [Local correction awaiting upload](screenshots/native-pending-card-list.png)
 - [2× text pending provenance and complete card](screenshots/native-pending-card-list-large.png)
+
+## Short native cards remain distinct (#46)
+
+The native day canvas now reserves each card's rendered vertical size when
+assigning lanes. Adjacent short activities can share the same few pixels of
+actual time without covering each other's minimum-height rectangles. Minimum
+height grows with text size; end-of-day rectangles stay inside the canvas and
+dense lane gaps shrink to preserve positive width. This only changes display
+geometry: original intervals, order, callback indices and API values are intact.
+Narrow cards keep a title/ellipsis cue when it fits; the List view provides the
+complete text and accessible actions for short/dense clusters.
+
+Actual secure Android View tests at normal/2× font check 320/360/800dp measured
+widths, adjacent one-minute cards, a longer overlapping interval, a final-minute
+card, an out-of-window card and100 adjacent one-second intervals. No pairwise
+rectangle intersections, positive in-canvas bounds, all six original click targets,
+movement cancellation and immutable source items pass. The inspected captures
+are cropped native View bitmaps around08:00, not full device/compositor or
+physical-tablet screenshots. Initial2× inspection found blank narrow cards:
+adaptive padding plus an explicit ellipsis for Android's empty ellipsize result
+fixed it; pixel-ink checks now guard all four narrow fixture cards.
+
+The supplied private Dayflow timeline and official CanvasTimelineDataView.swift
+at2c79e161 (`TimelineActivityLoader.resolveDisplaySegments`) informed separating
+visual overlap resolution from stored activity data. PocketLog reserves rendered
+lanes rather than copying Dayflow's segment trimming. Android41unit/build/lint,
+normal/2× instrumentation and full eight-page HTTPS/offline regression pass.
+Rust fmt/clippy-Dwarnings/58tests and audit1509advisories/185dependencies pass
+(audit retains the local crates-index warning); web timeline/import regressions
+pass. No server code/image changed, so no deployment is needed for this fix.
+Physical-device, TalkBack traversal and full-day battery remain unverified.
+
+- [Short cards at normal font](screenshots/native-short-cards.png)
+- [Short cards at2× font](screenshots/native-short-cards-large.png)

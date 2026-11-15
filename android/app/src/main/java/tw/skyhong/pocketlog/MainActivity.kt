@@ -698,7 +698,7 @@ class MainActivity : Activity() {
                 viewport.addView(view)
                 val height = (resources.displayMetrics.heightPixels * .58f).toInt().coerceAtLeast(ui.dp(320))
                 holder.addView(viewport, ui.lp(height = height, top = 8))
-                ui.meta(holder, "TalkBack 使用者可切換到「清單」，逐一操作每張卡片。", top = 6)
+                ui.meta(holder, "短活動密集或使用 TalkBack 時，可切換「清單」完整閱讀與修改每張卡片。", top = 6)
                 val (start, end) = range(day)
                 val focus = if (now in start..end && day == journalDay()) now else items.minOf { it.start }
                 viewport.post { viewport.scrollTo(0, (view.yFor(focus) - height / 3).coerceAtLeast(0)) }
