@@ -35,6 +35,7 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.roundToInt
 import tw.skyhong.pocketlog.Ui.Field
 import tw.skyhong.pocketlog.Ui.Kind
 import tw.skyhong.pocketlog.Ui.Tone
@@ -464,7 +465,7 @@ class MainActivity : Activity() {
             val row = ui.horizontal(parent, 10).apply { minimumHeight = ui.dp(32); isScreenReaderFocusable = true }
             row.addView(ui.swatch(colorFor(id), 12))
             ui.text(row, label(id), 15f).layoutParams = ui.lp(0, weight = 1f)
-            ui.text(row, "${TimelineMath.duration(ms)} · ${ms * 100 / sum}%", 14f, Palette.MUTED).layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            ui.text(row, "${TimelineMath.duration(ms)} · ${(ms.toDouble() / sum * 100).roundToInt()}%", 14f, Palette.MUTED).layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
     }
 

@@ -10,6 +10,9 @@ import android.widget.EditText;
 public final class FixtureActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if ("secure".equals(getIntent().getStringExtra("variant"))) {
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        }
         LinearLayout content=new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(40,100,40,40); content.setBackgroundColor(0xfff2f5ee);
         TextView title=new TextView(this); title.setText("PocketLog synthetic capture fixture"); title.setTextSize(24); content.addView(title);
@@ -19,5 +22,17 @@ public final class FixtureActivity extends Activity {
             input.clearFocus(); content.setFocusableInTouchMode(true); content.requestFocus();
         }
         setContentView(content);
+        // UI Automation temporarily suppresses accessibility services. Give the
+        // physical-device driver time to release its own helper before a fresh
+        // fixed-content window is opened. Existing emulator variants stay unchanged.
+        if (getIntent().getBooleanExtra("deferred", false)) {
+            final String variant = getIntent().getStringExtra("variant");
+            new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                startActivity(new android.content.Intent(this, FixtureActivity.class)
+                    .putExtra("variant", variant));
+                finish();
+            }, 10_000);
+        }
     }
 }

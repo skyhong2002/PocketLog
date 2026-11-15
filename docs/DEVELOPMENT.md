@@ -70,6 +70,66 @@ flag. Existing invasive emulator acceptance harnesses explicitly refuse physical
 devices and must not be repurposed without new isolation/guarding. See
 [capture acceptance](ux/CAPTURE_ACCEPTANCE.md) for its separate requirements.
 
+### Physical capture with the shared device driver
+
+For an isolated tailnet HTTPS service, install/connect Tailscale on the phone
+before pairing. A working Wi-Fi connection alone does not provide tailnet DNS.
+The user completes sign-in; never weaken certificate verification to work around
+an unreachable private origin. Use disposable service volumes and an expiring
+journal device key, not production credentials.
+
+The sandbox's application ID differs from its Kotlin namespace. To return from
+Android settings, the bound driver can open the **full component** with CLEAR_TOP:
+
+```sh
+"$pixel_driver" open tw.skyhong.pocketlog.sandbox \
+  --activity tw.skyhong.pocketlog.sandbox/tw.skyhong.pocketlog.MainActivity \
+  --launch-args=-f --launch-args=0x14000000
+```
+
+Set `pixel_driver` to the exact command returned by `device_open`. A class name
+without the package/component slash can be expanded incorrectly. Verify the
+actual screen; an ordinary open/relaunch may leave a system settings activity
+above the app. When operating Android settings, first bind the driver to that
+app to avoid treating an expected system transition as an escaped-app error.
+
+The driver's UI Automation helper can temporarily **suppress other accessibility
+services**, including PocketLog. An enabled service is not proof it is bound.
+Do not inspect the accessibility tree during a capture attempt. The no-network
+fixture has a launcher entry and an optional ten-second deferred window for a
+clean capture interval:
+
+```sh
+"$pixel_driver" open org.example.pocketlogfixture --relaunch \
+  --activity org.example.pocketlogfixture/.FixtureActivity \
+  --launch-args=--ez --launch-args=deferred --launch-args=true
+"$pixel_driver" close com.callstack.agentdevice.snapshothelper
+```
+
+This closes only this driver's own helper. The fixture then opens a fresh fixed
+window after the helper has released UI Automation. Do not reuse/close another
+session. Reopen the app through the bound driver before further UI inspection;
+inspection can suppress the service again. Use API results and service binding
+diagnostics to distinguish a real capture failure from test interference. The
+fixture never grants consent, changes credentials or relaxes capture rules.
+Use `--relaunch` for each fixture attempt so extras reach a new activity rather
+than an existing task. Add `--launch-args=--es --launch-args=variant
+--launch-args=editable` for the editable-field exclusion, or replace `editable`
+with `secure` for the Android secure-window gate. Release the helper immediately
+after launch, before the ten-second deferred window opens.
+
+Do not use `run-as` as a prerequisite: the tested custom Android 16 system rejects
+its SELinux context. Use supported UI diagnostics and authenticated API evidence;
+never disable SELinux or root the phone for acceptance.
+
+After a physical reboot, wait for Android boot completion and the user's first
+unlock before reopening credential-encrypted apps. On the tested custom ROM,
+launching the sandbox before first unlock reported a missing activity despite
+the same component working before reboot. Do not treat this as proof of APK
+loss, reinstall/clear data, or bypass the lock screen. Follow device-tool failure
+recovery limits; ask for the user's unlock when needed, then verify permission
+revocations, saved credentials and recovery separately.
+
 ## Disposable container smoke
 
 With an available Docker daemon, build the existing production Dockerfile and run
