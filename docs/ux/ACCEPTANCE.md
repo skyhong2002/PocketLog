@@ -1986,3 +1986,31 @@ version/copy-only integration;63unit/debug/testAPK/lint passed.
 
 ![Normal first-run key instructions](screenshots/native-setup-key-path-phone.png)
 ![Large first-run key instructions](screenshots/native-setup-key-path-large.png)
+
+## AI provider editor response ownership (#82)
+
+On the former built image, a held AI-settings PUT followed by close/reopen and
+new model text caused the old successful response to close the new editor.
+All responses are now owned by their originating dialog and page, including
+probe401, provider-conflict reload and disable's follow-up read. Provider changes
+are serialized even after closing an editor. Origin controls pause during a write;
+a blocked second save retains its draft and unsent key. Explicit saved-provider
+probe confirmation and provider_id binding remain required. No capture/AI consent
+or server authentication behavior was relaxed.
+
+Built-image Chromium1280×800 and390×844 acceptance passed via opt-in
+`scripts/check-web-provider-ownership.js`:9controlled writes,5probes and3recovery
+reads per size, all held locally with zero provider/configuration service writes.
+Checks cover stale200/503/401, current failure/retry/success, duplicate writes,
+key preservation, provider-bound consent, conflict/delete read ownership and genuine
+current401 expiry. Both inspected synthetic captures retain the new focused model
+draft after an old401. No screen-reader or physical-device claim. Node syntax,
+existing web timeline/import regressions and final Docker smoke pass. Unchanged
+Rust checks from #73 and Android63unit/build/lint from #77 remain applicable.
+
+Reference: official2c79e161 ProvidersSettingsViewModel.swift `saveRouting` retains
+prior routing on failure and changes selection only after successful persistence.
+PocketLog's additional remote-write lifecycle is tested independently.
+
+![Provider draft retained on phone](screenshots/web-provider-draft-phone.png)
+![Provider draft retained on desktop](screenshots/web-provider-draft-desktop.png)

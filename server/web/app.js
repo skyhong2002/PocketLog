@@ -37,6 +37,7 @@ const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
 let timelineInspector = null, inspectedCard = null;
 // One write per activity at a time, including a cancelled/reopened editor.
 const cardSaves = new Set();
+let providerChangePending = false;
 const titles = {
   timeline: "時間軸",
   daily: "每日回顧",
@@ -4171,7 +4172,33 @@ function categoriesDialog() {
   });
 }
 function providerDialog(done) {
+  const seq = renderSeq;
   modal("Bring your own AI", (p) => {
+    const current = () => p.isConnected && seq === renderSeq;
+    // Keep another editor's draft safe even if a closed editor is still saving.
+    const pendingHint = el("p", "AI 設定變更處理中時，不能同時儲存其他設定；請稍後再試。這裡的草稿會保留。", "callout");
+    pendingHint.setAttribute("role", "status");
+    pendingHint.hidden = !providerChangePending;
+    add(p, pendingHint);
+    async function changeProvider(action) {
+      if (!current()) return;
+      if (providerChangePending) {
+        pendingHint.hidden = false;
+        notice("先前的 AI 設定變更仍在處理，請稍後再試；目前草稿已保留。", false, p);
+        return;
+      }
+      providerChangePending = true;
+      pendingHint.hidden = false;
+      const controls = [...p.querySelectorAll("input,select,button")].map(n => [n, n.disabled]);
+      controls.forEach(([n]) => { n.disabled = true; });
+      try { await action(); }
+      catch (error) { if (current()) throw error; }
+      finally {
+        providerChangePending = false;
+        controls.forEach(([n, disabled]) => { if (n.isConnected) n.disabled = disabled; });
+        if (current()) pendingHint.hidden = true;
+      }
+    }
     add(
       p,
       el(
@@ -4267,11 +4294,15 @@ function providerDialog(done) {
             };
             if (clear.checked || key.value)
               body.api_key = clear.checked ? "" : key.value;
-            key.value = "";
-            ai = await api("/v1/ai", body, "PUT");
-            close();
-            await done();
-            notice("AI 設定已儲存；手機需重新同意才能傳送擷取內容");
+            await changeProvider(async () => {
+              key.value = "";
+              const saved = await api("/v1/ai", body, "PUT", current);
+              if (!current()) return;
+              ai = saved;
+              close();
+              await done();
+              notice("AI 設定已儲存；手機需重新同意才能傳送擷取內容");
+            });
           },
           "primary",
         ),
@@ -4290,19 +4321,19 @@ function providerDialog(done) {
             ))
           )
             return;
-          if (!p.isConnected) return;
+          if (!current()) return;
           p.querySelector(".probe-feedback")?.remove();
           try {
-            await api("/v1/ai/test", { provider_id: saved.provider_id });
+            await api("/v1/ai/test", { provider_id: saved.provider_id }, "POST", current);
           } catch (error) {
+            if (!current()) return;
             if (error.status !== 409) throw error;
-            if (!p.isConnected) return;
             const recovery = el("div", null, "probe-feedback callout warn");
             recovery.setAttribute("role", "alert");
             add(recovery, el("p", "已儲存的模型已變更，沒有改向新模型重試。可保留目前編輯，或重新載入設定，再核對目的地並確認。重新載入會捨棄尚未儲存的修改。"), btn("重新載入已儲存的模型", async () => {
-              const current = await api("/v1/ai");
-              if (!p.isConnected) return;
-              ai = current;
+              const savedNow = await api("/v1/ai", undefined, undefined, current);
+              if (!current()) return;
+              ai = savedNow;
               await done();
               providerDialog(done);
             }));
@@ -4310,7 +4341,7 @@ function providerDialog(done) {
             recovery.scrollIntoView({ block: "nearest" });
             return;
           }
-          if (!p.isConnected) return;
+          if (!current()) return;
           notice("模型測試成功，未傳送日誌");
         }),
         ai.enabled || ai.has_key
@@ -4326,10 +4357,16 @@ function providerDialog(done) {
                   ))
                 )
                   return;
-                await api("/v1/ai", null, "DELETE");
-                ai = await api("/v1/ai");
-                close();
-                await done();
+                if (!current()) return;
+                await changeProvider(async () => {
+                  await api("/v1/ai", null, "DELETE", current);
+                  if (!current()) return;
+                  const savedNow = await api("/v1/ai", undefined, undefined, current);
+                  if (!current()) return;
+                  ai = savedNow;
+                  close();
+                  await done();
+                });
               },
               "danger",
             )
