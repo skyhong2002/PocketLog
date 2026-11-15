@@ -1484,3 +1484,34 @@ server remains51e9a1c. APK0.4.25-dev uses the existing signing certificate.
 - [2× progress axis](screenshots/native-week-progress-axis-large.png)
 - [Half-hour transition](screenshots/native-week-half-hour-axis.png)
 - [2× readable full day length](screenshots/native-week-day-length-large.png)
+
+## Classification editor focus (#64)
+
+Built-image Chromium reproduced focus falling to BODY after moving the second
+unsaved rule. Replacing its DOM removed the focused button. Rule moves now focus
+the same rule's enabled checkbox at its new position; deletion chooses the next
+or previous rule, falling back to Add rule for an empty list. New rules focus the
+app condition. Category additions focus their name, and removals focus a neighbor.
+Rule groups and action labels identify their position; a status region announces
+moves/additions/deletions. First-rule Move up is disabled. Drafts remain local
+until the explicit save.
+
+Official Dayflow's supplied private screenshot and TimelineCardColorPicker.swift
+at2c79e161 were reviewed for the category editing context. This is a correction
+to PocketLog's own ordered-rule editor, not a claim that Dayflow uses this rule UI.
+
+Final embedded-image checks at1280×800 and390×844 used synthetic data only:
+add/move/delete, first-rule disabled, next/previous/empty focus fallback, preserved
+app/title drafts, category neighbor focus, focused control within dialog bounds,
+and no document/dialog horizontal overflow passed. Cancel left the complete
+workspace response unchanged. Focus was driven by DOM focus/click and inspected
+through activeElement; this is not screen-reader or physical-keyboard evidence.
+Both saved captures below were inspected. No API/classifier/Android change.
+
+Web syntax, timeline/import regression checks and final Docker auth/persistence/
+worker/replay/correction/deletion smoke passed. The same-wave Rust fmt/clippy with
+warnings denied/58tests/audit and Android60unit/build/lint/HTTPSoffline checks
+remain valid for unchanged source. Fresh private production backup/restore passed.
+
+- [Phone focused moved rule](screenshots/web-rule-focus-phone.png)
+- [Desktop focused moved rule](screenshots/web-rule-focus-desktop.png)

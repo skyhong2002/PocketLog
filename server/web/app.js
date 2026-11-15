@@ -3646,6 +3646,7 @@ function categoriesDialog() {
       name.value = c.name;
       name.maxLength = 40;
       name.setAttribute("aria-label", "分類名稱");
+      name.dataset.categoryId = c.id;
       const role = el("select");
       [
         ["focus", "專注"],
@@ -3671,31 +3672,33 @@ function categoriesDialog() {
           btn(
             "移除此分類",
             () => {
+              const index = draft.categories.indexOf(c);
+              const neighbor = draft.categories[index + 1] || draft.categories[index - 1];
               draft.categories = draft.categories.filter((x) => x.id !== c.id);
               draft.rules = draft.rules.filter((x) => x.category !== c.id);
               wrapper.remove();
               renderRules();
+              (categoryList.querySelector(`[data-category-id="${neighbor?.id}"]`) || addCategory).focus();
             },
             "quiet",
           ),
         );
     }
     draft.categories.forEach(renderCategory);
-    add(
-      p,
-      btn("新增分類", () => {
-        if (draft.categories.length >= 40) throw Error("最多 40 個分類");
-        const c = {
-          id: "custom_" + crypto.randomUUID().replaceAll("-", ""),
-          name: "新分類",
-          color: "#9bbce1",
-          role: "neutral",
-        };
-        draft.categories.push(c);
-        renderCategory(c);
-        renderRules();
-      }),
-    );
+    const addCategory = btn("新增分類", () => {
+      if (draft.categories.length >= 40) throw Error("最多 40 個分類");
+      const c = {
+        id: "custom_" + crypto.randomUUID().replaceAll("-", ""),
+        name: "新分類",
+        color: "#9bbce1",
+        role: "neutral",
+      };
+      draft.categories.push(c);
+      renderCategory(c);
+      renderRules();
+      categoryList.querySelector(`[data-category-id="${c.id}"]`).focus();
+    });
+    add(p, addCategory);
     add(
       p,
       el("h3", "自動分類規則"),
@@ -3705,8 +3708,10 @@ function categoriesDialog() {
       ),
     );
     const ruleList = el("div");
-    add(p, ruleList);
-    function renderRules() {
+    const ruleStatus = el("p", "", "muted");
+    ruleStatus.setAttribute("role", "status");
+    add(p, ruleStatus, ruleList);
+    function renderRules(focusId, focusApp = false) {
       invalidatePreview();
       ruleList.replaceChildren();
       if (!draft.rules.length)
@@ -3714,6 +3719,8 @@ function categoriesDialog() {
       draft.rules.forEach((r, i) => {
         const block = el("div", null, "card");
         add(ruleList, block);
+        block.setAttribute("role", "group");
+        block.setAttribute("aria-label", `規則 ${i + 1}`);
         const enabled = check(block, `規則 ${i + 1}：啟用`, r.enabled);
         enabled.onchange = () => (r.enabled = enabled.checked);
         const app = field(block, "完整 app 套件名稱（留白不限）", r.app || "");
@@ -3732,41 +3739,45 @@ function categoriesDialog() {
           r.category,
         );
         category.onchange = () => (r.category = category.value);
-        add(
-          block,
-          row(
-            btn("上移", () => {
-              if (i) {
-                [draft.rules[i - 1], draft.rules[i]] = [
-                  draft.rules[i],
-                  draft.rules[i - 1],
-                ];
-                renderRules();
-              }
-            }),
-            btn("刪除規則", () => {
-              draft.rules.splice(i, 1);
-              renderRules();
-            }),
-          ),
-        );
+        const moveUp = btn("上移", () => {
+          if (i) {
+            [draft.rules[i - 1], draft.rules[i]] = [
+              draft.rules[i],
+              draft.rules[i - 1],
+            ];
+            ruleStatus.textContent = `規則已移到第 ${i} 條；由上到下採第一個符合的規則。`;
+            renderRules(r.id);
+          }
+        });
+        moveUp.disabled = i === 0;
+        moveUp.setAttribute("aria-label", `上移規則 ${i + 1}`);
+        const remove = btn("刪除規則", () => {
+          draft.rules.splice(i, 1);
+          const neighbor = draft.rules[i] || draft.rules[i - 1];
+          ruleStatus.textContent = `已刪除規則，剩下 ${draft.rules.length} 條。尚未儲存。`;
+          renderRules(neighbor?.id);
+          if (!neighbor) addRule.focus();
+        });
+        remove.setAttribute("aria-label", `刪除規則 ${i + 1}`);
+        add(block, row(moveUp, remove));
+        if (r.id === focusId) (focusApp ? app : enabled).focus();
       });
     }
     renderRules();
-    add(
-      p,
-      btn("新增規則", () => {
-        if (draft.rules.length >= 32) throw Error("最多 32 條規則");
-        draft.rules.push({
-          id: crypto.randomUUID(),
-          category: draft.categories[0].id,
-          app: null,
-          title_contains: null,
-          enabled: true,
-        });
-        renderRules();
-      }),
-    );
+    const addRule = btn("新增規則", () => {
+      if (draft.rules.length >= 32) throw Error("最多 32 條規則");
+      const id = crypto.randomUUID();
+      draft.rules.push({
+        id,
+        category: draft.categories[0].id,
+        app: null,
+        title_contains: null,
+        enabled: true,
+      });
+      ruleStatus.textContent = `已新增第 ${draft.rules.length} 條規則，請填入 app 或標題條件。尚未儲存。`;
+      renderRules(id, true);
+    });
+    add(p, addRule);
     const preview = panel("先試算，再儲存", "rule-preview");
     add(p, preview);
     add(preview, el("p", "輸入一個範例，看看目前規則會如何分類。不會加入日誌、儲存設定或呼叫 AI；手動修改的活動永遠保留原分類。", "muted"));
