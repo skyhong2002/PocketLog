@@ -1011,7 +1011,7 @@ class MainActivity : Activity() {
             ui.stat(tiles, "有活動的天數", "${days.count { cardsOf(it.second).isNotEmpty() }} / 7", null)
             ui.card(slot).apply {
                 ui.heading(this, "一週節奏")
-                ui.meta(this, "每欄是一天，從 04:00 開始。點一欄開啟那一天。", bottom = 8)
+                ui.meta(this, if (TimelineMath.weekUsesProgressAxis(first, zone)) "一天從 04:00 開始。這週有時間切換，各日長度不同；左側百分比表示當天實際經過的比例。點一天查看本地時間。" else "每欄是一天，從 04:00 開始。點一欄開啟那一天。", bottom = 8)
                 addView(WeekTimelineView(this@MainActivity, week, day, today, zone, System.currentTimeMillis()) { day = it; home() }, ui.lp())
             }
             ui.card(slot, padding = 8).apply {
@@ -1027,7 +1027,9 @@ class MainActivity : Activity() {
                         list.isEmpty() -> "沒有活動"
                         else -> "${TimelineMath.duration(TimelineMath.covered(intervals(list)))} · 最多：${label(top!!.first)}"
                     }
-                    ui.row(this, md(w.date) + if (w.date == today) " · 今天" else "", detail, onClick = if (w.available) ({ day = w.date; home() }) else null)
+                    val dayLength = TimelineMath.dayLength(w.date, zone)
+                    val fullDetail = if (dayLength != 86_400_000L) "日長 ${TimelineMath.duration(dayLength)} · $detail" else detail
+                    ui.row(this, md(w.date) + if (w.date == today) " · 今天" else "", fullDetail, onClick = if (w.available) ({ day = w.date; home() }) else null)
                 }
             }
             if (all.isNotEmpty()) ui.card(slot).apply { ui.heading(this, "本週時間分配"); legend(this, totals(all)) }

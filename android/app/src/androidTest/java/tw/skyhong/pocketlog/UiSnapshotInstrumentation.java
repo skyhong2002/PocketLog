@@ -29,6 +29,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (args == null || !"yes".equals(args.getString("synthetic"))) throw new IllegalStateException("Explicit synthetic=yes required");
+            if ("yes".equals(args.getString("weekAxis"))) {
+                new WeekAxisChecks(this,args).run();
+                result.putString("stream", "Synthetic native week clock/progress axes, transition badges and day navigation passed.\n");
+                finish(Activity.RESULT_OK,result); return;
+            }
             if ("yes".equals(args.getString("shortTimeline"))) {
                 new ShortTimelineChecks(this,args).run();
                 result.putString("stream", "Synthetic native short-card geometry/bounds/original hit targets passed at 320/360/800dp and 100-card density.\n");
@@ -66,7 +71,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             }
             if ("yes".equals(args.getString("connected"))) {
                 new ConnectedUiChecks(this, args).run();
-                result.putString("stream", "yes".equals(args.getString("appNamesOnly"))
+                result.putString("stream", "yes".equals(args.getString("weekAxisPageOnly"))
+                    ? "Synthetic HTTPS transition-week explanation, full day length and normal-week recovery passed.\n"
+                    : "yes".equals(args.getString("appNamesOnly"))
                     ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native package-ID activity titles reproduced.\n" : "Synthetic HTTPS local app-name list/canvas/overview/identity and offline checks passed; canonical journal unchanged.\n")
                     : "yes".equals(args.getString("weeklyLimitOnly"))
                     ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native Weekly hides real API truncation reproduced.\n" : "Synthetic HTTPS weekly truncated response, loaded totals and affected-day warning checks passed.\n")

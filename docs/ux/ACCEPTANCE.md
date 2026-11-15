@@ -1442,3 +1442,45 @@ Initial harness assumed schema400 and revoke200; actual extractor422 and
 revoke204 were correctly accepted in the final successful run. No product change
 was needed for these harness assertions. Documentation-only; prior required
 checks remain valid and there is no new server/APK deployment.
+
+
+## Native week axis across unequal days (#63)
+
+WeekTimelineView previously positioned every day by its actual elapsed fraction
+but retained one fixed04/08/12/16/20/00clock gutter. A25h journal day's midpoint
+is12.5elapsed hours after04:00, not the16:00label shown at50%. Transition weeks
+now explicitly show0/25/50/75/100%progress and explain the interpretation;
+ordinary weeks retain clocks. Length badges have a separate header row, with
+full23/25/23.5h-equivalent duration in readable daily rows. Compact date text
+and selected circles fit their columns; day rows keep the full system font.
+This is PocketLog's compact-mobile adaptation of the official Dayflow week
+time-column/selection hierarchy at2c79e161, not a macOS runtime/parity claim.
+
+Sol6.1 implemented the view/policy and four pure policy/quarter-geometry tests;
+root integrated explanatory text, full day lengths, visual fixes and acceptance.
+The old0.4.24APK with the new testAPK reproduced fixed clocks on unequal days.
+Final actual Android Canvas/View tests cover NY23/25h, LordHowe23.5h and normal
+Taipei/NewYork at320/360/800dp with normal/2×font sizes: correct labels, unclipped
+percent gutter/bottom, true halfway activity geometry, bounded date text/circles
+and all seven original day callbacks. A2×capture exposed circle/header crowding;
+final column bounds fix it. Narrow length badges may ellipsize; readable rows
+retain the full duration.
+
+Actual trusted-HTTPS page checks with a fixed synthetic October31activity and
+process-local NewYork timezone verify the explanation, full25h day row, and
+removal of progress explanation on the next normal week, at both font sizes.
+Timezone restored in finally; emulator consent stays off. Final eight-page
+HTTPS/offline regression passes. Captures below were inspected; these are
+synthetic secure View/Canvas renders, not compositor, physical-phone or TalkBack
+evidence. Production FLAG_SECURE is unchanged.
+
+60Android unit tests, assembleDebug/instrumentation build/lint pass. Fresh Rust
+fmt/clippy-Dwarnings/58tests/audit1509advisories/185crates and web regressions
+pass (audit has the existing local crates.io-index warning, scan succeeds).
+Fresh private production backup/restore, prior rows and HTTPS assets/auth pass;
+server remains51e9a1c. APK0.4.25-dev uses the existing signing certificate.
+
+- [Normal-size progress axis](screenshots/native-week-progress-axis.png)
+- [2× progress axis](screenshots/native-week-progress-axis-large.png)
+- [Half-hour transition](screenshots/native-week-half-hour-axis.png)
+- [2× readable full day length](screenshots/native-week-day-length-large.png)

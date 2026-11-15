@@ -21,6 +21,10 @@ object TimelineMath {
 
     fun dayLength(day: LocalDate, zone: ZoneId): Long = dayStart(day.plusDays(1), zone) - dayStart(day, zone)
 
+    /** A shared clock axis is truthful only when every displayed journal day lasts 24 hours. */
+    fun weekUsesProgressAxis(firstDay: LocalDate, zone: ZoneId): Boolean =
+        (0L..6L).any { dayLength(firstDay.plusDays(it), zone) != 86_400_000L }
+
     /** Position within this actual local journal day, including 23/25-hour DST boundaries. */
     fun dayFraction(day: LocalDate, zone: ZoneId, at: Long): Float =
         ((at - dayStart(day, zone)).toDouble() / dayLength(day, zone)).coerceIn(0.0, 1.0).toFloat()

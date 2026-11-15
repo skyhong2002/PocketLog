@@ -70,4 +70,41 @@ class TimelineMathTest {
         assertEquals(86_400_000L, TimelineMath.dayLength(LocalDate.of(2026, 10, 31), taipei))
     }
 
+    @Test fun newYorkSpringWeekUsesProgressForItsTwentyThreeHourJournalDay() {
+        assertTransitionWeekProgress(LocalDate.of(2026, 3, 7), ZoneId.of("America/New_York"), 23 * 3_600_000L)
+    }
+
+    @Test fun newYorkFallWeekUsesProgressForItsTwentyFiveHourJournalDay() {
+        assertTransitionWeekProgress(LocalDate.of(2026, 10, 31), ZoneId.of("America/New_York"), 25 * 3_600_000L)
+    }
+
+    @Test fun lordHoweSpringWeekUsesProgressForItsHalfHourTransition() {
+        assertTransitionWeekProgress(LocalDate.of(2026, 10, 3), ZoneId.of("Australia/Lord_Howe"), 23 * 3_600_000L + 30 * 60_000L)
+    }
+
+    @Test fun taipeiKeepsClockAxisEvenDuringOtherZonesTransitionWeeks() {
+        for (day in listOf(LocalDate.of(2026, 3, 7), LocalDate.of(2026, 10, 3), LocalDate.of(2026, 10, 31))) {
+            val first = TimelineMath.weekStart(day)
+            assertFalse(TimelineMath.weekUsesProgressAxis(first, taipei))
+            for (offset in 0L..6L) assertEquals(86_400_000L, TimelineMath.dayLength(first.plusDays(offset), taipei))
+        }
+    }
+
+    private fun assertTransitionWeekProgress(day: LocalDate, zone: ZoneId, length: Long) {
+        val first = TimelineMath.weekStart(day)
+        assertEquals(length, TimelineMath.dayLength(day, zone))
+        assertTrue(TimelineMath.weekUsesProgressAxis(first, zone))
+        assertFalse(TimelineMath.weekUsesProgressAxis(first.minusWeeks(1), zone))
+        assertFalse(TimelineMath.weekUsesProgressAxis(first.plusWeeks(1), zone))
+        // Progress ticks apply to every column, with geometry based on each day's actual duration.
+        for (offset in 0L..6L) {
+            val date = first.plusDays(offset)
+            val start = TimelineMath.dayStart(date, zone)
+            val actualLength = TimelineMath.dayLength(date, zone)
+            for (quarter in 0..4) {
+                assertEquals(quarter / 4f, TimelineMath.dayFraction(date, zone, start + actualLength * quarter / 4), .00001f)
+            }
+        }
+    }
+
 }

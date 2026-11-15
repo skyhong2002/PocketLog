@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("weekAxisPageOnly"))) { weekAxisPageCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("appNamesOnly"))) { appNamesCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("weeklyLimitOnly"))) { weeklyLimitCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsConflictOnly"))) { goalsConflictCheck(fixtureOwner); return; }
@@ -185,6 +186,28 @@ final class ConnectedUiChecks {
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void weekAxisPageCheck(PocketLogApi owner) throws Exception {
+        stage="transition week axis explanation and full day length";
+        test.setInTouchMode(true);
+        java.util.TimeZone previous=java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/New_York"));
+            java.time.LocalDate date=java.time.LocalDate.of(2026,10,31);
+            java.time.ZoneId zone=java.time.ZoneId.systemDefault();
+            long start=TimelineMath.INSTANCE.dayStart(date,zone)+TimelineMath.INSTANCE.dayLength(date,zone)/2;
+            owner.request("/v1/activities",new JSONObject().put("activities",new org.json.JSONArray().put(new JSONObject().put("id","synthetic-week-axis-fall-2026").put("app","org.example.timechange").put("category","learning").put("start_ms",start).put("end_ms",start+1200000))),"POST");
+            Field selected=MainActivity.class.getDeclaredField("day");selected.setAccessible(true);
+            test.runOnMainSync(()->{try{selected.set(activity,date);}catch(Exception e){throw new RuntimeException(e);}});
+            click("每週");await("一週節奏");awaitSettled();
+            if(!has("左側百分比"))throw new IllegalStateException("Transition explanation absent");
+            revealTextContaining("這週有時間切換");capture("weekly-axis-progress");
+            revealTextContaining("日長 25 小時");capture("weekly-axis-day-length");
+            test.runOnMainSync(()->{try{selected.set(activity,date.plusWeeks(1));}catch(Exception e){throw new RuntimeException(e);}});
+            click("每週");await("一週節奏");awaitSettled();
+            if(has("左側百分比")||!has("每欄是一天"))throw new IllegalStateException("Progress explanation remained on normal week");
+            assertConsentOff();
+        } finally {java.util.TimeZone.setDefault(previous);}
     }
     private void weeklyLimitCheck(PocketLogApi owner) throws Exception {
         stage="weekly API truncation transparency";

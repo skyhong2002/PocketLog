@@ -145,33 +145,50 @@ class WeekTimelineView(context: Context, private val days: List<WeekDay>, privat
     private val label = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = ui.sp(12f); color = Palette.MUTED }
     private val number = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = ui.sp(15f); color = Palette.INK; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.CENTER }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val gutter = label.measureText("00") + ui.dp(10)
-    private val header = label.textSize + number.textSize + ui.dp(22)
+    private val progressAxis = days.firstOrNull()?.let { TimelineMath.weekUsesProgressAxis(it.date, zone) } ?: false
+    private val axisTicks = if (progressAxis) {
+        (0..4).map { it / 4f to "${it * 25}%" }
+    } else {
+        (0..20 step 4).map { it / 24f to "%02d".format((it + TimelineMath.DAY_START_HOUR) % 24) }
+    }
+    private val gutter = axisTicks.maxOf { label.measureText(it.second) } + ui.dp(10)
+    // Transition-day badges get their own row, including at large system font sizes.
+    private val header = label.textSize + number.textSize + ui.dp(22) + if (progressAxis) label.textSize + ui.dp(6) else 0f
     private val hour = maxOf(ui.dp(18).toFloat(), label.textSize * 1.4f)
     private val names = listOf("一", "二", "三", "四", "五", "六", "日")
     private val rect = RectF()
 
     init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
 
-    override fun onMeasure(widthSpec: Int, heightSpec: Int) = setMeasuredDimension(MeasureSpec.getSize(widthSpec), (header + hour * 24 + ui.dp(8)).toInt())
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) = setMeasuredDimension(MeasureSpec.getSize(widthSpec), (header + hour * 24 + maxOf(ui.dp(8).toFloat(), label.textSize)).toInt())
 
     private fun columnWidth() = (width - gutter) / 7f
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        // Compact chart labels fit their column; the day rows keep the full system font size.
+        number.textSize = ui.sp(15f)
+        val available = (columnWidth() - ui.dp(4)).coerceAtLeast(1f)
+        val measured = number.measureText("31")
+        if (measured > available) number.textSize *= available / measured
+    }
 
     override fun onDraw(canvas: Canvas) {
         val col = columnWidth()
         label.textAlign = Paint.Align.LEFT
-        for (h in 0..24 step 4) {
-            val y = header + h * hour
+        for ((fraction, text) in axisTicks) {
+            val y = header + fraction * 24 * hour
             paint.color = Palette.HAIRLINE; canvas.drawRect(gutter, y, width.toFloat(), y + ui.dp(1), paint)
-            if (h < 24) canvas.drawText("%02d".format((h + TimelineMath.DAY_START_HOUR) % 24), 0f, y + label.textSize, label)
+            canvas.drawText(text, 0f, y + label.textSize * .36f, label)
         }
+        paint.color = Palette.HAIRLINE
+        canvas.drawRect(gutter, header + 24 * hour, width.toFloat(), header + 24 * hour + ui.dp(1), paint)
         days.forEachIndexed { i, day ->
             val x = gutter + i * col
             val isSelected = day.date == selected
             label.textAlign = Paint.Align.CENTER
             canvas.drawText(names[day.date.dayOfWeek.value - 1], x + col / 2, label.textSize + ui.dp(2), label)
             val cy = label.textSize + ui.dp(8) + number.textSize * .6f
-            if (isSelected) { paint.color = Palette.ACCENT; canvas.drawCircle(x + col / 2, cy, number.textSize * .95f, paint) }
+            if (isSelected) { paint.color = Palette.ACCENT; canvas.drawCircle(x + col / 2, cy, minOf(number.textSize * .95f, (col / 2 - ui.dp(2)).coerceAtLeast(0f)), paint) }
             number.color = when { isSelected -> android.graphics.Color.WHITE; day.available -> Palette.INK; else -> Palette.MUTED }
             canvas.drawText(day.date.dayOfMonth.toString(), x + col / 2, cy + number.textSize * .36f, number)
             if (day.date == today && !isSelected) { paint.color = Palette.ACCENT; canvas.drawRect(x + col / 2 - ui.dp(8), cy + number.textSize * .8f, x + col / 2 + ui.dp(8), cy + number.textSize * .8f + ui.dp(2), paint) }
@@ -180,7 +197,13 @@ class WeekTimelineView(context: Context, private val days: List<WeekDay>, privat
             canvas.drawRoundRect(rect, ui.dp(6).toFloat(), ui.dp(6).toFloat(), paint)
             val start = TimelineMath.dayStart(day.date, zone)
             val length = TimelineMath.dayLength(day.date, zone)
-            if (length != 86_400_000L) canvas.drawText("${length / 3_600_000.0}h", x + col / 2, header - ui.dp(3), label)
+            if (length != 86_400_000L) {
+                val hours = length / 3_600_000.0
+                val badge = if (length % 3_600_000L == 0L) "${length / 3_600_000L}h" else "${hours}h"
+                // The readable day rows below retain the full duration when narrow columns truncate.
+                val visible = TextUtils.ellipsize(badge, label, (col - ui.dp(4)).coerceAtLeast(0f), TextUtils.TruncateAt.END)
+                canvas.drawText(visible.toString(), x + col / 2, header - ui.dp(3), label)
+            }
             day.items.forEach { item ->
                 val top = header + TimelineMath.dayFraction(day.date, zone, item.start) * 24 * hour
                 val bottom = header + TimelineMath.dayFraction(day.date, zone, item.end) * 24 * hour
