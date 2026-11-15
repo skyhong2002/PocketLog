@@ -184,3 +184,15 @@ assert.equal(new Set(mixed.flatMap(g=>g.placed.map(p=>p.card.id))).size,1001);
 assert.equal(timelineGroups([{id:1,start_ms:0,end_ms:100},{id:2,start_ms:10,end_ms:20}],0,4)[0].collapsed,false);
 assert.deepEqual(timelineGroups([],0,4),[]);
 console.log('Dense display groups preserve every record, true bounds and ordinary overlaps');
+
+const { duration } = require('../server/web/app.js');
+assert.equal(duration(0),'0 分鐘');
+assert.equal(duration(-1000),'0 分鐘');
+assert.equal(duration(1),'不到 1 分鐘');
+assert.equal(duration(29999),'不到 1 分鐘');
+assert.equal(duration(30000),'1 分鐘');
+assert.equal(duration(89999),'1 分鐘');
+assert.equal(duration(90000),'2 分鐘');
+assert.equal(duration(3600000),'1 小時');
+assert.equal(duration(3660000),'1 小時 1 分');
+console.log('Positive brief durations stay distinct from zero; minute/hour rounding retained');

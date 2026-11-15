@@ -1398,3 +1398,25 @@ reference; dense-group rendering is PocketLog's adaptation, not feature parity.
 
 - [Desktop dense group](screenshots/web-density-desktop.png)
 - [Phone dense group](screenshots/web-density-phone.png)
+
+
+## Brief activity durations (#61)
+
+Positive durations below30seconds now read「不到1分鐘」on the website, matching
+the native formatter's distinction from zero. Zero stays0; minute/hour rounding
+and stored interval/merged-total arithmetic are unchanged. Negative display input
+is clamped to zero, as on Android. Official DailyWorkflowComputation.swift
+at2c79e161 delegates duration presentation to LocalizedDuration; PocketLog's
+wording is its own implementation, not an exact Dayflow format claim.
+
+The rebuilt synthetic390px list shows the new duration in both visible text and
+accessible name for a one-second card, without overflow. The1280px read-only
+inspector also shows it and focuses its heading. Both captures were saved and
+inspected. Node checks cover zero/negative,1ms/29999ms/30000ms, minute rounding
+and exact/remainder-hour boundaries. Web regressions and final-image Docker
+privacy/API/worker smoke pass. Same-wave unchanged Rust fmt/clippy-Dwarnings/
+58tests/audit and native56unit/build/lint/HTTPSoffline checks remain valid.
+No browser mutation, provider call or native production change was needed.
+
+- [Phone brief durations](screenshots/web-short-duration-phone.png)
+- [Desktop inspector duration](screenshots/web-short-duration-inspector.png)

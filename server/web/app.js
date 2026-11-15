@@ -386,7 +386,8 @@ function time(ms) {
   });
 }
 function duration(ms) {
-  const m = Math.round(ms / 60000);
+  if (ms > 0 && ms < 30000) return "不到 1 分鐘";
+  const m = Math.round(Math.max(0, ms) / 60000);
   if (m < 60) return `${m} 分鐘`;
   return m % 60
     ? `${Math.floor(m / 60)} 小時 ${m % 60} 分`
