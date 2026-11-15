@@ -126,6 +126,25 @@ random Docker volume and credentials, never the production volume.
 Update production using the existing Compose project and volume. The schema adds
 tables/indexes without rewriting existing activities/check-ins. Verify health,
 authenticated timeline/status, original record counts and both services afterward.
+When reusing a local image tag, keep a rollback tag and explicitly recreate both
+containers; a successful `up` reporting `Running` is not proof of a new image:
+
+```sh
+docker image tag pocketlog:production pocketlog:rollback-before-upgrade
+docker image inspect pocketlog:validated-candidate --format '{{.Id}}'
+docker image tag pocketlog:validated-candidate pocketlog:production
+docker compose -f compose.yaml -f compose.production.yaml up -d --no-build --force-recreate
+docker inspect pocketlog-production-server-1 pocketlog-production-worker-1 \
+  --format '{{.Name}} {{.State.Status}} {{.Image}}'
+```
+
+Use the actual tested candidate tag. Both running image IDs must match that
+candidate; otherwise the upgrade is incomplete. Verify `/healthz`, unauthenticated
+journal rejection, authenticated status/timeline, database integrity and preserved
+table counts through the existing private HTTPS origin. Preserve the project,
+volumes, owner key and model configuration. Rollback uses the saved image tag and
+the same recreate command, subject to schema compatibility; never use `down -v`.
+
 The worker receives no owner-token secret. Do not enable a provider by merely
 adding a key; both the explicit server switch and per-capture client consent are
 required. No new production token is needed for this backward-compatible update.
