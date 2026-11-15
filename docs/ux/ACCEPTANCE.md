@@ -1138,3 +1138,30 @@ Docker private smoke pass; unchanged Rust/native checks are recorded in #50 abov
 
 - [Scaled category role](screenshots/web-classification-scaled-role.png)
 - [Scaled conflict retry](screenshots/web-classification-scaled-recovery.png)
+
+## Native classification draft recovery (#52)
+
+Old0.4.18 APK reproduced repeated409 after another client updates goals; server
+classification remains unchanged, draft has no recovery action. New0.4.19 actual
+HTTPS emulator/View tests pass at normal and2× system font scale: add-category
+recursive editor, rule-preview return, goals-only conflict, return to edit with
+original draft, explicit retry preserving new category and remote goals, remote
+category change, replacement cancel, another remote update during confirmation,
+guarded refusal/reload and explicit successful replacement. Real synthetic activity
+makes category removal return used409; restore retains other edits and saves.
+Actual airplane/WiFi-off metadata refresh fails; returning to edit retains draft,
+reconnect and retry succeed. Synthetic workspace restored after each run, capture
+consent off. Four policy unit tests include independent snapshots, current unrelated
+fields, category/rule changes, revision guard and null/key-order normalization.
+48native unit tests, assembleDebug, instrumentation build, lint and full eight-page
+HTTPS/offline regression pass. Rust58/fmt/clippy-Dwarnings/audit1509/185 and web
+regressions pass. Audit retains the local crates.io-index update warning; advisory
+scan succeeds. Secure View and secure-dialog captures below were inspected; these
+are not compositor, physical-device, gesture or TalkBack evidence. Draft recovery
+is scoped to the current editing flow, not process-death persistence.
+Official Dayflow target/category separation and DayCategorySelectionEditor.swift
+at2c79e161 inform explicit category intent; multi-client recovery is PocketLog-specific.
+
+- [Retained draft and current goals](screenshots/native-classification-conflict.png)
+- [2× retry action](screenshots/native-classification-conflict-large.png)
+- [2× explicit replacement confirmation](screenshots/native-classification-replace-large.png)

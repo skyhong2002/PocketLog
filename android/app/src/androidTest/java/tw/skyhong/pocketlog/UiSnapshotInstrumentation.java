@@ -61,7 +61,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             }
             if ("yes".equals(args.getString("connected"))) {
                 new ConnectedUiChecks(this, args).run();
-                result.putString("stream", "yes".equals(args.getString("goalsThenCategoriesOnly"))
+                result.putString("stream", "yes".equals(args.getString("classificationConflictOnly"))
+                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native repeated409 without recovery reproduced; fixture restored.\n" : "Synthetic HTTPS classification conflict draft preservation, guarded retry/replacement, used-category and offline recovery checks passed; fixture restored.\n")
+                    : "yes".equals(args.getString("goalsThenCategoriesOnly"))
                     ? "Synthetic HTTPS native goal-save then classification-save preserves both goals and category; fixture restored.\n"
                     : "yes".equals(args.getString("controlFailureOnly"))
                     ? "Synthetic HTTPS server-outage collection/backoff, paused/auth stops and restored upload checks passed; capture settings cleared.\n"

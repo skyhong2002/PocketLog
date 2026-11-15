@@ -1864,7 +1864,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun categoryRulesEditor(draft: JSONObject) {
+    private fun categoryRulesEditor(draft: JSONObject) = categoryRulesEditor(draft, JSONObject(draft.toString()))
+
+    private fun categoryRulesEditor(draft: JSONObject, baseline: JSONObject) {
         val body = screen("分類與自動規則", "儲存後同步到網站", tab = Tab.SETTINGS, back = {
             dialog().setTitle("放棄未儲存的修改？").setNegativeButton("繼續編輯", null).setPositiveButton("放棄") { _, _ -> sharedSettings() }.show()
         })
@@ -1875,7 +1877,7 @@ class MainActivity : Activity() {
         fun remember() = capture.forEach { it() }
         ui.button(body, "試算規則（不儲存）", Tone.TONAL) {
             remember()
-            rulePreview(JSONObject(draft.toString())) { categoryRulesEditor(draft) }
+            rulePreview(JSONObject(draft.toString())) { categoryRulesEditor(draft, baseline) }
         }
         val roles = listOf("focus", "neutral", "distraction")
         ui.groupLabel(body, "分類")
@@ -1893,12 +1895,12 @@ class MainActivity : Activity() {
             if (c.getString("id").startsWith("custom_")) ui.button(card, "移除此分類", Tone.TEXT) {
                 remember(); styles.remove(i)
                 for (j in rules.length() - 1 downTo 0) if (rules.getJSONObject(j).getString("category") == c.getString("id")) rules.remove(j)
-                categoryRulesEditor(draft)
+                categoryRulesEditor(draft, baseline)
             }
         }
         ui.button(body, "新增分類", Tone.TONAL) {
             if (styles.length() >= 40) { notice("最多 40 個分類", Kind.WARN); return@button }
-            remember(); styles.put(JSONObject().put("id", "custom_" + UUID.randomUUID().toString().replace("-", "")).put("name", "新分類").put("color", "#9bbce1").put("role", "neutral")); categoryRulesEditor(draft)
+            remember(); styles.put(JSONObject().put("id", "custom_" + UUID.randomUUID().toString().replace("-", "")).put("name", "新分類").put("color", "#9bbce1").put("role", "neutral")); categoryRulesEditor(draft, baseline)
         }
         ui.groupLabel(body, "自動分類規則")
         val ids = (0 until styles.length()).map { styles.getJSONObject(it).getString("id") }
@@ -1915,17 +1917,81 @@ class MainActivity : Activity() {
             ui.actions(card, *labels) { index ->
                 remember()
                 if (i > 0 && index == 0) { val previous = rules.getJSONObject(i - 1); rules.put(i - 1, r); rules.put(i, previous) } else rules.remove(i)
-                categoryRulesEditor(draft)
+                categoryRulesEditor(draft, baseline)
             }
         }
         ui.button(body, "新增規則", Tone.TONAL) {
             if (rules.length() >= 32) { notice("最多 32 條規則", Kind.WARN); return@button }
-            remember(); rules.put(JSONObject().put("id", UUID.randomUUID().toString()).put("category", ids.first()).put("app", JSONObject.NULL).put("title_contains", JSONObject.NULL).put("enabled", true)); categoryRulesEditor(draft)
+            remember(); rules.put(JSONObject().put("id", UUID.randomUUID().toString()).put("category", ids.first()).put("app", JSONObject.NULL).put("title_contains", JSONObject.NULL).put("enabled", true)); categoryRulesEditor(draft, baseline)
         }
         ui.actions(body, "放棄修改" to Tone.OUTLINE, "儲存分類與規則" to Tone.PRIMARY) { index ->
             if (index == 0) { sharedSettings(); return@actions }
             remember()
-            task("儲存分類與規則…", { api().request("/v1/workspace", draft, "PUT") }) { workspace = it; sharedSettings(); notice("已儲存並同步到網站") }
+            saveClassification(draft, baseline)
+        }
+    }
+
+    private fun saveClassification(draft: JSONObject, baseline: JSONObject) {
+        val payload = JSONObject(draft.toString())
+        task("儲存分類與規則…", { api().request("/v1/workspace", payload, "PUT") }, failed = { error ->
+            if (error is ApiFailure && error.status == 409) classificationRecovery(draft, baseline, payload.getLong("revision"))
+        }) { workspace = it; sharedSettings(); notice("已儲存並同步到網站") }
+    }
+
+    private fun classificationRecovery(draft: JSONObject, baseline: JSONObject, attemptedRevision: Long) {
+        val body = screen("分類草稿已保留", "尚未重試儲存", tab = Tab.SETTINGS, back = { categoryRulesEditor(draft, baseline) })
+        ui.banner(body, "分類與規則草稿仍保留在手機的這個編輯流程中。核對最新設定後再決定；不用放棄草稿或重新登入。離開這個流程或關閉 app 前，請先完成儲存。")
+        ui.button(body, "返回編輯草稿", Tone.OUTLINE) { categoryRulesEditor(draft, baseline) }
+        val slot = ui.column(body)
+        load(slot, "核對最新設定…", { api().request("/v1/workspace") }) { latest ->
+            val card = ui.card(slot)
+            when (ClassificationRecovery.kind(baseline, latest, attemptedRevision)) {
+                ClassificationRecovery.Kind.USED -> {
+                    ui.heading(card, "分類仍被活動使用")
+                    ui.body(card, "這次不是設定版本衝突。移除的分類仍被已儲存活動使用；請還原分類或先重新分類。其他草稿修改已保留。")
+                    val categories = draft.getJSONArray("categories")
+                    val existing = (0 until categories.length()).map { categories.getJSONObject(it).getString("id") }.toSet()
+                    val remote = latest.getJSONArray("categories")
+                    val removed = (0 until remote.length()).map { remote.getJSONObject(it) }.filter { it.getString("id") !in existing }
+                    if (removed.isNotEmpty()) ui.button(card, "還原移除的分類，保留其他草稿", Tone.TONAL) {
+                        if (categories.length() + removed.size > 40) { notice("還原後超過 40 個分類，請先移除未使用的新分類。", Kind.WARN); return@button }
+                        removed.forEach { categories.put(JSONObject(it.toString())) }
+                        categoryRulesEditor(draft, baseline)
+                        notice("已還原分類；其他修改保留，請檢查規則後再儲存。", Kind.INFO)
+                    }
+                }
+                ClassificationRecovery.Kind.OTHER -> {
+                    ui.heading(card, "其他設定已更新，分類草稿仍在")
+                    ui.body(card, "遠端分類與規則未變。保留最新專注目標 ${latest.getInt("focus_minutes")} 分鐘、分心預算 ${latest.getInt("distraction_minutes")} 分鐘，再儲存你的分類草稿。")
+                    ui.button(card, "保留最新目標，重試儲存分類") { saveClassification(ClassificationRecovery.candidate(draft, latest), baseline) }
+                }
+                ClassificationRecovery.Kind.CLASSIFICATION -> {
+                    ui.heading(card, "遠端分類與規則也已變更")
+                    ui.body(card, "你的草稿尚未覆蓋遠端版本。比較後可返回編輯，或明確取代剛讀取的遠端分類與規則；其他設定保留最新值。")
+                    val remote = latest.getJSONArray("categories")
+                    ui.groupLabel(card, "剛讀取的遠端分類")
+                    for (i in 0 until remote.length()) {
+                        val c = remote.getJSONObject(i)
+                        val role = when (c.getString("role")) { "focus" -> "專注"; "distraction" -> "分心"; else -> "一般" }
+                        ui.body(card, "${c.getString("name")} · $role · ${c.getString("color")}")
+                    }
+                    val rules = latest.optJSONArray("rules") ?: JSONArray()
+                    ui.groupLabel(card, "剛讀取的遠端規則")
+                    if (rules.length() == 0) ui.meta(card, "沒有規則。")
+                    for (i in 0 until rules.length()) {
+                        val r = rules.getJSONObject(i)
+                        val target = (0 until remote.length()).map { remote.getJSONObject(it) }.firstOrNull { it.getString("id") == r.getString("category") }?.getString("name") ?: r.getString("category")
+                        ui.body(card, "${i + 1}. ${if (r.getBoolean("enabled")) "啟用" else "停用"} · ${r.optString("app").takeUnless { it == "null" || it.isBlank() } ?: "所有 app"} · ${r.optString("title_contains").takeUnless { it == "null" || it.isBlank() } ?: "所有標題"} → $target")
+                    }
+                    ui.button(card, "確認以我的草稿取代遠端分類", Tone.DANGER) {
+                        dialog().setTitle("取代剛讀取的遠端分類與規則？")
+                            .setMessage("會用草稿的全部分類與規則取代剛讀取的遠端版本。保留專注目標 ${latest.getInt("focus_minutes")} 分鐘、分心預算 ${latest.getInt("distraction_minutes")} 分鐘及其他設定。不會刪除活動；使用中的分類仍不能移除。如果遠端再更新，會重新核對。")
+                            .setNegativeButton("保留草稿", null)
+                            .setPositiveButton("取代分類與規則") { _, _ -> saveClassification(ClassificationRecovery.candidate(draft, latest), baseline) }.showSecure()
+                    }
+                }
+            }
+            ui.button(slot, "重新核對最新設定", Tone.OUTLINE) { classificationRecovery(draft, baseline, attemptedRevision) }
         }
     }
 

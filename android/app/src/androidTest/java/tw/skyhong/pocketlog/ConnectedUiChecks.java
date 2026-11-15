@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("classificationConflictOnly"))) { classificationConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsThenCategoriesOnly"))) { goalsThenCategoriesCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("controlFailureOnly"))) { controlFailureCheck(fixtureOwner, endpoint); return; }
             if ("yes".equals(args.getString("captureAiOnly"))) { captureAiConsentCheck(fixtureOwner); return; }
@@ -180,6 +181,64 @@ final class ConnectedUiChecks {
             // Keep only the successful synthetic key's metadata for the web evidence;
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
+        }
+    }
+    private void classificationConflictCheck(PocketLogApi owner) throws Exception {
+        stage="native classification draft conflict recovery";
+        JSONObject original=owner.request("/v1/workspace",null,"GET");
+        int focus=(original.getInt("focus_minutes")+31)%1441;
+        String local="合成：分類草稿保留", remoteName="合成：遠端分類版本";
+        try {
+            click("設定");await("目標與分類");click("目標與分類");await("儲存目標");awaitSettled();
+            click("編輯分類與自動規則");await("儲存分類與規則");awaitSettled();setEditor("最多 40 字",local);
+            // Recursive editor construction must retain the original comparison baseline.
+            revealAction("新增分類");click("新增分類");await("儲存分類與規則");awaitSettled();assertEditor("最多 40 字",local);
+            JSONObject r=owner.request("/v1/workspace",null,"GET");r.put("focus_minutes",focus);owner.request("/v1/workspace",r,"PUT");
+            revealAction("儲存分類與規則");click("儲存分類與規則");
+            if("yes".equals(args.getString("expectLegacy"))) {
+                await("資料已在其他裝置更新，請重新載入後再試。");awaitSettled();assertEditor("最多 40 字",local);
+                click("儲存分類與規則");await("資料已在其他裝置更新，請重新載入後再試。");awaitSettled();
+                if(has("保留最新目標，重試儲存分類"))throw new IllegalStateException("Legacy unexpectedly recovers");
+                JSONObject saved=owner.request("/v1/workspace",null,"GET");if(local.equals(saved.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Legacy overwrote conflict");
+                capture("classification-legacy-conflict");return;
+            }
+            await("其他設定已更新，分類草稿仍在");awaitSettled();revealAction("其他設定已更新，分類草稿仍在");capture("classification-goals-conflict");revealFullRow("保留最新目標，重試儲存分類");capture("classification-goals-retry");
+            revealAction("返回編輯草稿");click("返回編輯草稿");await("儲存分類與規則");awaitSettled();assertEditor("最多 40 字",local);
+            revealAction("試算規則（不儲存）");click("試算規則（不儲存）");await("試算分類規則");click("返回");await("儲存分類與規則");awaitSettled();
+            revealAction("儲存分類與規則");click("儲存分類與規則");await("其他設定已更新，分類草稿仍在");awaitSettled();
+            revealAction("保留最新目標，重試儲存分類");click("保留最新目標，重試儲存分類");await("已儲存並同步到網站");awaitSettled();
+            r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")!=focus||!local.equals(r.getJSONArray("categories").getJSONObject(0).getString("name"))||r.getJSONArray("categories").length()!=original.getJSONArray("categories").length()+1)throw new IllegalStateException("Goal rebase lost draft/baseline/goals");
+            click("編輯分類與自動規則");await("儲存分類與規則");awaitSettled();setEditor("最多 40 字",local+"二");
+            r=owner.request("/v1/workspace",null,"GET");r.getJSONArray("categories").getJSONObject(0).put("name",remoteName);owner.request("/v1/workspace",r,"PUT");
+            revealAction("儲存分類與規則");click("儲存分類與規則");await("遠端分類與規則也已變更");awaitSettled();
+            revealAction("確認以我的草稿取代遠端分類");click("確認以我的草稿取代遠端分類");awaitProbeDialog("取代剛讀取的遠端分類與規則？");captureProbeDialog("classification-replace-confirm");probeDialogClick("保留草稿");
+            if(!remoteName.equals(owner.request("/v1/workspace",null,"GET").getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Cancel wrote server");
+            click("確認以我的草稿取代遠端分類");awaitProbeDialog("取代剛讀取的遠端分類與規則？");
+            r=owner.request("/v1/workspace",null,"GET");r.put("focus_minutes",(focus+1)%1441);owner.request("/v1/workspace",r,"PUT");
+            probeDialogClick("取代分類與規則");await("遠端分類與規則也已變更");awaitSettled();
+            if(!remoteName.equals(owner.request("/v1/workspace",null,"GET").getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Race overwrote remote");
+            revealAction("確認以我的草稿取代遠端分類");click("確認以我的草稿取代遠端分類");awaitProbeDialog("取代剛讀取的遠端分類與規則？");probeDialogClick("取代分類與規則");await("已儲存並同步到網站");awaitSettled();
+            r=owner.request("/v1/workspace",null,"GET");if(r.getInt("focus_minutes")!=(focus+1)%1441||!(local+"二").equals(r.getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Explicit replacement failed");
+            String usedId=null;for(int i=0;i<original.getJSONArray("categories").length();i++){String id=original.getJSONArray("categories").getJSONObject(i).getString("id");if(id.startsWith("custom_")){usedId=id;break;}}
+            if(usedId==null)throw new IllegalStateException("Fixture requires pre-existing custom category");
+            long now=System.currentTimeMillis();owner.request("/v1/activities",new JSONObject().put("activities",new org.json.JSONArray().put(new JSONObject().put("id","native-conflict-"+java.util.UUID.randomUUID()).put("start_ms",now-120000).put("end_ms",now-60000).put("app","org.example.classificationrecovery").put("category",usedId))),"POST");
+            click("編輯分類與自動規則");await("儲存分類與規則");awaitSettled();setEditor("最多 40 字",local+"三");
+            final String removeId=usedId;test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&removeId.equals(t.getText().toString())){List<View> all=new ArrayList<>();collect((View)v.getParent().getParent(),all);for(View button:all)if(button instanceof TextView b&&"移除此分類".equals(b.getText().toString())){button.performClick();return;}}throw new IllegalStateException("Category remove action missing");});
+            await("儲存分類與規則");awaitSettled();revealAction("儲存分類與規則");click("儲存分類與規則");await("分類仍被活動使用");awaitSettled();revealAction("分類仍被活動使用");capture("classification-used-conflict");revealFullRow("還原移除的分類，保留其他草稿");capture("classification-used-restore");
+            revealAction("還原移除的分類，保留其他草稿");click("還原移除的分類，保留其他草稿");await("儲存分類與規則");awaitSettled();assertEditor("最多 40 字",local+"三");
+            revealAction("儲存分類與規則");click("儲存分類與規則");await("已儲存並同步到網站");awaitSettled();
+            click("編輯分類與自動規則");await("儲存分類與規則");awaitSettled();setEditor("最多 40 字",local+"離線");
+            r=owner.request("/v1/workspace",null,"GET");r.put("focus_minutes",(focus+2)%1441);owner.request("/v1/workspace",r,"PUT");
+            revealAction("儲存分類與規則");click("儲存分類與規則");await("其他設定已更新，分類草稿仍在");awaitSettled();
+            shell("svc wifi disable");shell("svc data disable");shell("cmd connectivity airplane-mode enable");
+            revealAction("重新核對最新設定");click("重新核對最新設定");await("無法載入");awaitSettled();capture("classification-refresh-offline");
+            click("返回編輯草稿");await("儲存分類與規則");awaitSettled();assertEditor("最多 40 字",local+"離線");
+            shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();
+            revealAction("儲存分類與規則");click("儲存分類與規則");await("其他設定已更新，分類草稿仍在");awaitSettled();revealAction("保留最新目標，重試儲存分類");click("保留最新目標，重試儲存分類");await("已儲存並同步到網站");awaitSettled();
+            if(!(local+"離線").equals(owner.request("/v1/workspace",null,"GET").getJSONArray("categories").getJSONObject(0).getString("name")))throw new IllegalStateException("Offline recovery lost draft");assertConsentOff();
+        } finally {
+            shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();
+            JSONObject current=owner.request("/v1/workspace",null,"GET");original.put("revision",current.getLong("revision"));owner.request("/v1/workspace",original,"PUT");
         }
     }
     private void goalsThenCategoriesCheck(PocketLogApi owner) throws Exception {
