@@ -29,6 +29,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (args == null || !"yes".equals(args.getString("synthetic"))) throw new IllegalStateException("Explicit synthetic=yes required");
+            if ("yes".equals(args.getString("savedCaptureConsent"))) {
+                new SavedCaptureConsentChecks(this,args).run();
+                result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy hidden saved grants, blocked paused revocation and incomplete resume disclosure reproduced.\n" : "Synthetic saved capture grants, paused revocation and explicit resume disclosure checks passed.\n");
+                finish(Activity.RESULT_OK,result); return;
+            }
             if ("yes".equals(args.getString("accessibility"))) {
                 new AccessibilityChecks(this, args).run();
                 result.putString("stream", "Synthetic OS accessibility node/actions checks passed; FLAG_SECURE retained.\n");
@@ -149,7 +154,7 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("timelineUpdates")) || "yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("savedCaptureConsent")) || "yes".equals(args.getString("timelineUpdates")) || "yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }

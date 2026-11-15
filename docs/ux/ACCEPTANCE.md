@@ -2058,3 +2058,31 @@ web scheduled-summary feature, not Dayflow's separate cloud Flow backend.
 
 ![Schedule draft retained on phone](screenshots/web-schedule-draft-phone.png)
 ![Schedule draft retained on desktop](screenshots/web-schedule-draft-desktop.png)
+
+## Saved capture consent while paused (#85)
+
+Astra6 source audit and Sol6.1 guarded legacy emulator reproduction confirmed
+that retained text/image/replay consent was displayed as Off and could not be
+revoked while upstream recording was paused. Usage resume also incorrectly
+promised no text/screenshots although downstream grants resumed.
+
+Saved grants are now separate readable properties; capture still uses the same
+effective gated getters. Settings and Support identify retained paused consent,
+and each grant can be revoked before prerequisite checks, even during local or
+server pause. Resume disclosures name retained independent text/images/replay and
+provider-bound model choices; cancel changes nothing. A remote pause arriving
+during confirmation still fails closed. Revocation clears queued context under
+the existing lock, preserving unrelated choices and provider identity.
+
+Legacy reproduction and final guarded Android34 normal/2× actual-View matrix pass:
+local/remote/immediate-parent pauses, independent revocations, queue clearing,
+usage revocation during remote pause, all cancel paths and late remote pause.
+The helper refuses existing credentials/private files/preferences or OS capture
+grants, and makes no server/model call. Root inspected paused settings and2×
+resume start/end captures. Integrated0.4.30 passes63unit tests/debug/testAPK/lint,
+and its normal actual-View acceptance also passes. FLAG_SECURE remains on; these
+are Canvas View snapshots, not compositor/physical-device/TalkBack/battery evidence.
+
+![Retained paused consent remains revocable](screenshots/native-saved-consent-paused.png)
+![Large resume disclosure names retained choices](screenshots/native-saved-consent-resume-large.png)
+![Large resume dialog retains both actions](screenshots/native-saved-consent-resume-large-end.png)

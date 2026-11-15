@@ -1518,10 +1518,10 @@ class MainActivity : Activity() {
         captureAllowlistWarning(body, s, eligible)
         val card = ui.card(body, padding = 8)
         ui.row(card, "私人伺服器", host(), (if (credentials != null) "已設定" else "未連線") to (credentials != null)) { settings() }
-        ui.row(card, "手機紀錄", if (s.enabled) "記錄同意後的 app 前景時段" else "預設關閉；需要時在設定開啟", (if (s.enabled) "開啟" else "關閉") to s.enabled) { settings() }
+        ui.row(card, "手機紀錄", if (s.hasUsageGrant && !s.enabled) "同意已保存；伺服器暫停中，可在設定撤回" else if (s.enabled) "記錄同意後的 app 前景時段" else "預設關閉；需要時在設定開啟", (if (s.enabled) "開啟" else if (s.hasUsageGrant) "已保存" else "關閉") to s.enabled) { settings() }
         ui.row(card, "Android 使用情況存取權", if (usage) "已授予" else "開啟紀錄後需要授予", (if (usage) "已授予" else "未授予") to usage) { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
         ui.row(card, "伺服器收集", if (s.remotePaused) "所有裝置已暫停；恢復不會改變本機同意" else "未暫停", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { settings() }
-        ui.row(card, "畫面文字", "允許 ${s.allowed.size} 個 · 可擷取 $eligible 個 · 排除 ${s.exclusions.size} 個", (if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { settings() }
+        ui.row(card, "畫面文字", "允許 ${s.allowed.size} 個 · 可擷取 $eligible 個 · 排除 ${s.exclusions.size} 個" + if (s.hasContextGrant && !s.contextEnabled) "；同意已保存，紀錄暫停中，可在設定撤回" else "", (if (s.hasContextGrant && !s.contextEnabled) "已保存" else if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { settings() }
         if (s.contextEnabled) accessibilityServiceOn().let { on -> ui.row(card, "輔助使用服務", "畫面文字需要 PocketLog 的輔助使用服務", (if (on) "已開啟" else "未開啟") to on) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } }
         ui.row(card, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { supportPage() } }
         ui.row(card, "最近同步", s.status(), onClick = null)
@@ -1593,7 +1593,7 @@ class MainActivity : Activity() {
 
         ui.groupLabel(body, "手機紀錄")
         ui.card(body, padding = 8).apply {
-            ui.row(this, "App 使用紀錄", "只記錄同意後的 app 套件名稱與前景時段；不讀文字、不截圖", (if (s.enabled) "開啟" else "關閉") to s.enabled) { toggleUsage(s) }
+            ui.row(this, "App 使用紀錄", if (s.hasUsageGrant && !s.enabled) "本機同意已保存；伺服器暫停中，點此撤回" else "記錄同意後的 app 套件名稱與前景時段；畫面情境依下方獨立同意", (if (s.enabled) "開啟" else if (s.hasUsageGrant) "已保存" else "關閉") to s.enabled) { toggleUsage(s) }
             val usage = s.hasUsagePermission()
             ui.row(this, "Android 使用情況存取權", if (usage) "已授予；撤銷後會停止產生活動" else "開啟紀錄後需要在系統設定授予", (if (usage) "已授予" else "未授予") to usage) { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
             ui.row(this, "所有裝置的收集", if (s.remotePaused) "已在伺服器暫停；恢復不會取代本機同意" else "可暫停所有裝置；離線手機要等同步才收到", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { manageRemotePause(s) }
@@ -1609,10 +1609,10 @@ class MainActivity : Activity() {
         captureAllowlistWarning(body, s, eligible)
         ui.card(body, padding = 8).apply {
             ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
-            val contextDetail = when { !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；切換時最多每 5 分鐘讀取一次，仍需系統權限" }
-            ui.row(this, "畫面文字", contextDetail, (if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
-            ui.row(this, "畫面縮圖", if (s.contextEnabled) "最長邊 480 px，可能含無法從文字判斷的私人資訊" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else "關閉") to s.imagesEnabled) { toggleImages(s) }
-            ui.row(this, "短期縮圖回放", if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else "關閉") to s.replayConsent) { toggleReplay(s) }
+            val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；切換時最多每 5 分鐘讀取一次，仍需系統權限" }
+            ui.row(this, "畫面文字", contextDetail, (if (s.hasContextGrant && !s.contextEnabled) "已保存" else if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
+            ui.row(this, "畫面縮圖", if (s.hasImagesGrant && !s.imagesEnabled) "同意已保存；目前暫停，點此撤回" else if (s.contextEnabled) "最長邊 480 px，可能含無法從文字判斷的私人資訊" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else if (s.hasImagesGrant) "已保存" else "關閉") to s.imagesEnabled) { toggleImages(s) }
+            ui.row(this, "短期縮圖回放", if (s.hasReplayGrant && !s.replayConsent) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else if (s.hasReplayGrant) "已保存" else "關閉") to s.replayConsent) { toggleReplay(s) }
             ui.row(this, "文字隱私防護", "疑似金鑰、token 或長數字時跳過整個視窗", (if (s.privacyShield) "開啟" else "關閉") to s.privacyShield) { privacyShieldDialog(s) }
             ui.row(this, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
             ui.row(this, "系統輔助使用設定", "畫面文字需要 PocketLog 的輔助使用服務") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
@@ -1689,18 +1689,32 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply { ui.row(this, "PocketLog ${version()}", "MIT 授權 · 自架私人日誌 · 無分析", onClick = null) }
     }
 
+    /** Disclose retained independent choices before releasing an upstream capture gate. */
+    private fun savedCaptureDisclosure(s: RecordingSettings, text: Boolean, images: Boolean, model: Boolean): String {
+        val saved = buildList {
+            if (text && s.hasContextGrant) add("畫面文字")
+            if (images && s.hasImagesGrant) add("畫面縮圖")
+            if (s.hasReplayGrant) add("短期縮圖回放")
+            if (model && s.hasExternalAiGrant) add("模型處理未來情境（原先同意的供應商）")
+        }
+        if (saved.isEmpty()) return ""
+        return "\n\n已保存的獨立同意：\n" + saved.joinToString("\n") { "• $it" } +
+            "\n\n恢復後，符合前置同意、允許清單與系統權限的項目會繼續。若不希望沿用，請取消並在設定逐項撤回。模型設定變更後仍須重新同意。"
+    }
+
     private fun toggleUsage(s: RecordingSettings) {
-        if (s.remotePaused) { notice("伺服器已暫停所有裝置的收集，請先恢復。", Kind.WARN); return }
-        if (s.enabled) {
+        if (s.hasUsageGrant) {
             task("暫停紀錄…", { synchronized(SyncEngine.lock) { UsageCollector(this@MainActivity).reset(); s.enabled = false; JournalQueue(this@MainActivity).clearContexts() } }) {
                 SyncEngine.schedule(this@MainActivity); settings(); notice("已暫停活動與畫面文字紀錄；待傳畫面文字已刪除。")
             }
             return
         }
+        if (s.remotePaused) { notice("伺服器已暫停所有裝置的收集，請先恢復。", Kind.WARN); return }
+        val saved = savedCaptureDisclosure(s, text = true, images = true, model = true)
         dialog().setTitle("開啟 app 使用紀錄？")
-            .setMessage("只記錄同意之後的 app 套件名稱及前景時段，不讀取文字或截圖。背景整理最短每 15 分鐘，由 Android 決定實際時間；多視窗與系統遺漏事件可能影響精準度。\n\n下一步會開啟 Android 設定，請授予 PocketLog「使用情況存取權」。")
-            .setNegativeButton("取消", null).setPositiveButton("同意並開啟") { _, _ ->
-                task("開啟紀錄…", { synchronized(SyncEngine.lock) { UsageCollector(this@MainActivity).reset(); s.enabled = true; JournalQueue(this@MainActivity).clearContexts() } }) {
+            .setMessage((if (saved.isEmpty()) "" else saved.trimStart() + "\n\n") + "App 使用紀錄會記錄同意之後的 app 套件名稱及前景時段。畫面文字、縮圖、回放與模型處理各有獨立同意。背景整理最短每 15 分鐘，由 Android 決定實際時間；多視窗與系統遺漏事件可能影響精準度。\n\n若尚未授予使用情況存取權，下一步會開啟 Android 設定。")
+            .setNegativeButton("取消", null).setPositiveButton(if (saved.isEmpty()) "同意並開啟" else "同意並恢復") { _, _ ->
+                task("開啟紀錄…", { synchronized(SyncEngine.lock) { require(!s.remotePaused); UsageCollector(this@MainActivity).reset(); s.enabled = true; JournalQueue(this@MainActivity).clearContexts() } }) {
                     SyncEngine.schedule(this@MainActivity)
                     if (!s.hasUsagePermission()) startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                     settings(); notice("已開啟 app 使用紀錄", Kind.INFO)
@@ -1712,7 +1726,7 @@ class MainActivity : Activity() {
         task("讀取收集狀態…", { api().request("/v1/collection") }) { control ->
             val paused = !control.getBoolean("paused")
             dialog().setTitle(if (paused) "暫停所有裝置收集？" else "恢復伺服器收集？")
-                .setMessage("暫停會拒絕新的活動與情境並刪除待分析原始資料。離線手機須等待同步；恢復不取代各裝置的本機同意。")
+                .setMessage("暫停會拒絕新的活動與情境並刪除待分析原始資料。離線手機須等待同步；恢復會沿用各裝置已保存的本機同意。" + if (!paused) savedCaptureDisclosure(s, text = true, images = true, model = true) else "")
                 .setNegativeButton("取消", null).setPositiveButton(if (paused) "暫停" else "恢復") { _, _ ->
                     task("更新收集狀態…", {
                         synchronized(SyncEngine.lock) {
@@ -1725,14 +1739,14 @@ class MainActivity : Activity() {
     }
 
     private fun toggleContext(s: RecordingSettings) {
-        if (s.contextEnabled) {
+        if (s.hasContextGrant) {
             task("關閉畫面文字…", { synchronized(SyncEngine.lock) { s.contextEnabled = false; s.analysisConsent = false; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已關閉畫面文字並清除待傳文字") }
             return
         }
         if (!s.enabled) { notice("請先開啟 App 使用紀錄", Kind.WARN); return }
         if (s.allowed.isEmpty()) { notice("請先在「排除與允許清單」加入允許的 app", Kind.WARN); appListsPage(); return }
         dialog().setTitle("允許選定 app 的畫面文字？")
-            .setMessage("切換 app 時最多每五分鐘一次；Android 安全視窗、鎖定畫面、密碼與輸入欄位會跳過。圖片另有獨立選項，預設關閉。文字透過 HTTPS 傳送到你設定的私人伺服器，形成可見文字摘錄；原始佇列最長 24 小時，摘錄可保留 30 天。預設不使用外部 AI，另有獨立同意選項。\n\n下一步會開啟 Android 輔助使用設定，請開啟 PocketLog 服務；可隨時暫停。")
+            .setMessage("切換 app 時最多每五分鐘一次；Android 安全視窗、鎖定畫面、密碼與輸入欄位會跳過。文字透過 HTTPS 傳送到你設定的私人伺服器，形成可見文字摘錄；原始佇列最長 24 小時，摘錄可保留 30 天。縮圖與模型處理各有獨立同意。" + savedCaptureDisclosure(s, text = false, images = true, model = true) + "\n\n下一步會開啟 Android 輔助使用設定，請開啟 PocketLog 服務；可隨時暫停。")
             .setNegativeButton("取消", null).setPositiveButton("同意私人文字處理") { _, _ ->
                 task("開啟畫面文字…", { synchronized(SyncEngine.lock) { require(s.enabled && s.allowed.isNotEmpty()); s.contextEnabled = true; s.analysisConsent = true } }) {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); settings(); notice("已同意畫面文字；請在系統設定開啟服務", Kind.INFO)
@@ -1741,20 +1755,20 @@ class MainActivity : Activity() {
     }
 
     private fun toggleImages(s: RecordingSettings) {
-        if (s.imagesEnabled) {
+        if (s.hasImagesGrant) {
             task("關閉縮圖…", { synchronized(SyncEngine.lock) { s.imagesEnabled = false; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已關閉縮圖並清除待傳情境") }
             return
         }
         if (!s.contextEnabled) { notice("請先開啟畫面文字", Kind.WARN); return }
         dialog().setTitle("允許選定 app 的畫面縮圖？")
-            .setMessage("只在 app 切換時最多每五分鐘一次，縮圖最長邊 480 像素、JPEG 最多 24 KiB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器，原始資料最長 24 小時。只有另外同意模型處理時才可能送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。")
+            .setMessage("只在 app 切換時最多每五分鐘一次，縮圖最長邊 480 像素、JPEG 最多 24 KiB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器，原始資料最長 24 小時。只有另外同意模型處理時才可能送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false, model = true))
             .setNegativeButton("取消", null).setPositiveButton("同意選定 app 的縮圖") { _, _ ->
                 task("開啟縮圖…", { synchronized(SyncEngine.lock) { require(s.contextEnabled); s.imagesEnabled = true } }) { settings(); notice("已開啟畫面縮圖") }
             }.showSecure()
     }
 
     private fun toggleReplay(s: RecordingSettings) {
-        if (s.replayConsent) {
+        if (s.hasReplayGrant) {
             task("關閉回放…", { synchronized(SyncEngine.lock) { s.replayConsent = false; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已關閉回放保存並清除待傳情境") }
             return
         }

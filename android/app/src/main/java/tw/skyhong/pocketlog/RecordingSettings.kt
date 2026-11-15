@@ -10,27 +10,33 @@ class RecordingSettings(private val context: Context) {
     val revision: Long get() = prefs.getLong("revision", 0)
     // Fail closed if a consent change cannot be persisted. Caller holds SyncEngine.lock.
     private fun update(editor: SharedPreferences.Editor) { check(editor.putLong("revision", revision + 1).commit()) }
+    // Saved choices remain reviewable/revocable while upstream recording is paused.
+    // Capture code must continue using the gated properties below.
+    val hasUsageGrant: Boolean get() = prefs.getBoolean("enabled", false)
+    val hasContextGrant: Boolean get() = prefs.getBoolean("context", false)
+    val hasImagesGrant: Boolean get() = prefs.getBoolean("images", false)
+    val hasReplayGrant: Boolean get() = prefs.getBoolean("replay", false)
     var enabled: Boolean
-        get() = prefs.getBoolean("enabled", false) && !remotePaused
+        get() = hasUsageGrant && !remotePaused
         set(value) = update(prefs.edit().putBoolean("enabled", value))
     // Remote resume only releases this gate; it never changes local consent bits.
     var remotePaused: Boolean
         get() = prefs.getBoolean("remote_paused", false)
         set(value) { if (value != remotePaused) update(prefs.edit().putBoolean("remote_paused", value)) }
     var contextEnabled: Boolean
-        get() = enabled && prefs.getBoolean("context", false)
+        get() = enabled && hasContextGrant
         set(value) = update(prefs.edit().putBoolean("context", value))
     var analysisConsent: Boolean
         get() = contextEnabled && prefs.getBoolean("analysis", false)
         set(value) = update(prefs.edit().putBoolean("analysis", value))
     var imagesEnabled: Boolean
-        get() = contextEnabled && prefs.getBoolean("images", false)
+        get() = contextEnabled && hasImagesGrant
         set(value) = update(prefs.edit().putBoolean("images", value))
     var privacyShield: Boolean
         get() = prefs.getBoolean("privacy_shield", true)
         set(value) = update(prefs.edit().putBoolean("privacy_shield", value))
     var replayConsent: Boolean
-        get() = imagesEnabled && prefs.getBoolean("replay", false)
+        get() = imagesEnabled && hasReplayGrant
         set(value) = update(prefs.edit().putBoolean("replay", value))
     var externalAiConsent: Boolean
         get() = analysisConsent && prefs.getBoolean("external_ai", false)
