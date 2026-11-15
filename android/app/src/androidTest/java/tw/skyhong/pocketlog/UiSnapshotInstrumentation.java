@@ -61,7 +61,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             }
             if ("yes".equals(args.getString("connected"))) {
                 new ConnectedUiChecks(this, args).run();
-                result.putString("stream", "yes".equals(args.getString("goalsConflictOnly"))
+                result.putString("stream", "yes".equals(args.getString("appNamesOnly"))
+                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native package-ID activity titles reproduced.\n" : "Synthetic HTTPS local app-name list/canvas/overview/identity and offline checks passed; canonical journal unchanged.\n")
+                    : "yes".equals(args.getString("goalsConflictOnly"))
                     ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native repeated goal409 without recovery reproduced; fixture restored.\n" : "Synthetic HTTPS retained goal drafts, latest classification preservation, cancel/confirm/race and offline recovery passed; fixture restored.\n")
                     : "yes".equals(args.getString("classificationConflictOnly"))
                     ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native repeated409 without recovery reproduced; fixture restored.\n" : "Synthetic HTTPS classification conflict draft preservation, guarded retry/replacement, used-category and offline recovery checks passed; fixture restored.\n")

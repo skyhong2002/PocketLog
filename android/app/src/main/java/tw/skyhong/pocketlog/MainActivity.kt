@@ -77,6 +77,7 @@ class MainActivity : Activity() {
     private lateinit var navRow: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
+    private val appNames = LocalAppNames()
     private var busy = false
     private var generation = 0
     private var statusVersion = 0
@@ -402,7 +403,19 @@ class MainActivity : Activity() {
     private fun sourceLabel(source: String) = when (source) { "user" -> "你的修改"; "ai" -> "AI 摘要，請核對"; "local_excerpt" -> "可見文字摘錄"; else -> "僅 app 使用紀錄" }
     private fun cardSource(card: JSONObject) = if (card.optBoolean("pending_edit")) "手機修改，待同步" else sourceLabel(card.optString("source"))
     private fun cardsOf(data: JSONObject?): List<JSONObject> = data?.optJSONArray("cards")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
-    private fun item(c: JSONObject) = TimelineItem(c.getLong("start_ms"), c.getLong("end_ms"), c.optString("title"), label(c.getString("category")) + (if (c.optBoolean("pending_edit")) " · 修改待同步" else "") + (if (c.optBoolean("pending_context")) " · 有待處理內容" else ""), colorFor(c.getString("category")))
+    private fun item(c: JSONObject) = TimelineItem(c.getLong("start_ms"), c.getLong("end_ms"), appNames.title(c), label(c.getString("category")) + (if (c.optBoolean("pending_edit")) " · 修改待同步" else "") + (if (c.optBoolean("pending_context")) " · 有待處理內容" else ""), colorFor(c.getString("category")))
+    private fun readJournal(path: String): JSONObject {
+        check(Looper.myLooper() != Looper.getMainLooper())
+        val data = SyncEngine.readTimeline(this@MainActivity, path)
+        val apps = data.optJSONArray("apps")
+        val packages = cardsOf(data).asSequence().map { it.optString("app") } +
+            (0 until (apps?.length() ?: 0)).asSequence().map { apps!!.getJSONObject(it).optString("app") }
+        appNames.prepare(packages) { app ->
+            val info = packageManager.getApplicationInfo(app, android.content.pm.PackageManager.ApplicationInfoFlags.of(0))
+            packageManager.getApplicationLabel(info).toString()
+        }
+        return data
+    }
     private fun intervals(list: List<JSONObject>) = list.map { TimelineMath.Interval(it.getLong("start_ms"), it.getLong("end_ms")) }
     private fun totals(list: List<JSONObject>): List<Pair<String, Long>> =
         list.groupBy { it.getString("category") }.map { (id, rows) -> id to rows.sumOf { it.getLong("end_ms") - it.getLong("start_ms") } }.sortedByDescending { it.second }
@@ -625,7 +638,7 @@ class MainActivity : Activity() {
         dayActions(body)
         load(slot, "讀取時間軸…", {
             val latest = runCatching { api().request("/v1/workspace") }.getOrNull()
-            latest to SyncEngine.readTimeline(this@MainActivity, dayPath())
+            latest to readJournal(dayPath())
         }) { (latest, data) ->
             if (latest != null) workspace = latest
             renderTimeline(slot, data); renderReflections(reflections, data)
@@ -817,7 +830,7 @@ class MainActivity : Activity() {
             val start = if (choice == 0) maxOf(earliest, TimelineMath.weekStart(day)) else earliest
             val end = if (choice == 0) TimelineMath.weekStart(day).plusDays(7) else journalDay().plusDays(1)
             val from = TimelineMath.dayStart(start, zone); val to = minOf(TimelineMath.dayStart(end, zone), System.currentTimeMillis())
-            task("讀取概覽…", { SyncEngine.readTimeline(this@MainActivity, "/v1/overview?from_ms=$from&to_ms=$to") }) { data ->
+            task("讀取概覽…", { readJournal("/v1/overview?from_ms=$from&to_ms=$to") }) { data ->
                 val panel = ui.column(null, 20)
                 val categories = data.getJSONArray("categories")
                 ui.heading(panel, "分類")
@@ -825,7 +838,7 @@ class MainActivity : Activity() {
                 if (rows.isEmpty()) ui.meta(panel, "尚無活動") else legend(panel, rows)
                 val apps = data.getJSONArray("apps")
                 ui.heading(panel, "常用 app", top = 12)
-                for (i in 0 until apps.length()) { val a = apps.getJSONObject(i); ui.body(panel, "${a.getString("app")} · ${TimelineMath.duration(a.getLong("duration_ms"))}") }
+                for (i in 0 until apps.length()) { val a = apps.getJSONObject(i); ui.body(panel, "${appNames.name(a.getString("app"))} · ${TimelineMath.duration(a.getLong("duration_ms"))}") }
                 val keywords = data.getJSONArray("title_keywords")
                 ui.heading(panel, "標題關鍵字", top = 12)
                 ui.body(panel, (0 until keywords.length()).joinToString("、") { keywords.getJSONArray(it).getString(0) }.ifBlank { "—" })
@@ -849,6 +862,8 @@ class MainActivity : Activity() {
 
     private fun editCard(card: JSONObject) {
         val content = ui.column(null, 20)
+        val app = card.optString("app")
+        if (app.isNotBlank()) ui.meta(content, "App：${appNames.name(app)}" + if (appNames.name(app) != app) "\n套件：$app" else "")
         ui.meta(content, "${clock(card.getLong("start_ms"))}–${clock(card.getLong("end_ms"))} · ${TimelineMath.duration(card.getLong("end_ms") - card.getLong("start_ms"))} · ${cardSource(card)}")
         if (card.optBoolean("pending_context")) ui.banner(content, "伺服器仍有內容等待處理。通常在活動結束至少 12 分鐘後處理，工作程序暫停或重試時可能更久；這不代表 AI 正在生成。請稍後重新整理。", Kind.INFO)
         val title = ui.field(content, "標題", "", Field.TEXT, card.optString("title"))
@@ -918,7 +933,7 @@ class MainActivity : Activity() {
         dateNav(body) { day = it; dailyReview() }
         val slot = ui.column(body)
         load(slot, "整理這一天…", {
-            val data = SyncEngine.readTimeline(this@MainActivity, dayPath())
+            val data = readJournal(dayPath())
             val (from, to) = range(day)
             data to runCatching { api().request("/v1/reviews?from_ms=$from&to_ms=$to") }.getOrNull()
         }) { (data, reviews) ->
@@ -977,7 +992,7 @@ class MainActivity : Activity() {
         val dates = (0L..6L).map { first.plusDays(it) }
         load(slot, "讀取本週…", {
             dates.map { d ->
-                d to if (!TimelineMath.inHistory(d, today)) null else try { SyncEngine.readTimeline(this@MainActivity, dayPath(d)) } catch (e: ApiFailure) { throw e } catch (_: Exception) { null }
+                d to if (!TimelineMath.inHistory(d, today)) null else try { readJournal(dayPath(d)) } catch (e: ApiFailure) { throw e } catch (_: Exception) { null }
             }
         }) { days ->
             val week = days.map { (d, data) -> WeekDay(d, data != null, data?.optBoolean("offline") == true, cardsOf(data).map(::item)) }

@@ -1189,3 +1189,31 @@ secure View/dialog renders, not compositor/physical-device/TalkBack evidence.
 - [Retained goals and explicit retry](screenshots/native-goal-conflict.png)
 - [2× goal retry](screenshots/native-goal-conflict-large.png)
 - [2× goal replacement confirmation](screenshots/native-goal-replace-large.png)
+
+## Native readable local app names (#54)
+
+Old0.4.20 APK reproduced package identifiers in usage-only list cards. Final
+0.4.21 normal/2× system-font checks exercise real synthetic HTTPS activities:
+installed Settings label in list/day card models and overview; unknown packages
+retain their identifier, user titles remain unchanged. The editor shows local
+name plus original package while its editable title stays canonical. Loaded JSON
+and API readback remain unchanged; actual airplane/WiFi-off cached cards retain
+labels. Only packages present in the viewed journal are resolved locally, off the
+UI thread, with 256 lookup/cache bounds; no enumeration, upload or persistence.
+Android package visibility can prevent resolution; unresolved apps fall back.
+This changes native presentation, not server/API/export titles or web labels.
+
+Four policy tests cover substitution, no JSON mutation, failures, dedup/work/cache
+bounds, normalization and surrogate-safe length. 56 native unit tests, debug APK,
+instrumentation build and lint pass; exact Unicode card edit/queue and full
+eight-page HTTPS/offline regressions pass. Same-wave unchanged Rust58/fmt/clippy
+with warnings denied/audit1509/185 and web regressions pass. Audit retains the
+local crates.io-index update warning; advisory scan succeeds. Fresh private
+backup restore, prior-row preservation and production HTTPS assets/auth pass.
+Official ActivityCard.swift title hierarchy at2c79e161 and the supplied actual
+Dayflow screenshots inform readable cards; local naming is not semantic AI
+summary parity. Inspected synthetic secure View/dialog renders below are not
+compositor, physical-device or TalkBack evidence.
+
+- [Local identity and canonical editable title](screenshots/native-local-app-identity.png)
+- [2× readable usage card with unknown-package fallback](screenshots/native-local-app-list-large.png)

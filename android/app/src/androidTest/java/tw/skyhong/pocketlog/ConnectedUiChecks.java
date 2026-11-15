@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("appNamesOnly"))) { appNamesCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsConflictOnly"))) { goalsConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("classificationConflictOnly"))) { classificationConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsThenCategoriesOnly"))) { goalsThenCategoriesCheck(fixtureOwner); return; }
@@ -183,6 +184,43 @@ final class ConnectedUiChecks {
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void appNamesCheck(PocketLogApi owner) throws Exception {
+        stage="local readable app names without journal mutation";
+        String known="com.android.settings",unknown="org.example.uninstalled_for_ui";
+        String expected=test.getTargetContext().getPackageManager().getApplicationLabel(test.getTargetContext().getPackageManager().getApplicationInfo(known,0)).toString();
+        if(expected.equals(known)||expected.isBlank())throw new IllegalStateException("Visible installed system-app fixture required");
+        String id="local-app-label-"+java.util.UUID.randomUUID(),editedId=id+"-edit",missingId=id+"-missing";
+        long now=System.currentTimeMillis(),from=now-3600000;
+        owner.request("/v1/activities",new JSONObject().put("activities",new org.json.JSONArray()
+            .put(new JSONObject().put("id",id).put("app",known).put("category","work").put("start_ms",now-900000).put("end_ms",now-840000))
+            .put(new JSONObject().put("id",editedId).put("app",known).put("category","work").put("start_ms",now-830000).put("end_ms",now-770000))
+            .put(new JSONObject().put("id",missingId).put("app",unknown).put("category","rest").put("start_ms",now-760000).put("end_ms",now-700000))),"POST");
+        String chosen="合成：自訂設定活動";
+        owner.request("/v1/cards",new JSONObject().put("id",editedId).put("title",chosen).put("summary","Synthetic custom title stays canonical").put("category","work"),"POST");
+        click("每日");await("時間分配");awaitSettled();click("時間軸");await("活動");awaitSettled();
+        click("活動檢視：清單");awaitSettled();
+        String displayed="yes".equals(args.getString("expectLegacy"))?known:expected;
+        final View[] row={null};test.runOnMainSync(()->{for(View v:views())if(v.getContentDescription()!=null&&v.getContentDescription().toString().startsWith(displayed+"，")&&v.getContentDescription().toString().contains("僅 app 使用紀錄")){row[0]=v;break;}if(row[0]==null)throw new IllegalStateException("Usage card label absent");row[0].requestRectangleOnScreen(new android.graphics.Rect(0,0,row[0].getWidth(),row[0].getHeight()),true);});test.waitForIdleSync();capture("local-app-name-list");
+        if(!has(chosen)||!has(unknown))throw new IllegalStateException("Edited or unknown-package title changed");
+        Field loadedField=MainActivity.class.getDeclaredField("loaded");loadedField.setAccessible(true);JSONObject data=(JSONObject)loadedField.get(activity);
+        org.json.JSONArray cards=data.getJSONArray("cards");JSONObject card=null;
+        for(int j=0;j<cards.length();j++)if(id.equals(cards.getJSONObject(j).getString("id")))card=cards.getJSONObject(j);
+        if(card==null||!known.equals(card.getString("title"))||!"app_only".equals(card.getString("source"))||card.has("app_label")||card.has("display_title"))throw new IllegalStateException("Canonical loaded journal mutated by labels");
+        org.json.JSONArray raw=owner.request("/v1/timeline?from_ms="+from+"&to_ms="+now,null,"GET").getJSONArray("cards");boolean found=false;
+        for(int j=0;j<raw.length();j++)if(id.equals(raw.getJSONObject(j).getString("id"))){found=true;if(!known.equals(raw.getJSONObject(j).getString("title")))throw new IllegalStateException("Server title rewritten");}if(!found)throw new IllegalStateException("Synthetic server activity missing");
+        if("yes".equals(args.getString("expectLegacy")))return;
+        test.runOnMainSync(()->row[0].performClick());awaitProbeDialog("App："+expected);if(!probeDialogText().contains("套件："+known))throw new IllegalStateException("Raw app identity hidden");
+        test.runOnMainSync(()->{List<View> all=new ArrayList<>();collect(probeDialog(),all);for(View v:all)if(v instanceof EditText e){if(!known.equals(e.getText().toString()))throw new IllegalStateException("Editor silently used derived local label");return;}throw new IllegalStateException("Title editor missing");});captureProbeDialog("local-app-name-identity");probeDialogClick("取消");
+        java.lang.reflect.Method itemMethod=MainActivity.class.getDeclaredMethod("item",JSONObject.class);itemMethod.setAccessible(true);final JSONObject sourceCard=card;
+        test.runOnMainSync(()->{try{TimelineItem item=(TimelineItem)itemMethod.invoke(activity,sourceCard);if(!expected.equals(item.getTitle()))throw new IllegalStateException("Day canvas label differs from list");}catch(Exception e){throw new RuntimeException(e);}});
+        click("活動概覽");awaitProbeDialog("活動概覽");test.runOnMainSync(()->{List<View> all=new ArrayList<>();collect(probeDialog(),all);for(View v:all)if(v instanceof android.widget.ListView l){l.performItemClick(l.getChildAt(0),0,l.getAdapter().getItemId(0));return;}throw new IllegalStateException("Overview range chooser absent");});awaitProbeDialog("常用 app");if(!probeDialogText().contains(expected+" · "))throw new IllegalStateException("Overview package label absent");probeDialogClick("關閉");
+        try {
+            shell("svc wifi disable");shell("svc data disable");shell("cmd connectivity airplane-mode enable");
+            click("每日");await("時間分配");awaitSettled();click("時間軸");await("離線：顯示加密快取");awaitSettled();
+            if(!has(expected)||!has(chosen)||!has(unknown))throw new IllegalStateException("Offline labels/custom/unknown titles changed");
+        } finally {shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();}
+        assertConsentOff();
     }
     private void goalsConflictCheck(PocketLogApi owner) throws Exception {
         stage="native goal draft conflict recovery";
