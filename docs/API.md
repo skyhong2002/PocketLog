@@ -1,8 +1,54 @@
 # PocketLog API v1
 
-All `/v1/*` routes require `Authorization: Bearer <64-hex-owner-token>` before
-JSON/query parsing. `/healthz` returns only process health. No CORS or public
-projection. Responses use `Cache-Control: no-store`; bodies are capped at 64 KiB.
+All `/v1/*` routes authenticate before JSON/query parsing. Native/API clients
+send `Authorization: Bearer <64-hex-key>`; use a separately revocable **journal
+device key** for an integration. The same-origin website uses an owner session
+cookie after login. `/healthz` is unauthenticated and returns only process health.
+There is no CORS or public projection. Responses use `Cache-Control: no-store`.
+**Request bodies** are capped at64KiB; response limits vary by endpoint (for
+example, timeline output is capped at480KiB and reports omitted records).
+
+| Credential | Permitted access |
+| --- | --- |
+| Owner bearer key or owner browser session | All private APIs, including device-key management |
+| Journal device key | Private APIs except `/v1/devices` and its children; cannot log into the website |
+| Collector device key | Only POST activities/observations and GET collection/AI metadata; cannot read journals, manage devices or log into the website |
+
+Cookie-authenticated mutations require `X-PocketLog: 1` and are rejected when
+cross-site. Bearer clients do not need that browser header. Missing, expired,
+revoked and insufficient-scope keys return401. Device-key validity does not grant
+phone capture or external AI consent.
+
+## First authenticated read
+
+Create a **日誌（手機 app）** device key under website **設定 → 連線與裝置 →
+管理裝置金鑰**. It is also suitable for your private API client. Keep the owner
+key for website login and recovery. This Bash example reads only status, uses
+normal certificate verification, follows no redirects and supplies the key through
+curl's standard input rather than its command arguments. Replace the origin with
+your own trusted HTTPS address; do not add a path, credentials or query to it.
+
+```bash
+pocketlog_api_origin='https://your-private-host:12446'
+read -r -s -p 'Journal device key: ' pocketlog_api_key
+printf '\n'
+if [[ "$pocketlog_api_key" =~ ^[[:xdigit:]]{64}$ ]]; then
+  printf 'header = "Authorization: Bearer %s"\n' "$pocketlog_api_key" |
+    curl --config - --proto '=https' --fail --silent --show-error \
+      --connect-timeout 5 --max-time 10 "$pocketlog_api_origin/v1/status"
+else
+  printf 'Expected a 64-character hexadecimal device key.\n' >&2
+fi
+unset pocketlog_api_key
+```
+
+A401 means the key is missing, wrong, expired, revoked or lacks the route's scope;
+a collector key intentionally cannot read status or timeline. To read activities,
+use the same authentication with `/v1/timeline?from_ms=…&to_ms=…`, supplying Unix
+milliseconds and a range of at most26hours. Its response is private derived
+journal data and may have `truncated:true`; it never contains raw observations.
+
+## Routes
 
 | Method | Path | Behavior |
 |---|---|---|
@@ -69,7 +115,8 @@ concurrency/time limits remain. A request already sent cannot be recalled.
 HttpOnly, SameSite=Strict host cookie. `DELETE /session` invalidates that cookie's
 session. No CORS; cross-site requests are rejected. Cookie-authenticated writes
 also require `X-PocketLog: 1`. Native bearer authentication remains unchanged.
-No tokens belong in URLs or localStorage. All API routes below require owner auth.
+No tokens belong in URLs or localStorage. The scope matrix above applies to the
+API routes below; creating a browser session itself requires the owner key.
 
 - `GET /v1/workspace`: `revision`, `onboarding_version` (0/1), `focus_minutes`,
   `distraction_minutes` (0–1440), and ten category styles `{id,name,color,role}`.

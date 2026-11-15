@@ -1420,3 +1420,25 @@ No browser mutation, provider call or native production change was needed.
 
 - [Phone brief durations](screenshots/web-short-duration-phone.png)
 - [Desktop inspector duration](screenshots/web-short-duration-inspector.png)
+
+
+## API first-read guidance (#62)
+
+API.md now starts with the actual owner/session/journal/collector scope matrix,
+separates64KiB request bodies from route-specific response limits, and provides
+a read-only Bash/curl example. The64-hex key is entered without echo, sent via
+curl config stdin rather than arguments/URL, and unset afterwards. HTTPS uses
+normal certificate validation and follows no redirects. No auth implementation,
+route, permission or runtime artifact changes.
+
+Cross-checked lib.rs authenticate, web.rs authorized and devices.rs authorized.
+A trusted-HTTPS disposable fixture verified journal status/timeline200, collector
+status/timeline401, both device-management401, both collection/AI200, missing/
+wrong/revoked key401, no-store and authorized schema rejection. The exact
+documented snippet passed bash-n and executed successfully against that origin
+with a temporary journal key, without the key in stdout/stderr. All temporary
+credentials were revoked; no journal/provider writes. TLS18447 was removed.
+Initial harness assumed schema400 and revoke200; actual extractor422 and
+revoke204 were correctly accepted in the final successful run. No product change
+was needed for these harness assertions. Documentation-only; prior required
+checks remain valid and there is no new server/APK deployment.
