@@ -1930,11 +1930,22 @@ class MainActivity : Activity() {
 
     private fun categoryRulesEditor(draft: JSONObject) = categoryRulesEditor(draft, JSONObject(draft.toString()))
 
-    private fun categoryRulesEditor(draft: JSONObject, baseline: JSONObject) {
+    private fun categoryRulesEditor(draft: JSONObject, baseline: JSONObject, continuation: Pair<String, String>? = null) {
         val body = screen("分類與自動規則", "儲存後同步到網站", tab = Tab.SETTINGS, back = {
             dialog().setTitle("放棄未儲存的修改？").setNegativeButton("繼續編輯", null).setPositiveButton("放棄") { _, _ -> sharedSettings() }.show()
         })
         ui.banner(body, "由上到下套用第一個符合的規則；app 與關鍵字同時指定時必須都符合。手動修改永遠優先。分類被活動使用時不能移除。")
+        // Rebuilding keeps captured drafts; stable IDs keep the next action in view.
+        val editorGeneration = generation
+        fun continueAt(id: String, action: String, view: View) {
+            if (continuation != (id to action)) return
+            body.post {
+                if (generation != editorGeneration || !view.isAttachedToWindow) return@post
+                view.isFocusableInTouchMode = true
+                view.requestFocus()
+                view.requestRectangleOnScreen(android.graphics.Rect(0, 0, view.width, view.height), true)
+            }
+        }
         val styles = draft.getJSONArray("categories")
         val rules = draft.optJSONArray("rules") ?: JSONArray().also { draft.put("rules", it) }
         val capture = mutableListOf<() -> Unit>()
@@ -1952,6 +1963,7 @@ class MainActivity : Activity() {
             val swatch = ui.swatch(Palette.parse(c.optString("color")), 16).also { top.addView(it) }
             ui.meta(top, c.getString("id")).layoutParams = ui.lp(0, weight = 1f)
             val name = ui.field(card, "名稱", "最多 40 字", Field.TEXT, c.getString("name"))
+            continueAt(c.getString("id"), "name", name)
             val color = ui.field(card, "顏色", "#RRGGBB", Field.TEXT, c.getString("color"))
             color.addTextChangedListener(watcher { value -> swatch.background = ui.shape(Palette.parse(value), 8f) })
             val role = ui.spinner(card, "角色", listOf("專注", "一般", "分心"), roles.indexOf(c.getString("role")).coerceAtLeast(0))
@@ -1959,13 +1971,17 @@ class MainActivity : Activity() {
             if (c.getString("id").startsWith("custom_")) ui.button(card, "移除此分類", Tone.TEXT) {
                 remember(); styles.remove(i)
                 for (j in rules.length() - 1 downTo 0) if (rules.getJSONObject(j).getString("category") == c.getString("id")) rules.remove(j)
-                categoryRulesEditor(draft, baseline)
-            }
+                val next = if (styles.length() > 0) styles.getJSONObject(i.coerceAtMost(styles.length() - 1)).getString("id") else "categories"
+                categoryRulesEditor(draft, baseline, next to when { next == "categories" -> "add"; next.startsWith("custom_") -> "remove"; else -> "name" })
+            }.also { continueAt(c.getString("id"), "remove", it) }
         }
         ui.button(body, "新增分類", Tone.TONAL) {
             if (styles.length() >= 40) { notice("最多 40 個分類", Kind.WARN); return@button }
-            remember(); styles.put(JSONObject().put("id", "custom_" + UUID.randomUUID().toString().replace("-", "")).put("name", "新分類").put("color", "#9bbce1").put("role", "neutral")); categoryRulesEditor(draft, baseline)
-        }
+            remember()
+            val id = "custom_" + UUID.randomUUID().toString().replace("-", "")
+            styles.put(JSONObject().put("id", id).put("name", "新分類").put("color", "#9bbce1").put("role", "neutral"))
+            categoryRulesEditor(draft, baseline, id to "name")
+        }.also { continueAt("categories", "add", it) }
         ui.groupLabel(body, "自動分類規則")
         val ids = (0 until styles.length()).map { styles.getJSONObject(it).getString("id") }
         if (rules.length() == 0) ui.meta(body, "還沒有規則。沒有符合規則的活動會使用預設分類。", bottom = 8)
@@ -1974,20 +1990,30 @@ class MainActivity : Activity() {
             val card = ui.card(body)
             val enabled = ui.checkbox(card, "規則 ${i + 1} 啟用", r.optBoolean("enabled", true))
             val app = ui.field(card, "完整 app 套件名稱", "留白不限", Field.TEXT, r.optString("app").takeUnless { it == "null" } ?: "")
+            continueAt(r.getString("id"), "app", app)
             val keyword = ui.field(card, "標題包含", "留白不限", Field.TEXT, r.optString("title_contains").takeUnless { it == "null" } ?: "")
             val category = ui.spinner(card, "套用分類", (0 until styles.length()).map { styles.getJSONObject(it).getString("name") }, ids.indexOf(r.getString("category")).coerceAtLeast(0))
             capture.add { r.put("enabled", enabled.isChecked).put("app", app.text.toString().trim().ifBlank { null } ?: JSONObject.NULL).put("title_contains", keyword.text.toString().trim().ifBlank { null } ?: JSONObject.NULL).put("category", ids[category.selectedItemPosition]) }
             val labels = if (i > 0) arrayOf("上移" to Tone.OUTLINE, "刪除規則" to Tone.DANGER) else arrayOf("刪除規則" to Tone.DANGER)
             ui.actions(card, *labels) { index ->
                 remember()
-                if (i > 0 && index == 0) { val previous = rules.getJSONObject(i - 1); rules.put(i - 1, r); rules.put(i, previous) } else rules.remove(i)
-                categoryRulesEditor(draft, baseline)
-            }
+                if (i > 0 && index == 0) {
+                    val previous = rules.getJSONObject(i - 1); rules.put(i - 1, r); rules.put(i, previous)
+                    categoryRulesEditor(draft, baseline, r.getString("id") to if (i > 1) "up" else "delete")
+                } else {
+                    rules.remove(i)
+                    val next = if (rules.length() > 0) rules.getJSONObject(i.coerceAtMost(rules.length() - 1)).getString("id") else "rules"
+                    categoryRulesEditor(draft, baseline, next to if (next == "rules") "add" else "delete")
+                }
+            }.forEachIndexed { index, button -> continueAt(r.getString("id"), if (i > 0 && index == 0) "up" else "delete", button) }
         }
         ui.button(body, "新增規則", Tone.TONAL) {
             if (rules.length() >= 32) { notice("最多 32 條規則", Kind.WARN); return@button }
-            remember(); rules.put(JSONObject().put("id", UUID.randomUUID().toString()).put("category", ids.first()).put("app", JSONObject.NULL).put("title_contains", JSONObject.NULL).put("enabled", true)); categoryRulesEditor(draft, baseline)
-        }
+            remember()
+            val id = UUID.randomUUID().toString()
+            rules.put(JSONObject().put("id", id).put("category", ids.first()).put("app", JSONObject.NULL).put("title_contains", JSONObject.NULL).put("enabled", true))
+            categoryRulesEditor(draft, baseline, id to "app")
+        }.also { continueAt("rules", "add", it) }
         ui.actions(body, "放棄修改" to Tone.OUTLINE, "儲存分類與規則" to Tone.PRIMARY) { index ->
             if (index == 0) { sharedSettings(); return@actions }
             remember()

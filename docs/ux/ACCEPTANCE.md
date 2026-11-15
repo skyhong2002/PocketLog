@@ -1545,3 +1545,37 @@ required Rust/native checks. Both synthetic captures below were inspected.
 
 - [Desktop API setup](screenshots/web-api-guide-desktop.png)
 - [Phone API setup](screenshots/web-api-guide-phone.png)
+
+## Native classification continuation (#65)
+
+On the installed0.4.25APK, moving the last of eight synthetic rules retained the
+order/draft but reset the actual ScrollView to0, above five category forms. Each
+organizing action rebuilt screen() without an editing continuation. The editor
+now uses stable category/rule identities to focus and reveal the next action after
+layout, guarded by render generation and attachment. Add opens the new app/name
+field; moves follow the same rule; deletion chooses the nearest survivor or Add.
+Existing first-match logic, remembered drafts, conflict baseline and save stay intact.
+
+Sol6.1 reproduced the old APK and implemented/checked actual secure Android Views.
+Normal and2×font tests passed: add/move/delete rule/category; unsaved field values
+and order; visible focused bounds; second-to-first move; final-rule→Add fallback;
+last-custom-category→built-in-name fallback. Root inspected the three curated
+captures below and reran the checks on the integrated0.4.26APK. This is a bounded
+PocketLog editor correction in the Dayflow category editing context, not a new
+classifier or desktop-parity claim. No API, provider or production data was used
+by the disconnected editing checks. Production FLAG_SECURE is preserved.
+
+The integrated release passed60Android unit tests, debug/instrumentation builds
+and lint. Fresh Rust fmt/clippy-Dwarnings/58tests/audit1509advisories/185crates
+passed; the known local crates.io-index audit warning did not prevent its scan.
+Physical-device, TalkBack and keyboard-open interaction remain unverified.
+
+- [Focused moved rule](screenshots/native-classification-continuation.png)
+- [2× focused moved rule](screenshots/native-classification-continuation-large.png)
+- [2× new category name](screenshots/native-classification-new-name-large.png)
+
+The final eight-page trusted-HTTPS/offline regression passed on0.4.26; its cleanup
+cleared credentials/queue and kept all capture consent off. Fixture TLS18447 was
+removed. Fresh production backup/restored integrity, prior rows and HTTPS assets/
+auth checks passed. The native-only release leaves serverb74723f unchanged and
+uses the existing APK signing certificate.
