@@ -56,10 +56,12 @@ final class ClassificationFocusChecks {
             reveal(find("新增規則"));click(find("新增規則"));settle();
             if(rules.length()!=8)throw new IllegalStateException("New rule absent");
             assertVisibleFocused(null);capture("after-add-rule");
+            if("yes".equals(args.getString("ime"))) keyboardCheck("new-rule-keyboard");
             final String[] focused={null};test.runOnMainSync(()->{View focus=activity.getCurrentFocus();if(!(focus instanceof EditText e)||!e.getText().toString().isEmpty())throw new IllegalStateException("New rule app field not focused");e.setText("org.example.newdraft");focused[0]=e.getText().toString();});
             reveal(find("新增分類"));click(find("新增分類"));settle();
             if(categories.length()!=6||!focused[0].equals(rules.getJSONObject(7).getString("app")))throw new IllegalStateException("Category add lost rule draft");
             assertVisibleFocused(null);capture("after-add-category");
+            if("yes".equals(args.getString("ime"))) keyboardCheck("new-category-keyboard");
             test.runOnMainSync(()->{if(!(activity.getCurrentFocus() instanceof EditText e)||!"新分類".equals(e.getText().toString()))throw new IllegalStateException("New category name not focused");e.setText("保留分類草稿");});
             row=category("custom_fixture_4");reveal(action(row,"移除此分類"));click(action(row,"移除此分類"));settle();
             if(categories.length()!=5||!"保留分類草稿".equals(categories.getJSONObject(4).getString("name")))throw new IllegalStateException("Category remove lost draft");
@@ -79,20 +81,30 @@ final class ClassificationFocusChecks {
             test.runOnMainSync(()->{if(!(activity.getCurrentFocus() instanceof EditText e)||!"專注測試".equals(e.getText().toString()))throw new IllegalStateException("Final custom category fallback missing");});
             capture("builtin-category-fallback");
             if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent())throw new IllegalStateException("Consent changed");
-        } catch(Exception e) { throw new IllegalStateException("Classification focus: "+e.getMessage(),e); } finally {if(activity!=null)test.runOnMainSync(()->activity.finish());}
+        } catch(Exception e) { throw new IllegalStateException("Classification focus: "+e.getMessage(),e); } finally {if(activity!=null)test.runOnMainSync(()->{activity.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(activity.getWindow().getDecorView().getWindowToken(),0);activity.finish();});}
     }
     private void render(){test.runOnMainSync(()->{try{Method m=MainActivity.class.getDeclaredMethod("categoryRulesEditor",JSONObject.class);m.setAccessible(true);m.invoke(activity,draft);}catch(Exception e){throw new RuntimeException(e);}});}
     private void settle()throws Exception{test.waitForIdleSync();Thread.sleep(350);test.waitForIdleSync();}
     private List<View> views(View root){List<View> all=new ArrayList<>();all.add(root);if(root instanceof ViewGroup g)for(int i=0;i<g.getChildCount();i++)all.addAll(views(g.getChildAt(i)));return all;}
     private View find(String text){for(View v:views(activity.getWindow().getDecorView()))if(v instanceof TextView t&&text.equals(t.getText().toString()))return v;throw new IllegalStateException("Text absent: "+text);}
     private View rule(String app){return (View)find(app).getParent();}
-    private View category(String id){return (View)find(id).getParent().getParent();}
+    private View category(String id)throws Exception{JSONArray rows=draft.getJSONArray("categories");for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(id.equals(row.getString("id")))return (View)find(row.getString("name")).getParent();}throw new IllegalStateException("Fixture category absent");}
     private View action(View row,String text){for(View v:views(row))if(v instanceof TextView t&&text.equals(t.getText().toString())&&v.isClickable())return v;throw new IllegalStateException("Action absent: "+text);}
     private ScrollView scroll(){for(View v:views(activity.getWindow().getDecorView()))if(v instanceof ScrollView s)return s;throw new IllegalStateException("Scroll absent");}
     private void edit(String before,String after){test.runOnMainSync(()->((EditText)find(before)).setText(after));}
     private void reveal(View view)throws Exception{test.runOnMainSync(()->{Rect r=new Rect(0,0,view.getWidth(),view.getHeight());view.requestRectangleOnScreen(r,true);});settle();}
     private void click(View view){test.runOnMainSync(()->{if(!view.performClick())throw new IllegalStateException("Click failed");});}
     private void assertVisibleFocused(String label){test.runOnMainSync(()->{View v=activity.getCurrentFocus();Rect r=new Rect();if(v==null||!v.getGlobalVisibleRect(r)||r.height()<v.getHeight())throw new IllegalStateException("Continuation focus absent or clipped");if(label!=null&&(!(v instanceof TextView t)||!label.equals(t.getText().toString())))throw new IllegalStateException("Wrong continuation focus");});}
+    private void keyboardCheck(String name)throws Exception{
+        test.runOnMainSync(()->{View field=activity.getCurrentFocus();if(!(field instanceof EditText))throw new IllegalStateException("Input focus absent");activity.getSystemService(android.view.inputmethod.InputMethodManager.class).showSoftInput(field,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);});
+        boolean[] visible={false};
+        for(int i=0;i<20;i++){settle();test.runOnMainSync(()->{var insets=activity.getWindow().getDecorView().getRootWindowInsets();visible[0]=insets!=null&&insets.isVisible(android.view.WindowInsets.Type.ime());});if(visible[0])break;}
+        if(!visible[0])throw new IllegalStateException("Keyboard did not open");
+        settle();assertVisibleFocused(null);
+        test.runOnMainSync(()->{View field=activity.getCurrentFocus();Rect frame=new Rect(),bounds=new Rect();activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);field.getGlobalVisibleRect(bounds);if(bounds.bottom>frame.bottom)throw new IllegalStateException("Keyboard obscures focused input");});
+        capture(name);
+        test.runOnMainSync(()->activity.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(activity.getWindow().getDecorView().getWindowToken(),0));settle();
+    }
     private void capture(String name)throws Exception{
         String variant=args.getString("variant","phone");if(!variant.matches("[a-z0-9-]{1,40}"))throw new IllegalArgumentException("Variant");
         File folder=new File(test.getTargetContext().getExternalFilesDir(null),"ux-classification-focus");if(!folder.isDirectory()&&!folder.mkdirs())throw new IllegalStateException("Evidence folder");

@@ -1961,7 +1961,7 @@ class MainActivity : Activity() {
             val card = ui.card(body)
             val top = ui.horizontal(card, 10)
             val swatch = ui.swatch(Palette.parse(c.optString("color")), 16).also { top.addView(it) }
-            ui.meta(top, c.getString("id")).layoutParams = ui.lp(0, weight = 1f)
+            ui.meta(top, if (c.getString("id").startsWith("custom_")) "自訂分類" else "內建分類").layoutParams = ui.lp(0, weight = 1f)
             val name = ui.field(card, "名稱", "最多 40 字", Field.TEXT, c.getString("name"))
             continueAt(c.getString("id"), "name", name)
             val color = ui.field(card, "顏色", "#RRGGBB", Field.TEXT, c.getString("color"))

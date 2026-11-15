@@ -1579,3 +1579,30 @@ cleared credentials/queue and kept all capture consent off. Fixture TLS18447 was
 removed. Fresh production backup/restored integrity, prior rows and HTTPS assets/
 auth checks passed. The native-only release leaves serverb74723f unchanged and
 uses the existing APK signing certificate.
+
+## Meaningful category labels and keyboard acceptance (#67)
+
+The inspected2×#65new-category capture showed the internal custom UUID consuming
+two lines above the name. Native editing now labels categories as built-in/custom;
+IDs remain unchanged in drafts, rule targets and API payloads. The existing fixture
+locator now finds its category by its synthetic name instead of requiring visible
+implementation IDs. No classifier, collection, sync or auth behavior changes.
+
+Actual0.4.27normal/2×disconnected-emulator organization/focus checks passed with
+the new labels, including all existing rule/category add/move/delete/edge/draft
+checks. This wave also resolves the emulator IME acceptance gap for new fields:
+the actual keyboard was opened, WindowInsets confirmed it visible, and global
+field bounds remained fully visible above the visible frame boundary for both
+new-rule app and new-category name. Keyboard was hidden between checks; original
+hardware-keyboard policy, font1and cleared local state restored in finally.
+These secure View renders show the application layout, not compositor keyboard
+pixels. Physical-device/TalkBack behavior remains unverified.
+
+60unit tests, debug/instrumentation builds and lint passed. Same-wave unchanged
+Rust58/fmt/clippy-Dwarnings/audit and preceding final eight-page HTTPS/offline
+checks remain valid; only a category label changed in production code. Three
+captures below were inspected. Existing signing certificate is retained.
+
+- [Readable2×category label](screenshots/native-category-label-large.png)
+- [2×name above actual IME boundary](screenshots/native-category-keyboard-large.png)
+- [Rule input above actual IME boundary](screenshots/native-rule-keyboard.png)
