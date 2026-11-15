@@ -1813,3 +1813,43 @@ behavior, nested-scroll feel and full-day battery still require broader acceptan
 under #11 and the documented security checklist. The shipped native version stays
 0.4.27-dev; the last addition was test-only. Earlier sections remain chronological
 evidence, including their narrower limits and later fixes.
+
+## Incoming activity update indication (#73)
+
+Official CanvasTimelineDataView.swift793 and WeekTimelineGridView.swift684 at the
+recorded reference use60-second refresh timers. PocketLog now performs one bounded
+timeline read per120seconds only for a visible/online web view containing today.
+Hidden/offline views, dialogs and input editing skip checks; a pending check blocks
+overlap. Snapshot comparison covers actual cards and truncation, without provider
+requests, collection/native cadence changes, analytics or new API routes.
+
+Changed activity/classification produces a status message and explicit load action;
+no automatic rebuild/scroll/focus replacement occurs. Failure keeps the readable
+snapshot and offers retry; a04:00 date rollover offers today's view without reading
+a future window. Shell/onboarding/private reset clear the timer, and request/render
+ownership rejects late responses including401 after logout. Explicit reload reads
+current workspace/model metadata without inference, retains same-day document and
+day/week vertical/horizontal position, restores logical timeline focus and keeps
+surviving inspector selection. Rollover deliberately navigates to today's range.
+
+Final actual built-image controlled-scheduler/response tests passed at1280/390 via
+scripts/check-web-timeline-updates.js:120s cadence, unchanged response, all skip
+conditions, no overlap, changed banner with old snapshot/focus/scroll retained,
+explicit day/week reload and positions, failure/recovery, stale navigation, date
+rollover and logout with late401. Visibility/network/clock are explicitly controlled
+in that regression, not real offline/battery emulation. A separate real visible-tab
+timer run made exactly one additional timeline read during a120-second interval
+and showed the changed-activity banner. The final explicit-scroll fix came after
+that timer run; its final built day/week paths were separately rechecked. No
+service write, provider or capture occurred. Final synthetic desktop/390 captures
+were inspected. Hook/session cleanup completed.
+
+Astra source review found no privacy/timer-lifecycle blocker and flagged explicit
+reload's previous scroll reset, which prompted the final repair/test. Node web
+regressions/final Docker smoke pass; fresh Rustfmt/clippy-Dwarnings/58tests and
+cargo audit pass (1509advisories/185dependencies, existing local index warning).
+Android's unchanged production code retains the final #72unit/build/lint checks.
+This is an update indication, not streaming or proof of phone capture success.
+
+- [Desktop update action](screenshots/web-timeline-update-desktop.png)
+- [390px update action, user-selected grid](screenshots/web-timeline-update-phone.png)

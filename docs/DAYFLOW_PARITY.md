@@ -11,7 +11,7 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | Official Dayflow area | PocketLog status |
 | --- | --- |
 | Onboarding: explain capture/privacy/provider | Website and native Android onboarding share server completion, goals and category settings; OS permissions and capture/model consent remain device-specific |
-| Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank; desktop web selection opens a read-only side inspector, with explicit editing |
+| Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank; desktop web selection opens a read-only side inspector, with explicit editing; visible current-day web views check activity changes at most once every two minutes and offer an explicit update without silently rebuilding the reader |
 | Week timeline | Website seven-column grid or readable list; native compact seven-column overview with per-day rows; 29 selectable journal dates |
 | Category filtering and editing | Both clients filter categories and edit ten built-ins plus up to 30 custom categories; up to 32 ordered app/title rules, with manual corrections taking priority; both clients test unsaved rules through the private server classifier |
 | Targets, distraction budget, longest focus | Website selected-day sidebar and Android daily review; user-defined focus/distraction roles; intervals are merged for longest-focus metric |

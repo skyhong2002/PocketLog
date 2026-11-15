@@ -26,6 +26,7 @@ let prefs,
   chat = [],
   flow = null,
   timerHandle,
+  timelineWatch,
   renderSeq = 0,
   focusKey = null,
   mounted = [],
@@ -602,6 +603,7 @@ function resetPrivateState() {
   refreshOnClose = false;
   Object.keys(drafts).forEach((k) => delete drafts[k]);
   clearInterval(timerHandle);
+  clearInterval(timelineWatch);
 }
 function gate() {
   root.replaceChildren();
@@ -871,6 +873,7 @@ function start() {
 function onboard(step) {
   renderSeq++;
   clearInterval(timerHandle);
+  clearInterval(timelineWatch);
   const names = ["價值", "隱私", "目標", "選用 AI"];
   const main = gate();
   const p = el("section", null, "gate-card onboarding");
@@ -1226,6 +1229,7 @@ async function shell() {
   timelineInspector = null;
   if (page !== "timeline") inspectedCard = null;
   clearInterval(timerHandle);
+  clearInterval(timelineWatch);
   const key = focusKey || document.activeElement?.dataset?.key || null;
   focusKey = null;
   mounted = [];
@@ -1379,6 +1383,67 @@ function visibleDates() {
 }
 
 /* ---------- timeline ---------- */
+function watchTimeline(parent, days, seq) {
+  const date = journalDate(), snapshot = days.find(d => d.date === date);
+  if (!snapshot) return;
+  const fingerprint = data => JSON.stringify([data.cards, data.truncated === true]);
+  const baseline = fingerprint(snapshot);
+  const banner = el("div", null, "callout");
+  banner.hidden = true;
+  const status = el("p");
+  status.setAttribute("role", "status");
+  let reading = false;
+  const current = () => seq === renderSeq && page === "timeline" && banner.isConnected;
+  const reload = keyed(btn("載入更新", async () => {
+    if (!current()) return;
+    const [nextPrefs, nextAi] = await Promise.all([
+      api("/v1/workspace", null, undefined, current),
+      api("/v1/ai", null, undefined, current),
+    ]);
+    if (!current()) return;
+    prefs = nextPrefs; ai = nextAi;
+    const sameDay = date === journalDate();
+    const viewport = root.querySelector(".timeline-panel .timeline-window, .timeline-panel .scroll");
+    const position = { x: scrollX, y: scrollY, top: viewport?.scrollTop, left: viewport?.scrollLeft };
+    if (!sameDay) day = journalDate();
+    focusKey = "timeline-content";
+    const expectedRender = renderSeq + 1;
+    await shell();
+    if (renderSeq !== expectedRender || page !== "timeline" || !sameDay) return;
+    const updated = root.querySelector(".timeline-panel .timeline-window, .timeline-panel .scroll");
+    if (updated && position.top !== undefined) {
+      updated.scrollTop = position.top; updated.scrollLeft = position.left;
+    }
+    window.scrollTo(position.x, position.y);
+  }), "timeline-load-updates");
+  add(banner, status, reload);
+  add(parent, banner);
+  const show = (message, warning = false) => {
+    if (status.textContent !== message) status.textContent = message;
+    banner.className = warning ? "callout warn" : "callout";
+    banner.hidden = !message;
+  };
+  mounted.push(() => {
+    timelineWatch = setInterval(async () => {
+      if (!current() || reading || document.visibilityState !== "visible" ||
+          navigator.onLine === false || $("dialog[open]") ||
+          document.activeElement?.matches("input,textarea,select,[contenteditable=true]")) return;
+      if (date !== journalDate()) {
+        show("新的一天已開始；目前仍顯示先前載入的日期。載入更新可前往今天。");
+        return;
+      }
+      reading = true;
+      try {
+        const latest = await api(pathFor(date), null, undefined, current);
+        if (!current()) return;
+        show(fingerprint(latest) !== baseline
+          ? "有新的活動或分類更新；目前仍顯示先前載入的資料。你準備好時可以載入更新。" : "");
+      } catch (error) {
+        if (current()) show("暫時無法檢查活動更新；目前保留先前載入的資料。可稍後載入更新重試。", true);
+      } finally { reading = false; }
+    }, 120000);
+  });
+}
 async function timelinePage(parent, seq) {
   const dates = mode === "week" ? visibleDates() : [day];
   const wantSetup = !checklistHidden() && !setupComplete(setupState);
@@ -1465,9 +1530,13 @@ async function timelinePage(parent, seq) {
   add(chips, keyed(btn("編輯分類", categoriesDialog, "chip ghost"), "chip-edit"));
   add(parent, chips);
   truncatedNote(parent, days, reviewsTruncated);
+  watchTimeline(parent, days, seq);
   const grid = el("div", null, "dashboard"),
     left = el("section", null, "timeline-panel"),
     aside = el("aside");
+  keyed(left, "timeline-content");
+  left.tabIndex = -1;
+  left.setAttribute("aria-label", "活動時間軸");
   aside.setAttribute("aria-label", "所選日摘要");
   add(grid, left, aside);
   add(parent, grid);
