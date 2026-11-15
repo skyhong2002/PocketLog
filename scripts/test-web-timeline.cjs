@@ -167,3 +167,20 @@ try {
   assert.equal(sharedWeekAxis(['2026-10-03','2026-11-15']), true);
 } finally { if (originalZone === undefined) delete process.env.TZ; else process.env.TZ=originalZone; }
 console.log('Week clocks split for full-hour and half-hour DST transitions');
+
+const { timelineGroups } = require('../server/web/app.js');
+const dense = Array.from({length:1000},(_,id)=>({id,start_ms:id*1000,end_ms:(id+1)*1000}));
+const denseCopy = JSON.stringify(dense);
+const groups = timelineGroups(dense, 1350000, 4);
+assert.equal(groups.length,1);
+assert.equal(groups[0].collapsed,true);
+assert.equal(groups[0].placed.length,1000);
+assert.equal(groups[0].start,0);
+assert.equal(groups[0].end,1000000);
+assert.equal(JSON.stringify(dense),denseCopy);
+const mixed = timelineGroups([...dense,{id:'later',start_ms:4000000,end_ms:4100000}],1350000,4);
+assert.deepEqual(mixed.map(g=>[g.collapsed,g.placed.length]),[[true,1000],[false,1]]);
+assert.equal(new Set(mixed.flatMap(g=>g.placed.map(p=>p.card.id))).size,1001);
+assert.equal(timelineGroups([{id:1,start_ms:0,end_ms:100},{id:2,start_ms:10,end_ms:20}],0,4)[0].collapsed,false);
+assert.deepEqual(timelineGroups([],0,4),[]);
+console.log('Dense display groups preserve every record, true bounds and ordinary overlaps');

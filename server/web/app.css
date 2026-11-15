@@ -821,6 +821,13 @@ progress.over::-moz-progress-bar {
   align-content: flex-start;
   column-gap: 10px;
 }
+.event.event-density {
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+  padding: 2px 6px;
+}
 .event:hover {
   background: color-mix(in srgb, var(--cat) 36%, #fcfdf9);
 }

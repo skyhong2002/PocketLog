@@ -1368,3 +1368,33 @@ pass. Same-wave unchanged Rust fmt/clippy-Dwarnings/58tests/audit and Android
 
 - [Desktop clock gutter](screenshots/web-week-axis-desktop.png)
 - [Phone clock gutter and navigation](screenshots/web-week-axis-phone.png)
+
+
+## Dense timeline groups (#60)
+
+The1000one-second synthetic activities exceeded the grid's useful target width:
+114cards painted outside a130px week track, and padding forced15px cards over
+near-zero lane widths. Groups over4week lanes or8day lanes now show one neutral
+count/list action, using the group's true first/last activity times. Ordinary
+groups keep individual cards. This is view-only aggregation, not journal merging
+or classification, and does not raise query quotas or fill empty time.
+
+Final-image Chromium at1280×800 and390×844 shows one1000-record action wholly
+inside its day,24px high, with the short visible label fitting in full; no
+document overflow. Activating it produces1000unique original list cards and
+focuses the first, retaining selected date/week and learning filter. Day view
+also aggregates the dense range; clicking through opens the original editor and
+Cancel returns focus to its list card. Captures below were saved and inspected.
+Pure regressions verify complete record coverage, true bounds, immutability,
+separated dense/ordinary groups and ordinary overlaps. Astra6 independently
+reviewed the diff and found no substantive issue (no browser/API actions).
+
+Web syntax/timeline/import regressions and final-image Docker privacy/API/worker
+smoke pass. Same-wave unchanged Rust fmt/clippy-Dwarnings/58tests/audit and
+Android56unit/build/lint/connected-offline results remain valid. This is a
+bounded stress fixture, not a statement about the owner's private data, physical
+phone input or TalkBack. Official Dayflow's readable timeline hierarchy is the
+reference; dense-group rendering is PocketLog's adaptation, not feature parity.
+
+- [Desktop dense group](screenshots/web-density-desktop.png)
+- [Phone dense group](screenshots/web-density-phone.png)

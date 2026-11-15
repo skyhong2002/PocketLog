@@ -433,9 +433,11 @@ function layoutLanes(cards, minMs = 0) {
   const out = [];
   let cluster = [],
     ends = [],
-    clusterEnd = -Infinity;
+    clusterEnd = -Infinity,
+    group = 0;
   const flush = () => {
-    cluster.forEach((item) => (item.lanes = ends.length));
+    cluster.forEach((item) => { item.lanes = ends.length; item.group = group; });
+    group++;
     cluster = [];
     ends = [];
     clusterEnd = -Infinity;
@@ -453,6 +455,20 @@ function layoutLanes(cards, minMs = 0) {
   }
   flush();
   return out;
+}
+// Dense groups keep every record available through the existing readable list.
+function timelineGroups(cards, minMs, maxLanes) {
+  const groups = [];
+  for (const item of layoutLanes(cards, minMs)) {
+    let group = groups.at(-1);
+    if (!group || group.id !== item.group) {
+      group = { id: item.group, placed: [], start: item.card.start_ms, end: item.card.end_ms, collapsed: item.lanes > maxLanes };
+      groups.push(group);
+    }
+    group.placed.push(item);
+    group.end = Math.max(group.end, item.card.end_ms);
+  }
+  return groups;
 }
 // Elapsed time is a union; category attribution may legitimately overlap.
 function mergedTime(cards) {
@@ -486,7 +502,7 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery };
+  module.exports = { timelineGroups, sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery };
 
 /* Only classification fields belong to this editor; unrelated settings stay current. */
 function classificationRecovery(base, draft, latest, attemptedRevision = draft.revision) {
@@ -1673,28 +1689,45 @@ function track(data, compact) {
   appendTimelineTicks(lane, data.date);
   const px = (ms) => (ms / length) * 1536;
   const visible = data.cards.filter((c) => !filter || c.category === filter);
-  for (const { card: c, lane: index, lanes } of layoutLanes(
-    visible,
-    (24 / 1536) * length,
-  )) {
-    const b = keyed(btn("", () => openCard(c), "event"), cardKey(c));
-    const height = Math.max(24, px(c.end_ms - c.start_ms));
-    const category = styleFor(c.category);
-    b.style.setProperty("--top", `${px(c.start_ms - start)}px`);
-    b.style.setProperty("--height", `${height}px`);
-    b.style.setProperty("--cat", category.color);
-    b.style.setProperty("--lane", index);
-    b.style.setProperty("--lanes", lanes);
-    b.setAttribute("aria-label", eventLabel(c));
-    b.title = `${c.title} · ${time(c.start_ms)}–${time(c.end_ms)} · ${contentSource(c.source).label}${pendingContextLabel(c) ? " · " + pendingContextLabel(c) : ""}`;
-    add(b, el("strong", c.title));
-    if (!compact || height >= 40)
-      add(b, el("small", `${time(c.start_ms)}–${time(c.end_ms)}`));
-    if (height >= 52 && !compact)
-      add(b, el("span", `${pendingContextLabel(c) ? pendingContextLabel(c) + " · " : ""}${c.app} · ${category.name} · ${contentSource(c.source).label}`, "event-meta"));
-    if (height >= 84 && !compact && c.summary)
-      add(b, el("span", c.summary, "event-summary"));
-    add(lane, b);
+  for (const group of timelineGroups(visible, (24 / 1536) * length, compact ? 4 : 8)) {
+    if (group.collapsed) {
+      const first = group.placed[0].card;
+      const label = `${group.placed.length} 筆活動 · 改用清單`;
+      const b = keyed(btn(`${group.placed.length} 筆 · 清單`, async () => {
+        view = "list";
+        focusKey = cardKey(first);
+        await shell();
+      }, "event event-density"), `dense-${cardKey(first)}`);
+      b.style.setProperty("--top", `${px(group.start - start)}px`);
+      b.style.setProperty("--height", `${Math.max(26, px(group.end - group.start))}px`);
+      b.style.setProperty("--cat", "var(--accent)");
+      b.style.setProperty("--lane", 0);
+      b.style.setProperty("--lanes", 1);
+      b.setAttribute("aria-label", `${time(group.start)}–${time(group.end)}，${label}。活動密集，清單可逐筆檢視與編輯。`);
+      b.title = b.getAttribute("aria-label");
+      add(lane, b);
+      continue;
+    }
+    for (const { card: c, lane: index, lanes } of group.placed) {
+      const b = keyed(btn("", () => openCard(c), "event"), cardKey(c));
+      const height = Math.max(24, px(c.end_ms - c.start_ms));
+      const category = styleFor(c.category);
+      b.style.setProperty("--top", `${px(c.start_ms - start)}px`);
+      b.style.setProperty("--height", `${height}px`);
+      b.style.setProperty("--cat", category.color);
+      b.style.setProperty("--lane", index);
+      b.style.setProperty("--lanes", lanes);
+      b.setAttribute("aria-label", eventLabel(c));
+      b.title = `${c.title} · ${time(c.start_ms)}–${time(c.end_ms)} · ${contentSource(c.source).label}${pendingContextLabel(c) ? " · " + pendingContextLabel(c) : ""}`;
+      add(b, el("strong", c.title));
+      if (!compact || height >= 40)
+        add(b, el("small", `${time(c.start_ms)}–${time(c.end_ms)}`));
+      if (height >= 52 && !compact)
+        add(b, el("span", `${pendingContextLabel(c) ? pendingContextLabel(c) + " · " : ""}${c.app} · ${category.name} · ${contentSource(c.source).label}`, "event-meta"));
+      if (height >= 84 && !compact && c.summary)
+        add(b, el("span", c.summary, "event-summary"));
+      add(lane, b);
+    }
   }
   if (data.date === journalDate()) {
     const now = el("div", null, "now");
