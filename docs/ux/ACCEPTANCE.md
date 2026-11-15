@@ -2182,3 +2182,26 @@ mutations or clipboard writes. Node/timeline/import and Docker smoke pass.
 
 ![First device creation on phone](screenshots/web-device-first-form-phone.png)
 ![First device creation on desktop](screenshots/web-device-first-form-desktop.png)
+
+## Issued key guidance follows its scope (#90)
+
+Built7cc7083 synthetic collector issuance incorrectly instructed Android app
+pairing, though the client needs journal read access. The once-only dialog now
+puts scope, loss/revocation warning, server origin and masked read-only key first.
+Journal keys offer labelled phone and private API disclosures; collector keys
+offer uploader guidance only, with exactly the four permitted method/routes.
+Both explain separate capture/model consent and bearer-header use without
+credential URLs. The API documentation link opens safely in a new tab.
+
+Final1280/390 suite passes22controlled reads/12controlled writes per size, now
+including journal/collector-specific paths, expanded collector limits/consent,
+no overflow and key removal from DOM on close, plus all #88 races. Zero service
+credential mutations/model calls/clipboard writes. In normal phone layout both
+scopes show their key and closing action without initial scrolling. Actual Enter
+opens the collector guide with retained summary focus and no horizontal overflow.
+Root inspected all three synthetic captures below; values remained masked.
+Node/timeline/import, final Docker smoke and private backup/restore pass.
+
+![Journal key setup](screenshots/web-issued-journal-desktop.png)
+![Collector key setup](screenshots/web-issued-collector-phone.png)
+![Collector API guidance](screenshots/web-issued-collector-guide-phone.png)

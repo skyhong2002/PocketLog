@@ -19,6 +19,12 @@ cross-site. Bearer clients do not need that browser header. Missing, expired,
 revoked and insufficient-scope keys return401. Device-key validity does not grant
 phone capture or external AI consent.
 
+The website's once-only issued-key screen labels the selected scope before the
+masked credential. Journal keys include separate Android and private API setup
+guides; collector keys show uploader setup only. Save the key privately before
+closing. It cannot be retrieved again; revoke and reissue if lost. Issuing a key
+does not enable capture or model consent.
+
 ## First authenticated read
 
 Create a **日誌（手機 app）** device key under website **設定 → 連線與裝置 →

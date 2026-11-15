@@ -55,11 +55,19 @@
     await open(); const failed = await create(); failed.resolve(json({}, 503)); await until(() => !label().disabled && !!modal().querySelector('[role=alert]'));
     assert(label().value === '合成新工具', 'Current create failure lost draft'); const success = await create(); success.resolve(json({ token: 'b'.repeat(64) }));
     await until(() => !!modal().querySelector('input[type=password]')); const secret = modal().querySelector('input[type=password]');
-    assert(secret.readOnly && secret.value.length === 64 && modal().textContent.includes('只顯示這一次'), 'Once-only credential UI missing'); await close();
+    assert(secret.readOnly && secret.value.length === 64 && modal().textContent.includes('只顯示這一次'), 'Once-only credential UI missing');
+    assert(modal().textContent.includes('日誌金鑰') && modal().textContent.includes('連接 Android 手機') && modal().textContent.includes('連接私人 API 工具'), 'Journal setup paths missing'); await close();
     assert(!document.querySelector('input[type=password]'), 'Closed credential remains in DOM');
+    await open(); modal().querySelector('select').value = 'collector'; const collector = await create(); collector.resolve(json({ token: 'c'.repeat(64) }));
+    await until(() => !!modal().querySelector('input[type=password]'));
+    assert(modal().textContent.includes('僅收集金鑰') && !modal().textContent.includes('連接 Android 手機'), 'Collector has phone setup instructions');
+    const upload = modal().querySelector('details'); upload.querySelector('summary').click();
+    assert(upload.open && upload.textContent.includes('POST /v1/activities') && upload.textContent.includes('不能讀取日誌') && upload.textContent.includes('明確同意'), 'Collector limits or consent guidance missing');
+    assert(modal().scrollWidth <= modal().clientWidth, 'Collector guidance overflows'); await close();
+    assert(!document.querySelector('input[type=password]'), 'Closed collector credential remains in DOM');
     await open(); const currentRevoke = await revoke(); devices = []; currentRevoke.resolve(new Response(null, { status: 204 })); await until(() => modal().textContent.includes('還沒有裝置金鑰。')); await close();
     assert(document.documentElement.scrollWidth <= innerWidth, 'Document overflow');
     await open(); const expired = await create(); expired.resolve(json({}, 401)); await until(() => !modal().open && document.body.textContent.includes('工作階段已結束'));
-    return { passed: true, width: innerWidth, controlledReads: reads.length, controlledWrites: writes.length, checks: 'stale list/page/modal200/503/401,create200/503/401,serialized mutations,revoke and follow-up ownership,current error/retry/once-only key cleanup/revoke,current401,no overflow,zero credential service mutations or clipboard writes' };
+    return { passed: true, width: innerWidth, controlledReads: reads.length, controlledWrites: writes.length, checks: 'stale list/page/modal200/503/401,create200/503/401,serialized mutations,revoke and follow-up ownership,current error/retry/journal and collector setup/once-only key cleanup/revoke,current401,no overflow,zero credential service mutations or clipboard writes' };
   } finally { window.fetch = original; delete window.POCKETLOG_SYNTHETIC_DEVICE_OWNERSHIP; }
 })()

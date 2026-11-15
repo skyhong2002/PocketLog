@@ -3580,14 +3580,11 @@ async function devicesDialog() {
             if (!current()) return;
             refreshOnClose = true;
             modal("這把金鑰只顯示這一次", (body) => {
-              add(
-                body,
-                listOf(true, [
-                  "在手機安裝並開啟 PocketLog app。",
-                  ["伺服器網址填：", code(location.origin)],
-                  "裝置金鑰填下面這一串。關閉後無法再次讀取；遺失時撤銷並重建即可。",
-                  "在手機按「驗證並連線」後，回到網站的開始使用清單，按「重新檢查連線」。錄製與畫面擷取仍要在手機另外同意。",
-                ]),
+              const journal = payload.scope === "journal";
+              add(body,
+                el("p", journal ? "日誌金鑰 · 手機 app 或私人 API 工具" : "僅收集金鑰 · 私人上傳工具"),
+                el("p", "關閉後無法再次讀取這把金鑰；請先私下保存。遺失時從金鑰清單撤銷並重建。", "muted"),
+                rich("p", "", "伺服器網址：", code(location.origin)),
               );
               const secret = field(body, "裝置金鑰", result.token, "password");
               secret.readOnly = true;
@@ -3597,9 +3594,22 @@ async function devicesDialog() {
                 body,
                 el(
                   "p",
-                  "請用私人方式帶到手機（例如密碼管理器）；不要放進網址、截圖或聊天訊息。",
+                  "請用私人方式帶到手機或工具（例如密碼管理器）；不要放進網址、截圖或聊天訊息。",
                   "muted",
                 ),
+              );
+              if (journal) topic(body, "連接 Android 手機", [
+                "安裝並開啟 PocketLog app，填入上方伺服器網址與這把日誌金鑰，按「驗證並連線」。",
+                "回到網站的開始使用清單，按「重新檢查連線」。錄製、畫面擷取與模型處理仍要在手機另外同意。",
+              ]);
+              topic(body, journal ? "連接私人 API 工具" : "設定私人上傳工具", [
+                ["以 HTTPS 連線至上方伺服器，透過 ", code("Authorization: Bearer <裝置金鑰>"), " 請求標頭帶入金鑰；不要放進網址。"],
+                journal
+                  ? "這把金鑰可讀寫私人日誌與 AI 設定；不能管理金鑰或登入網站。若要讀取時間軸，請遵守 API 文件中的時間範圍與讀取上限。"
+                  : "只可 POST /v1/activities、POST /v1/observations，及 GET /v1/collection、GET /v1/ai。不能讀取日誌、用於 Android app 或登入網站。",
+                "金鑰本身不代表同意擷取或模型處理；上傳活動與情境前仍須有使用者的明確同意。",
+              ], link("API 文件與安全連線範例", `${REPO}/blob/main/docs/API.md`));
+              add(body,
                 add(
                   el("div", null, "actions"),
                   btn("複製金鑰", async () => {
