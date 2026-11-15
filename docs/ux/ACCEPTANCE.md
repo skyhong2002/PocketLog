@@ -1690,3 +1690,26 @@ unchanged Rust/native sources retain preceding same-wave required checks.
 
 - [Pending request on desktop](screenshots/web-chat-pending-request.png)
 - [Different conversation can keep a draft](screenshots/web-chat-pending-other-thread-phone.png)
+
+## Consolidated first-run and responsive-web milestones (#8 / #10)
+
+This checkpoint maps the original issue criteria to the evidence above; it does
+not assert full Dayflow parity or erase the limits of each test.
+
+| Issue criterion | Evidence |
+| --- | --- |
+| #8 explain purpose and Owner key before login | Web first iteration; #41 current onboarding wording; #69 invited-user and private API key wording, actual rebuilt 1280/390 captures |
+| #8 deployer/invited-user recovery | Labelled login/help branches and malformed/rejected/session-expiry recovery; #69 correct device-key scope and Owner recovery wording |
+| #8 connected-phone checklist, optional AI, separate consent | #31 actual issued journal key, malformed/rejected key recovery and MainActivity HTTPS pairing; last authentication and first activity separately visible at 1440/390; all capture/model grants stayed off; #41 four shared onboarding steps with optional AI skipped |
+| #8 no credential URL/log/browser-storage leak | One-time device key removed from closed DOM; fixture key revoked; #31 and security/smoke checks; #69 captures contain no credential |
+| #10 Dayflow hierarchy, day/week/categories/summary | Private actual Timeline screenshots plus official Swift source audit; initial 1440/390 captures; #35 inspector, #58 week anchor, #59 visible clocks, #60 dense groups and #63 unequal-day axes |
+| #10 narrow layout, empty/loading/error/offline recovery | Eight-page 390px checks; #33 readable phone default; #37 replay recovery; #43/#50 draft retention; #51 scaled editor; #68/#70 held-response, navigation and failure acceptance at 1280/390 |
+| #10 text/category colour and keyboard focus | Labelled categories and legends; #32/#44/#64 focus checks and #68/#70 ownership/draft/focus regressions; Fable independent keyboard review findings fixed |
+| #10 reduced motion preserved | Source review: all CSS transitions/animations are gated by prefers-reduced-motion: no-preference; no smooth scrolling in web JS/CSS. Runtime preference emulation was not available in the shared browser, so this is a source check |
+
+Closing #8 and #10 means these scoped product/interface criteria are implemented
+and have the listed evidence. It does not mean production mobile capture/battery,
+physical gestures, TalkBack/VoiceOver, Firefox/Safari, browser-native zoom or all
+Dayflow features have passed. #9/#11 retain broader native/accessibility and
+iterative acceptance work. The owner's manual mood-entry removal remains in force;
+old check-in references earlier in this chronological document are historical.
