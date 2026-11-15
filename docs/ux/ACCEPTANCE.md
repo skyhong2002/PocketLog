@@ -939,7 +939,7 @@ the256-item upload read. Astra's bounded read-only contract review informed thes
 constraints. Dayflow's supplied timeline/category reference and DayCategorySelectionEditor
 at2c79e161 inform correction-in-context; this is an Android sync behavior improvement.
 
-Actual secure emulator tests at normal/2× font disable airplane/Wi-Fi connectivity,
+Actual secure emulator tests at normal/2× font enable airplane mode and disable Wi-Fi,
 use the real editor to save a new title/Rest category, and verify immediate offline
 Timeline/List/Daily data plus intact original snapshot. Restoring an unmetered
 network and syncing preserves the correction on the server, removes pending flags
