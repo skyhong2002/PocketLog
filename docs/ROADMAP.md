@@ -1,11 +1,13 @@
 # Development plan
 
-## Milestone 0 — foundation (this commit)
+## Milestone 0 — historical foundation
 
 Public MIT repository, Kotlin app identity, HTTPS connection setup, Keystore-backed
-credentials, daily history reader, mood/energy check-in, Rust authenticated API,
+credentials, daily history reader, Rust authenticated API,
 SQLite persistence, idempotent ingest, limits/retention/delete, hardened Compose,
-and tests. No production migration or automatic capture is claimed.
+and tests. This records the original foundation, not the current release. Manual
+mood/energy entry has since been removed; historical records/API remain. Current
+capture and interface status is recorded in the implementation updates below.
 
 ## Milestone 1 — identity and low-power recording
 
@@ -26,8 +28,9 @@ inference of emotions or medical conclusions. Graceful operation when AI is down
 
 ## Milestone 3 — daily reflection
 
-Compose daily timeline and offline cache, activity details/corrections, mood/energy
-annotations, accessible themes, gentle daily reflection and user-chosen reminders.
+Native Kotlin day/week timeline and offline cache, activity details/corrections,
+accessible themes, optional text reflection and user-chosen reminders. Manual
+mood/energy entry is outside the current product scope.
 Surface correlations as tentative and allow dismissal. Do not optimize a focus score.
 
 ## Milestone 4 — ownership and integration
@@ -59,6 +62,9 @@ classification rules, goals, native provider protocols, saved multi-turn Chat an
 category charts, provider-bound daily/weekly brief schedules, cross-device focus
 timers, per-turn native agent JSONL import/replay, shared collection pause, separate
 short-term image replay consent and expiring/revocable device keys are implemented.
+The native client uses Kotlin platform Views. Manual mood/energy entry is removed;
+legacy records and API remain, while optional text reflection and focus review
+are separate features.
 See [the exact parity matrix](DAYFLOW_PARITY.md). Desktop continuous recording/audio,
 OCR pixel redaction, CLI inference, background desktop session scanning, generated
 artwork and Dayflow's separately hosted Flow backend are not implemented. Physical

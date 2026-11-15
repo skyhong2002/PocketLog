@@ -21,7 +21,7 @@ share its database, or migrate existing history.
 | Server context jobs | Separate Rust worker; bounded durable leases, four failed attempts then excerpt fallback; 24 h raw retention independent of job success |
 | Summaries | Default app-only cards or clearly labeled local excerpts; optional structured-output model; independent per-capture model consent, server enable switch and configuration required |
 | Summary safety | Treat text/images as untrusted evidence; no model tools; strict schema/category/length validation; no inferred emotions; user corrections win |
-| Private daily timeline | Local 04:00 boundary; date navigation; card corrections, explicit mood/energy check-ins, daily reflection |
+| Private daily timeline | Local 04:00 boundary; date navigation; card corrections and optional text reflection; manual mood/energy entry removed, legacy records/API retained |
 | Overview | Daily, Monday-based week and 29-day category totals, top apps and locally extracted title keywords; cache/truncation warnings |
 | Offline reading | Keystore-encrypted cache, at most 30 entries, about 2.5 MiB including newest response, max 30 days |
 | Ownership | Daily JSON export through Android document picker; owner deletion covers source, notes, receipts, reflections and jobs; local erase clears queue/cache and disables capture |
