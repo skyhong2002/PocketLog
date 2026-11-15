@@ -69,6 +69,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 result.putString("stream", "Synthetic replay secure dialog, dismissal/recreation and undelivered-bitmap disposal passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
+            if ("yes".equals(args.getString("timelineUpdates"))) {
+                new TimelineUpdateChecks(this,args).run();
+                result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy published APK has no native timeline watcher; snapshot-only lifecycle confirmed.\n" : "Synthetic native foreground update cadence/lifecycle/stale response/draft and explicit reload checks passed.\n");
+                finish(Activity.RESULT_OK,result); return;
+            }
             if ("yes".equals(args.getString("ruleAppPicker"))) {
                 new RuleAppPickerChecks(this,args).run();
                 result.putString("stream", "Synthetic secure single rule app picker search/select/cancel/manual/draft/stale checks passed; settings and consent unchanged.\n");
@@ -113,6 +118,24 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             // Let the initial Keystore read deliver its result, without network or stored credentials.
             Thread.sleep(400); waitForIdleSync();
             capture("first-run");
+            if ("yes".equals(args.getString("setupHelp"))) {
+                runOnMainSync(() -> {
+                    var found = new java.util.ArrayList<View>();
+                    activity.getWindow().getDecorView().findViewsWithText(found, "不知道網址或金鑰在哪裡", View.FIND_VIEWS_WITH_TEXT);
+                    if (found.isEmpty() || !found.get(0).performClick()) throw new IllegalStateException("Setup help unavailable");
+                });
+                settle();
+                runOnMainSync(() -> {
+                    var found = new java.util.ArrayList<View>();
+                    activity.getWindow().getDecorView().findViewsWithText(found, "設定 → 連線與裝置 → 管理裝置金鑰", View.FIND_VIEWS_WITH_TEXT);
+                    if (found.isEmpty()) throw new IllegalStateException("Current website key path missing");
+                    View target = found.get(0);
+                    target.requestRectangleOnScreen(new android.graphics.Rect(0, 0, target.getWidth(), target.getHeight()), true);
+                });
+                settle(); capture("first-run-help");
+                result.putString("stream", "Synthetic expanded setup help captured with current web device-key path. FLAG_SECURE retained.\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
             runOnMainSync(() -> { try { invoke("settings"); } catch (Exception e) { throw new RuntimeException(e); } });
             settle(); capture("settings");
             runOnMainSync(() -> { try { renderFixture(false); } catch (Exception e) { throw new RuntimeException(e); } });
@@ -126,7 +149,7 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("timelineUpdates")) || "yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }

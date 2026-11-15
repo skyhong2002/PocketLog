@@ -1940,3 +1940,49 @@ category draft and focus; both synthetic captures below were inspected.
 
 ![Phone classification draft survives old failure](screenshots/web-classification-stale-phone.png)
 ![Desktop classification draft survives old failure](screenshots/web-classification-stale-desktop.png)
+
+## Native activity update indication (#77)
+
+Native Timeline now checks only the visible current-day activity snapshot, at most
+one timeline read per120seconds, without overlap. It skips focused editing, busy
+operations, dialogs/window focus loss, unavailable network and disallowed metered
+network under the existing Wi-Fi-only preference. Stop/navigation/destroy cancel
+queued work and invalidate in-flight completions. Retry-After is honored. It does
+not call sync/capture/model or cache an unsolicited response. Pending local card
+or reflection overlays retain the existing explicit sync path.
+
+Updates, failures and day rollover are truthful notices with explicit actions;
+current cards stay until the owner loads new activity. Fingerprints compare cards
+and truncation, not moving range endpoints or unrelated reviews/reflections.
+Reflection drafts, list reading anchor/focus and nested canvas scroll were checked.
+The former published0.4.28 APK lacks watcher lifecycle state; this is a verified
+snapshot-only architecture comparison, not proof of a live incoming backend event.
+
+Sol6.1 implemented; Astra6 read-only review found no blocking privacy/lifecycle or
+correctness issue. Final63unit tests/debug/testAPK/lint pass. Normal and2× Android34
+controlled actual-View checks pass:120s cadence, no overlap, queued/started stale
+requests, pause epoch, actual Activity Stop, busy/edit/dialog skips, unchanged/
+updated/failure/recovery/rollover, retained draft/anchor/focus and explicit reload.
+A real120-second Handler/worker run made zero reads at50seconds and one synthetic
+read/update by120seconds; later fingerprint/eligibility-copy changes did not change
+the timer. No real API/provider/capture writes. The captures below retain
+FLAG_SECURE and are Canvas View snapshots, not compositor/physical/TalkBack evidence.
+Physical battery/network and full Dayflow parity remain unverified.
+
+![Native update notice retaining original cards](screenshots/native-timeline-update-phone.png)
+![Native update notice at2× font](screenshots/native-timeline-update-large.png)
+![Explicit reload retains canvas viewport](screenshots/native-timeline-update-reloaded.png)
+
+
+## Native first-run website path (#79)
+
+Expanded setup help now names the actual website section/action:
+「設定 → 連線與裝置 → 管理裝置金鑰」. Journal scope, owner recovery, once-only
+display and separate capture consent remain unchanged. Integrated0.4.29 normal
+and2× secure View captures show the complete instruction; the opt-in synthetic
+setupHelp capture checks the current path, without credentials/server calls. Both
+were inspected. Integrated watcher normal/2× acceptance also passed after the
+version/copy-only integration;63unit/debug/testAPK/lint passed.
+
+![Normal first-run key instructions](screenshots/native-setup-key-path-phone.png)
+![Large first-run key instructions](screenshots/native-setup-key-path-large.png)

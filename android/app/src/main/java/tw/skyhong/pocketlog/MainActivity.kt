@@ -88,6 +88,7 @@ class MainActivity : Activity() {
     private val backCallback = OnBackInvokedCallback { handleBack() }
     private var backRegistered = false
     private var refreshOnResume: (() -> Unit)? = null
+    private var timelineWatch: TimelineUpdateWatch? = null
     private var ticker: Runnable? = null
     private var visible = false
     private var tab = Tab.TIMELINE
@@ -156,11 +157,13 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         visible = true
+        timelineWatch?.resume()
         ticker?.let { handler.removeCallbacks(it); handler.post(it) }
     }
 
     override fun onStop() {
         visible = false
+        timelineWatch?.pause()
         ticker?.let(handler::removeCallbacks)
         super.onStop()
     }
@@ -257,6 +260,7 @@ class MainActivity : Activity() {
     private fun screen(title: String, subtitle: String? = null, tab: Tab? = null, back: (() -> Unit)? = null, nav: Boolean = true, logo: Boolean = false,
                        action: Triple<Int, String, () -> Unit>? = null, refresh: (() -> Unit)? = null): LinearLayout {
         generation++
+        timelineWatch?.close(); timelineWatch = null
         ticker?.let(handler::removeCallbacks); ticker = null
         if (tab != null) this.tab = tab
         refreshOnResume = refresh
@@ -561,7 +565,7 @@ class MainActivity : Activity() {
         ui.groupLabel(help, "你需要準備兩樣東西")
         ui.card(help).apply {
             step(this, "1", "伺服器網址", "部署 PocketLog 後用瀏覽器開啟網站的 HTTPS 位址，例如 https://my-pc.your-tailnet.ts.net:12446。只填來源，不含路徑；這支手機也必須連得到（使用 Tailscale 時請先登入同一個 tailnet）。")
-            step(this, "2", "裝置金鑰", "用部署時產生的 owner token 登入網站，到「設定 → 裝置金鑰與撤銷」，權限選「日誌（手機 app）」後建立。金鑰是 64 個英數字元，只顯示一次，可單獨撤銷。owner token 也能使用，但不建議放在手機上。")
+            step(this, "2", "裝置金鑰", "用部署時產生的 owner token 登入網站，到「設定 → 連線與裝置 → 管理裝置金鑰」，權限選「日誌（手機 app）」後建立。金鑰是 64 個英數字元，只顯示一次，可單獨撤銷。owner token 也能使用，但不建議放在手機上。")
         }
         ui.groupLabel(body, "連線之後")
         ui.card(body).apply {
@@ -647,7 +651,79 @@ class MainActivity : Activity() {
         }) { (latest, data) ->
             if (latest != null) workspace = latest
             renderTimeline(slot, data); renderReflections(reflections, data)
+            startTimelineWatch(slot, data)
         }
+    }
+
+    /** Keep the confirmed page until an explicit read; no background collection or cache writes. */
+    private fun startTimelineWatch(slot: LinearLayout, data: JSONObject, checkRead: () -> JSONObject = { api().request(dayPath()) }, reloadRead: () -> JSONObject = { readJournal(dayPath()) }) {
+        timelineWatch?.close(); timelineWatch = null
+        if (day != journalDay() || data.optBoolean("pending_card_edits") || data.optBoolean("pending_reflections")) return
+        val selected = day
+        val token = generation
+        val box = ui.column(null).apply {
+            background = ui.shape(Palette.ACCENT_SOFT, 14f)
+            setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(6))
+            visibility = View.GONE
+        }
+        val message = ui.text(box, "", 14f, Palette.ACCENT_DARK).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+        var state = TimelineUpdateWatch.State.CURRENT
+        ui.button(box, "載入最新活動", Tone.TEXT) {
+            if (state == TimelineUpdateWatch.State.ROLLOVER) { day = journalDay(); home() }
+            else reloadTimeline(slot, checkRead, reloadRead)
+        }
+        slot.addView(box, 0, ui.lp(bottom = 12))
+        fun current() = token == generation && selected == day && slot.isAttachedToWindow && !isDestroyed && !isFinishing
+        fun eligible(): Boolean {
+            if (!current() || !visible || busy || !hasWindowFocus() || currentFocus is EditText) return false
+            val manager = getSystemService(android.net.ConnectivityManager::class.java)
+            val network = manager?.getNetworkCapabilities(manager.activeNetwork) ?: return false
+            return network.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                (!RecordingSettings(this@MainActivity).wifiOnly || network.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED))
+        }
+        timelineWatch = TimelineUpdateWatch(handler, executor, selected, data, ::eligible,
+            checkRead, { next ->
+                if (!current()) return@TimelineUpdateWatch
+                state = next
+                val previousHeight = if (box.visibility == View.VISIBLE) box.height + (box.layoutParams as LinearLayout.LayoutParams).bottomMargin else 0
+                val preserve = slot.top + box.top < scroll.scrollY
+                val outerY = scroll.scrollY
+                message.text = when (next) {
+                    TimelineUpdateWatch.State.UPDATED -> "有新的活動或分類更新。載入後顯示；反思草稿保留。"
+                    TimelineUpdateWatch.State.FAILED -> "暫時無法檢查活動更新，目前內容仍保留。可重新載入，或稍後再試。"
+                    TimelineUpdateWatch.State.ROLLOVER -> "新的一天已開始。這裡仍是原本日期，可前往今天查看最新活動。"
+                    TimelineUpdateWatch.State.CURRENT -> ""
+                }
+                box.visibility = if (next == TimelineUpdateWatch.State.CURRENT) View.GONE else View.VISIBLE
+                (box.getChildAt(1) as Button).text = if (next == TimelineUpdateWatch.State.ROLLOVER) "前往今天" else "載入最新活動"
+                box.post {
+                    if (current() && preserve) {
+                        val height = if (box.visibility == View.VISIBLE) box.height + (box.layoutParams as LinearLayout.LayoutParams).bottomMargin else 0
+                        scroll.scrollTo(0, outerY + height - previousHeight)
+                    }
+                }
+            })
+        if (visible) timelineWatch?.resume()
+    }
+
+    private fun reloadTimeline(slot: LinearLayout, checkRead: () -> JSONObject, reloadRead: () -> JSONObject) {
+        timelineWatch?.close(); timelineWatch = null
+        val outerY = scroll.scrollY
+        val innerY = (0 until slot.childCount).asSequence().flatMap { scrollViews(slot.getChildAt(it)).asSequence() }.map { it.scrollY }.toList()
+        load(slot, "讀取最新活動…", reloadRead) { fresh ->
+            renderTimeline(slot, fresh)
+            startTimelineWatch(slot, fresh, checkRead, reloadRead)
+            slot.post {
+                scrollViews(slot).zip(innerY).forEach { (view, y) -> view.scrollTo(0, y) }
+                scroll.scrollTo(0, outerY)
+                slot.isFocusableInTouchMode = true; slot.requestFocus()
+            }
+        }
+    }
+
+    private fun scrollViews(root: View): List<ScrollView> = buildList {
+        if (root is ScrollView) add(root)
+        if (root is ViewGroup) for (i in 0 until root.childCount) addAll(scrollViews(root.getChildAt(i)))
     }
 
     private fun captureCallout(parent: ViewGroup) {
@@ -2314,6 +2390,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        timelineWatch?.close(); timelineWatch = null
         replayDialog?.dismiss(); replayDialog = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
