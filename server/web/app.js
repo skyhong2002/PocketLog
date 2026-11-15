@@ -976,10 +976,7 @@ function onboard(step) {
         "callout",
       ),
       btn(ai.enabled ? "修改 AI 設定" : "現在設定我的 AI", () =>
-        providerDialog(async () => {
-          ai = await api("/v1/ai");
-          onboard(3);
-        }),
+        providerDialog(() => onboard(3)),
       ),
     );
   }
@@ -1106,10 +1103,7 @@ function checklist(s, onPage) {
         ? `已設定 ${ai.model}。每次摘要或提問前仍會先顯示傳送範圍。`
         : "需要每日摘要或 Chat 時再設定即可；沒有 AI 不影響時間軸與反思。",
       action: keyed(btn(ai.enabled ? "查看 AI 設定" : "設定 AI", () =>
-        providerDialog(async () => {
-          ai = await api("/v1/ai");
-          await shell();
-        }),
+        providerDialog(shell),
       ), "setup-ai"),
     },
   ];
@@ -2271,10 +2265,7 @@ function briefs(parent, days, kind, saved, from, to, reviews, reviewsTruncated) 
       ),
       row(
         btn("設定自己的 AI", () =>
-          providerDialog(async () => {
-            ai = await api("/v1/ai");
-            await shell();
-          }),
+          providerDialog(shell),
         ),
       ),
     );
@@ -2470,10 +2461,7 @@ async function chatPage(parent, seq) {
           "尚未設定 AI，所以現在無法提問；已保存的對話仍可在下方閱讀與刪除。",
         ),
         btn("設定自己的 AI", () =>
-          providerDialog(async () => {
-            ai = await api("/v1/ai");
-            await shell();
-          }),
+          providerDialog(shell),
         ),
       ),
     );
@@ -3671,10 +3659,7 @@ async function settingsPage(parent, seq) {
     ),
     row(
       keyed(btn(ai.enabled ? "修改 AI 設定" : "設定自己的 AI", () =>
-        providerDialog(async () => {
-          ai = await api("/v1/ai");
-          await shell();
-        }),
+        providerDialog(shell),
       ), "settings-ai"),
       ai.enabled ? keyed(btn("摘要排程", briefScheduleDialog), "settings-schedule") : null,
     ),
@@ -4180,6 +4165,17 @@ function providerDialog(done) {
     pendingHint.setAttribute("role", "status");
     pendingHint.hidden = !providerChangePending;
     add(p, pendingHint);
+    async function complete(reopen = false) {
+      close();
+      // Callbacks render synchronously before awaiting page data. A later page
+      // or dialog owns the screen even if this refresh eventually completes.
+      const refresh = done();
+      const nextSeq = renderSeq;
+      await refresh;
+      if (renderSeq !== nextSeq || $("#modal").open) return false;
+      if (reopen) providerDialog(done);
+      return true;
+    }
     async function changeProvider(action) {
       if (!current()) return;
       if (providerChangePending) {
@@ -4299,9 +4295,8 @@ function providerDialog(done) {
               const saved = await api("/v1/ai", body, "PUT", current);
               if (!current()) return;
               ai = saved;
-              close();
-              await done();
-              notice("AI 設定已儲存；手機需重新同意才能傳送擷取內容");
+              if (await complete())
+                notice("AI 設定已儲存；手機需重新同意才能傳送擷取內容");
             });
           },
           "primary",
@@ -4334,8 +4329,7 @@ function providerDialog(done) {
               const savedNow = await api("/v1/ai", undefined, undefined, current);
               if (!current()) return;
               ai = savedNow;
-              await done();
-              providerDialog(done);
+              await complete(true);
             }));
             add(p, recovery);
             recovery.scrollIntoView({ block: "nearest" });
@@ -4364,8 +4358,7 @@ function providerDialog(done) {
                   const savedNow = await api("/v1/ai", undefined, undefined, current);
                   if (!current()) return;
                   ai = savedNow;
-                  close();
-                  await done();
+                  await complete();
                 });
               },
               "danger",
@@ -4436,10 +4429,7 @@ async function supportPage(parent, seq) {
       "伺服器一次只處理一個模型請求；看到忙碌訊息時稍候再試，同一個問題不會重複計費。",
     ],
     btn("開啟 AI 設定", () =>
-      providerDialog(async () => {
-        ai = await api("/v1/ai");
-        await shell();
-      }),
+      providerDialog(shell),
     ),
   );
   topic(help, "資料保留、匯出與刪除", [

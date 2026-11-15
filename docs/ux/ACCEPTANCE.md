@@ -2014,3 +2014,24 @@ PocketLog's additional remote-write lifecycle is tested independently.
 
 ![Provider draft retained on phone](screenshots/web-provider-draft-phone.png)
 ![Provider draft retained on desktop](screenshots/web-provider-draft-desktop.png)
+
+## AI provider completion refresh (#83)
+
+A separate9ce826f reproduction held the redundant GET after successful provider
+save, opened a new Categories draft, then released401: the draft closed. All six
+provider openers now use the already authoritative saved/deleted/reloaded result
+instead of fetching again in completion callbacks. Conflict reload closes its old
+editor before refresh and reopens only while that refresh still owns the page.
+
+Built-image1280/390 `scripts/check-web-provider-completion.js` passed:1controlled
+write,2provider-bound probes,2explicit reload reads and zero redundant reads per
+size. Normal save displays its authoritative result; current conflict reload
+reopens correctly; a delayed refresh never replaces a newer focused Categories
+draft. All AI writes/probes were local controlled responses, no model/configuration
+service writes. #82's full desktop ownership suite also passed on this final image.
+Node syntax/timeline/import regressions and final Docker smoke pass. Both captures
+below were inspected; they show the newer category editor surviving the delayed
+provider refresh. Unchanged required Rust/Android checks remain applicable.
+
+![New category draft survives provider refresh on phone](screenshots/web-provider-refresh-phone.png)
+![New category draft survives provider refresh on desktop](screenshots/web-provider-refresh-desktop.png)
