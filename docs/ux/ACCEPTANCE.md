@@ -1760,3 +1760,38 @@ full navigation/list/Settings acceptance. The existing synthetic runner exits it
 fixture Activity after rendering; those OS-level checks require a future held
 UiAutomation checkpoint. Font1 and app-clear cleanup completed; keyboard/network
 policy stayed unchanged. #9 remains open for broader accessibility acceptance.
+
+## Native OS accessibility actions (#72)
+
+The androidTest-only AccessibilityChecks checkpoint keeps the production Activity
+alive for real UiAutomation node traversal/actions. It refuses non-emulators,
+existing credentials, capture consents, usage-access permission or an enabled
+PocketLog capture accessibility service. It temporarily requests automation touch
+exploration and restores the previous serviceInfo. No production route/auth bypass
+or capture permission is added. Run with synthetic=yes accessibility=yes and a
+safe variant label through UiSnapshotInstrumentation.
+
+Final normal/2×Android34 runs passed: touch exploration defaults to list mode;
+OS accessibility focus and click select the real list alternative; a real list
+card exposes title/time/category/provenance and accepts focus/click. Its synthetic
+callback is intercepted to avoid server-backed editing, so this proves reachable
+activation, not an authenticated edit. Exact named native navigation nodes are
+found; successful OS scroll actions expose Settings, its destination click opens
+the actual Settings page, and OS click opens/cancels connection recovery while
+retaining the page. Initial broad matching hit a separate legitimate setup action;
+the final harness/reruns require the exact navigation description. No production
+defect was established by this test work.
+
+Root reviewed source, final action logs and the three secure Canvas images below.
+These are View draws with FLAG_SECURE asserted, not compositor screenshots.
+Actual node action results are stronger than View-only introspection but are not
+TalkBack speech/gesture, whole-app accessibility, server-backed editing or physical
+battery acceptance. Android unit/debug/test APK/lint checks passed on final files.
+No server/native production code changed; no new user APK is required. Emulator
+font1, keyboard/network policy and disabled capture grants were restored; app
+credentials/queue were cleared. Original #9 remains scoped separately from these
+precise checks.
+
+- [Accessible native list](screenshots/native-os-accessibility-list.png)
+- [2× list](screenshots/native-os-accessibility-list-large.png)
+- [2× Settings after OS navigation](screenshots/native-os-accessibility-settings-large.png)
