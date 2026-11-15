@@ -1633,3 +1633,20 @@ backup/restore passed. The two synthetic captures below were inspected.
 
 - [Phone switching state](screenshots/web-chat-loading-phone.png)
 - [Selected thread and matching transcript](screenshots/web-chat-selected-thread.png)
+
+## First-run and private API key wording (#69)
+
+The signed-out invited-user help now distinguishes website Owner login from
+journal-scoped Android/private API access and collector upload access. The key
+manager names phones and private API tools, with a tool-name example; scope
+option labels stay consistent with docs/API.md. No permission behavior changed.
+
+Actual rebuilt-image checks at 1280/390 confirmed readable invited-user help,
+selected-tab focus and no document overflow. At 390 the API key manager opened
+with heading focus, showed the new intro/name hint and existing scope options,
+and closed without creating or revoking a key. The synthetic captures were
+inspected. JS/timeline/import checks and disposable Docker smoke passed; unchanged
+Rust/native code retains the preceding same-wave checks.
+
+- [Invited-user help](screenshots/web-api-invited-help-phone.png)
+- [Phone/API key manager](screenshots/web-api-key-manager-phone.png)
