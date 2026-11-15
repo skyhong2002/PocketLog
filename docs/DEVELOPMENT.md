@@ -129,6 +129,19 @@ the same component working before reboot. Do not treat this as proof of APK
 loss, reinstall/clear data, or bypass the lock screen. Follow device-tool failure
 recovery limits; ask for the user's unlock when needed, then verify permission
 revocations, saved credentials and recovery separately.
+Also verify the VPN after first unlock: on the tested Pixel, Wi-Fi returned but
+Tailscale did not reconnect until its app was opened. PocketLog retained its
+encrypted offline timeline and showed the private-server/Tailscale guidance.
+Open Tailscale through the device driver, confirm Connected, then retry PocketLog
+with the existing key. Do not clear/re-pair an otherwise valid connection merely
+because the private origin is temporarily unreachable.
+
+`open --relaunch` is a deliberate force-stop test, not evidence of recovery from
+low-memory process reclamation. On the tested Pixel, accessibility was disabled
+after the sandbox relaunch even though queued images survived and retried. Check
+both enabled and bound service state after every lifecycle transition; restore
+through Android settings when needed. A no-capture interval with the service
+disabled does not verify the lock-screen privacy gate.
 
 ## Disposable container smoke
 

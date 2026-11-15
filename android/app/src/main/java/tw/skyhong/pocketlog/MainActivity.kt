@@ -171,6 +171,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // Observe permission restoration before the next normal scan; never query old events here.
+        executor.execute {
+            runCatching { synchronized(SyncEngine.lock) { UsageCollector(this@MainActivity).reconcilePermission() } }
+                .onFailure { runOnUiThread { if (!isDestroyed) notice("無法更新權限界線；請重試同步。", Kind.ERROR) } }
+        }
         // Returning from Android permission screens: show the new permission state.
         val refresh = refreshOnResume ?: return
         if (busy) return
