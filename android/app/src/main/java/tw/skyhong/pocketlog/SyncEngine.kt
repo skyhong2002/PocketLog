@@ -31,6 +31,7 @@ object SyncEngine {
         val network = manager.getNetworkCapabilities(manager.activeNetwork)
         if (network == null || !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
             (settings.wifiOnly && !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))) {
+            if (settings.hasExternalAiGrant) settings.recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED)
             UsageCollector(context).collect(credentials)
             settings.status("已加密保留，等待符合網路設定的連線"); return@synchronized true
         }
@@ -49,6 +50,8 @@ object SyncEngine {
             UsageCollector(context).reset()
             if (paused) JournalQueue(context).clearCollected()
         }
+        // One bounded metadata read on the existing cadence; failures do not block queued uploads.
+        CaptureAiConsent.refresh(context) { PocketLogApi(credentials).request("/v1/ai") }
         if (!paused) UsageCollector(context).collect(credentials)
         val queue = JournalQueue(context)
         var count = 0

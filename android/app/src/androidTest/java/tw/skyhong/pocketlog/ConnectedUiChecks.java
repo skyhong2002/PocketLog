@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("captureAiOnly"))) { captureAiConsentCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("probeOnly"))) { providerProbeCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("previewOnly"))) { rulePreviewCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("replayOnly"))) { replayUnavailableCheck(fixtureOwner); return; }
@@ -178,6 +179,61 @@ final class ConnectedUiChecks {
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void captureAiConsentCheck(PocketLogApi owner) throws Exception {
+        stage="future-capture AI consent reconciliation";
+        RecordingSettings s=new RecordingSettings(test.getTargetContext());
+        JSONObject original=owner.request("/v1/ai",null,"GET");
+        if(!original.getBoolean("enabled")||!original.getString("endpoint").contains("127.0.0.1:18752"))throw new IllegalStateException("Synthetic provider fixture required");
+        JSONObject draft=new JSONObject();for(String key:new String[]{"protocol","endpoint","model","response_format","image_support"})draft.put(key,original.get(key));
+        try {
+            String a=original.getString("provider_id");
+            synchronized(SyncEngine.INSTANCE.getLock()){s.setEnabled(true);s.setContextEnabled(true);s.setAnalysisConsent(true);s.setAllowed(java.util.Set.of());s.setImagesEnabled(false);s.setAiProviderId(a);s.setExternalAiConsent(true);}
+            if(CaptureAiConsent.INSTANCE.refresh(test.getTargetContext(),()->original)!=CaptureAiConsent.State.CURRENT)throw new IllegalStateException("Unchanged identity not current");
+            long revision=s.getRevision();CaptureAiConsent.INSTANCE.refresh(test.getTargetContext(),()->original);if(s.getRevision()!=revision)throw new IllegalStateException("Unchanged check rewrote capture revision");
+            // Real encrypted queue, never scheduled or uploaded: old consent identity must stay intact.
+            Credentials c=new CredentialStore(test.getTargetContext()).load();JournalQueue queue=new JournalQueue(test.getTargetContext());
+            synchronized(SyncEngine.INSTANCE.getLock()){queue.enqueue(c,"/v1/observations",new JSONObject().put("id","synthetic-old-provider").put("provider_id",a).put("external_ai_consent",true).put("analysis_consent",true),System.currentTimeMillis());}
+            String queued=queue.entries(c).get(0).getData().toString();
+            owner.request("/v1/ai",new JSONObject(draft.toString()).put("model","synthetic-rotated"),"PUT");
+            JSONObject b=owner.request("/v1/ai",null,"GET");
+            CaptureAiConsent.INSTANCE.refresh(test.getTargetContext(),()->b);
+            if(s.getHasExternalAiGrant()||s.getAiProviderId()!=null||s.getCaptureAiState()!=CaptureAiConsent.State.RENEWAL)throw new IllegalStateException("Remote rotation did not invalidate future grant");
+            if(!queued.equals(queue.entries(c).get(0).getData().toString()))throw new IllegalStateException("Old queued provider changed");
+            // Remove this intentionally non-uploadable probe, then verify the real existing sync path.
+            synchronized(SyncEngine.INSTANCE.getLock()){queue.clearContexts();s.setAiProviderId(a);s.setExternalAiConsent(true);}
+            SyncEngine.INSTANCE.sync(test.getTargetContext());
+            if(s.getHasExternalAiGrant()||s.getCaptureAiState()!=CaptureAiConsent.State.RENEWAL)throw new IllegalStateException("Sync missed remote rotation");
+            stage="remote rotation settings and renewal";
+            click("設定");await("需重新同意");awaitSettled();revealCaptureAiRow();capture("capture-ai-renewal");
+            click("模型處理未來情境");awaitProbeDialog("同意這個模型處理未來情境？");if(!probeDialogText().contains("synthetic-rotated"))throw new IllegalStateException("Renewal destination wrong");captureProbeDialog("capture-ai-consent");probeDialogClick("取消");
+            if(s.getHasExternalAiGrant())throw new IllegalStateException("Cancel granted consent");
+            click("模型處理未來情境");awaitProbeDialog("同意這個模型處理未來情境？");probeDialogClick("同意目前模型");await("已同意目前模型處理未來情境");awaitSettled();
+            if(!s.getExternalAiConsent()||!b.getString("provider_id").equals(s.getAiProviderId())||s.getCaptureAiState()!=CaptureAiConsent.State.CURRENT)throw new IllegalStateException("Explicit renewal did not bind B");
+            CaptureAiConsent.INSTANCE.refresh(test.getTargetContext(),()->{throw new IllegalStateException("Synthetic read failure");});
+            if(s.getCaptureAiState()!=CaptureAiConsent.State.UNVERIFIED||!b.getString("provider_id").equals(s.getAiProviderId()))throw new IllegalStateException("Failed read claimed readiness or rebound consent");
+            // Render the real offline status without making a production/network request.
+            java.lang.reflect.Method settings=MainActivity.class.getDeclaredMethod("settings");settings.setAccessible(true);
+            stage="offline consent readiness";shell("cmd connectivity airplane-mode enable");shell("svc wifi disable");
+            test.runOnMainSync(()->{try{settings.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});await("尚未核對");awaitSettled();revealCaptureAiRow();capture("capture-ai-unverified");
+            shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();
+            JSONObject disabled=new JSONObject().put("enabled",false);CaptureAiConsent.INSTANCE.refresh(test.getTargetContext(),()->disabled);
+            if(s.getHasExternalAiGrant()||s.getCaptureAiState()!=CaptureAiConsent.State.RENEWAL)throw new IllegalStateException("Disabled provider left consent current");
+        } finally {
+            shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");
+            awaitUnmetered();
+            owner.request("/v1/ai",draft,"PUT");
+        }
+    }
+    private void awaitUnmetered() throws Exception {
+        android.net.ConnectivityManager manager=test.getTargetContext().getSystemService(android.net.ConnectivityManager.class);
+        long until=System.currentTimeMillis()+20000;
+        while(System.currentTimeMillis()<until){android.net.NetworkCapabilities caps=manager.getNetworkCapabilities(manager.getActiveNetwork());if(caps!=null&&caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)&&caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)&&caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED))return;Thread.sleep(200);}
+        throw new IllegalStateException("Unmetered network not restored");
+    }
+    private void revealCaptureAiRow() {
+        test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&"模型處理未來情境".contentEquals(t.getText())){View row=v;while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();row=(View)row.getParent();row.requestRectangleOnScreen(new android.graphics.Rect(0,0,row.getWidth(),row.getHeight()),true);return;}throw new IllegalStateException("Capture AI row absent");});test.waitForIdleSync();
+        test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&"模型處理未來情境".contentEquals(t.getText())){View row=v;while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();row=(View)row.getParent();android.graphics.Rect visible=new android.graphics.Rect();if(!row.getGlobalVisibleRect(visible)||visible.height()<row.getHeight()-2)throw new IllegalStateException("Capture AI row clipped");return;}});
     }
     private void rulePreviewCheck(PocketLogApi owner) throws Exception {
         stage="unsaved rule preview";

@@ -1519,9 +1519,29 @@ class MainActivity : Activity() {
         ui.groupLabel(body, "AI")
         ui.card(body, padding = 8).apply {
             ui.row(this, "Bring your own AI", "端點、模型與金鑰保存在你的伺服器") { aiSettings { settings() } }
-            ui.row(this, "模型處理未來情境", if (s.contextEnabled) "每次更換模型都要重新同意" else "需先開啟畫面文字", (if (s.externalAiConsent) "已同意" else "未同意") to s.externalAiConsent) {
-                if (s.externalAiConsent) task("撤回同意…", { synchronized(SyncEngine.lock) { s.externalAiConsent = false; s.aiProviderId = null; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已撤回模型處理同意；待傳情境已清除。") }
-                else approveAi { settings() }
+            val consent = ui.column(this)
+            load(consent, "核對未來情境的模型同意…", { CaptureAiConsent.refresh(this@MainActivity) { api().request("/v1/ai") } }) { state ->
+                val label = when (state) {
+                    CaptureAiConsent.State.CURRENT -> if (s.contextEnabled) "已同意" else "已保存"
+                    CaptureAiConsent.State.UNVERIFIED -> "尚未核對"
+                    CaptureAiConsent.State.RENEWAL -> "需重新同意"
+                    CaptureAiConsent.State.OFF -> "未同意"
+                }
+                val detail = when (state) {
+                    CaptureAiConsent.State.CURRENT -> "最近核對的模型與同意相符；點此撤回"
+                    CaptureAiConsent.State.UNVERIFIED -> "尚未確認伺服器目前的模型。舊同意不會授權新模型；點此重新核對。"
+                    CaptureAiConsent.State.RENEWAL -> "模型設定已變更或停用。只有重新同意後，未來情境才可使用目前模型。"
+                    CaptureAiConsent.State.OFF -> if (s.contextEnabled) "每次更換模型都要重新同意" else "需先開啟畫面文字"
+                }
+                ui.row(consent, "模型處理未來情境", null, label to (state == CaptureAiConsent.State.CURRENT)) {
+                    if (state == CaptureAiConsent.State.CURRENT) task("撤回同意…", { synchronized(SyncEngine.lock) { s.externalAiConsent = false; s.aiProviderId = null; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已撤回模型處理同意；待傳情境已清除。") }
+                    else approveAi { settings() }
+                }
+                // Give recovery guidance the full width, especially at 2× font size.
+                ui.meta(consent, detail, top = 4, bottom = 8)
+                if (state == CaptureAiConsent.State.UNVERIFIED && s.hasExternalAiGrant) ui.button(consent, "撤回已保存的模型同意", Tone.TEXT) {
+                    task("撤回同意…", { synchronized(SyncEngine.lock) { s.externalAiConsent = false; s.aiProviderId = null; JournalQueue(this@MainActivity).clearContexts() } }) { settings() }
+                }
             }
         }
 
@@ -1704,7 +1724,7 @@ class MainActivity : Activity() {
 
     private fun approveAi(after: () -> Unit) {
         if (!RecordingSettings(this@MainActivity).contextEnabled) { notice("模型處理只適用於畫面情境，請先開啟畫面文字", Kind.WARN); return }
-        task("讀取模型設定…", { api().request("/v1/ai") }) { config ->
+        task("讀取模型設定…", { readCaptureAiConfig() }) { config ->
             if (!config.optBoolean("enabled")) { notice("請先設定你的 AI 端點與模型", Kind.WARN); return@task }
             val id = config.getString("provider_id")
             dialog().setTitle("同意這個模型處理未來情境？")
@@ -1713,9 +1733,9 @@ class MainActivity : Activity() {
                     task("記錄同意…", {
                         synchronized(SyncEngine.lock) {
                             require(RecordingSettings(this@MainActivity).contextEnabled)
-                            val current = api().request("/v1/ai")
+                            val current = readCaptureAiConfig()
                             require(current.optBoolean("enabled") && current.getString("provider_id") == id)
-                            RecordingSettings(this@MainActivity).apply { aiProviderId = id; externalAiConsent = true }
+                            RecordingSettings(this@MainActivity).apply { aiProviderId = id; externalAiConsent = true; recordCaptureAiState(CaptureAiConsent.State.CURRENT) }
                         }
                     }) { after(); notice("已同意目前模型處理未來情境") }
                 }.showSecure()
@@ -1729,7 +1749,16 @@ class MainActivity : Activity() {
             ui.meta(this, "沒有預設供應商，也不會自動使用 infovore 的 AI。本機模型同樣由 PocketLog 伺服器連線，請填伺服器連得到的網址。", top = 6)
         }
         val slot = ui.column(body)
-        load(slot, "讀取私人伺服器的 AI 設定…", { api().request("/v1/ai") }) { config -> renderAiForm(slot, config, back) }
+        load(slot, "讀取私人伺服器的 AI 設定…", { readCaptureAiConfig() }) { config -> renderAiForm(slot, config, back) }
+    }
+
+    private fun readCaptureAiConfig(): JSONObject = synchronized(SyncEngine.lock) {
+        val config = try { api().request("/v1/ai") } catch (failure: Exception) {
+            RecordingSettings(this@MainActivity).apply { if (hasExternalAiGrant) recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED) }
+            throw failure
+        }
+        CaptureAiConsent.refresh(this@MainActivity) { config }
+        config
     }
 
     private fun renderAiForm(slot: LinearLayout, config: JSONObject, back: () -> Unit) {

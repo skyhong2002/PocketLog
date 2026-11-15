@@ -61,7 +61,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             }
             if ("yes".equals(args.getString("connected"))) {
                 new ConnectedUiChecks(this, args).run();
-                result.putString("stream", "Connected synthetic HTTPS view/API checks passed; capture consent remained off.\n");
+                result.putString("stream", "yes".equals(args.getString("captureAiOnly"))
+                    ? "Synthetic HTTPS future-capture provider rotation, renewal/cancel, offline readiness and queue identity checks passed; capture settings cleared.\n"
+                    : "Connected synthetic HTTPS view/API checks passed; capture consent remained off.\n");
                 finish(Activity.RESULT_OK, result); return;
             }
             if (new CredentialStore(getTargetContext()).load() != null) throw new IllegalStateException("Refusing snapshots on a connected installation");

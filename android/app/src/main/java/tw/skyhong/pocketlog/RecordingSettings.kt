@@ -34,10 +34,23 @@ class RecordingSettings(private val context: Context) {
         set(value) = update(prefs.edit().putBoolean("replay", value))
     var externalAiConsent: Boolean
         get() = analysisConsent && prefs.getBoolean("external_ai", false)
-        set(value) = update(prefs.edit().putBoolean("external_ai", value))
+        set(value) = update(prefs.edit().putBoolean("external_ai", value).putBoolean("ai_renewal", false).putBoolean("ai_verified", false))
+    val hasExternalAiGrant: Boolean get() = prefs.getBoolean("external_ai", false)
+    val captureAiState: CaptureAiConsent.State get() = when {
+        hasExternalAiGrant -> if (prefs.getBoolean("ai_verified", false)) CaptureAiConsent.State.CURRENT else CaptureAiConsent.State.UNVERIFIED
+        prefs.getBoolean("ai_renewal", false) -> CaptureAiConsent.State.RENEWAL
+        else -> CaptureAiConsent.State.OFF
+    }
+    // Caller holds SyncEngine.lock. A confirmed change invalidates only future AI consent.
+    fun recordCaptureAiState(state: CaptureAiConsent.State) {
+        if (state == captureAiState) return
+        val editor = prefs.edit().putBoolean("ai_verified", state == CaptureAiConsent.State.CURRENT)
+        if (state == CaptureAiConsent.State.RENEWAL) editor.putBoolean("external_ai", false).remove("ai_provider_id").putBoolean("ai_renewal", true)
+        update(editor)
+    }
     var aiProviderId: String?
         get() = prefs.getString("ai_provider_id", null)
-        set(value) = update(prefs.edit().putString("ai_provider_id", value))
+        set(value) = update(prefs.edit().putString("ai_provider_id", value).putBoolean("ai_verified", false))
     var wifiOnly: Boolean
         get() = prefs.getBoolean("wifi", true)
         set(value) { check(prefs.edit().putBoolean("wifi", value).commit()) }

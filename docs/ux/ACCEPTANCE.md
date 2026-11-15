@@ -991,3 +991,47 @@ Physical-device, TalkBack traversal and full-day battery remain unverified.
 
 - [Short cards at normal font](screenshots/native-short-cards.png)
 - [Short cards at2× font](screenshots/native-short-cards-large.png)
+
+## Future-capture AI consent follows remote configuration (#47)
+
+A phone now checks an existing future-capture grant against current enabled AI
+configuration during the existing sync cadence and when opening capture/AI
+settings. Confirmed identity changes or disablement invalidate only that future
+AI grant and explain how to renew it. Failed/offline or incomplete reads show
+unverified readiness and retain only the previously approved identity. A current
+identity is the only green state; a paused local context recorder shows a saved
+grant rather than claiming active capture. No automatic grant, new sampling,
+provider rebinding or queue rewrite is introduced. Already sent requests cannot
+be recalled. The worker's independent identity check remains authoritative.
+
+Astra's read-only source review identified the missing remote refresh. Dayflow's
+FlowView.swift at2c79e161 observes provider-routing changes to recompute readiness;
+this informs reactive state, not copying its hosted Flow integration.
+
+Three policy tests bring Android to44unit tests. Real secure synthetic HTTPS
+emulator tests at normal/2× font rotate the server configuration through a second
+client, reconcile it via native sync, inspect the recovery state, cancel renewal,
+and explicitly bind a new grant to the new identity. Unchanged identity does not
+rewrite the capture revision. A real encrypted queued old-provider payload remains
+byte-for-byte unchanged through reconciliation; the intentionally incomplete test
+payload is cleared before sync and never uploaded. Read failure, actual airplane
+mode/Wi-Fi-off status and confirmed disabled configuration are covered. All test
+capture consents are cleared afterward; no capture or model-test endpoint is used.
+The synthetic provider model is restored after each run.
+
+The first harness cleanup raced DNS after network restoration; it now waits for a
+validated unmetered network. Initial2× captures showed recovery text squeezed beside
+a large badge; final full-width guidance below the action is substantially easier
+to read. Final captures were inspected and the complete consent block must fit in
+the visible content area. These are Android View/dialog snapshots with FLAG_SECURE
+retained, not compositor or physical-device screenshots.
+
+Android44unit/build/lint and final normal/2× HTTPS checks pass. Full eight-page
+HTTPS/offline reflection/cache/brief-consent regression also passes. Required
+Rust58/fmt/clippy-Dwarnings/audit1509/185 and web regressions passed this same wave;
+server sources/image remain unchanged. Physical capture/TalkBack/battery and full
+Dayflow parity remain unverified.
+
+- [Remote provider change recovery](screenshots/native-capture-ai-renewal.png)
+- [2× recovery guidance](screenshots/native-capture-ai-renewal-large.png)
+- [2× offline unverified state with revoke action](screenshots/native-capture-ai-unverified-large.png)

@@ -27,6 +27,10 @@ connection test sends only fixed synthetic text.
 Each save creates a fresh provider identity; each phone must explicitly renew
 future-capture consent for that exact configuration. A missing key retains it only
 on the same endpoint; switching endpoints clears it unless a new key is provided.
+The phone checks an existing grant on its normal sync cadence and when opening
+capture/AI settings. A confirmed changed or disabled provider requires renewed
+consent; an offline or failed check is shown as unverified. Existing queued
+observations keep their original provider identity and are never rebound.
 Disabling writes a tombstone that overrides legacy environment configuration.
 The API mounts settings read/write and the worker read-only, reloading each pass.
 

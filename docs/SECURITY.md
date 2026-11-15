@@ -85,7 +85,11 @@ report suspected vulnerabilities privately through the repository owner.
   explicitly mounted provider key; process separation is not a sandbox against a
   compromised host or decoder. Provider-bound consent prevents old queued captures from being sent to a new
   configuration. Saving any model setting rotates its identity and requires renewed
-  capture consent. No provider-side deletion is implemented.
+  capture consent. Android reconciles existing future-capture grants on its normal
+  sync cadence and in capture/AI settings; a confirmed identity change or disabled
+  provider invalidates that grant. Failed checks show unverified readiness and keep
+  only the previously approved identity. Pending payloads are never rebound to a
+  new provider. No provider-side deletion is implemented.
 - Pausing/removing allowlists or revoking consent clears pending local context,
   not already transmitted server/provider copies. Owner deletion invalidates jobs
   and in-flight results, but cannot retract requests already sent to a model. The
