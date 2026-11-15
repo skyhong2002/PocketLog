@@ -1606,3 +1606,30 @@ captures below were inspected. Existing signing certificate is retained.
 - [Readable2×category label](screenshots/native-category-label-large.png)
 - [2×name above actual IME boundary](screenshots/native-category-keyboard-large.png)
 - [Rule input above actual IME boundary](screenshots/native-rule-keyboard.png)
+
+## Conversation-read ownership (#68)
+
+The built website reproduced a real UI race with controlled synthetic responses:
+A's response was held, B selected/read, then late A replaced the transcript while
+the picker still said B. Reads now capture the selected ID and request/render
+ownership; stale successes/errors after another selection, new chat or navigation
+are ignored. Older-history reads have the same guard. Switching shows a busy
+status and blocks send/delete against the prior thread until it resolves; a latest
+failure restores the prior selection and usable transcript for retry.
+
+The guarded browser-only scripts/check-web-chat-reads.js exercises the actual
+built UI, controlling conversation read responses only. It requires explicit
+synthetic opt-in and localhost:18751; it restores fetch in finally and calls no
+providers or conversation writes. Final1280/390checks passed: out-of-order A/B,
+stale failure, new-chat/nav during a held read, pagination during selection,
+latest-error recovery/retry and successful pagination without duplication. No
+implicit ask calls occurred; loading disables prior-thread send/delete and names
+its busy state. These are injected fixture responses and DOM actions, not claims
+of real-provider latency or physical keyboard/screen-reader verification.
+
+Web syntax/timeline/import regressions and final Docker smoke passed; unchanged
+Rust/native sources retain this wave's required checks. Fresh private production
+backup/restore passed. The two synthetic captures below were inspected.
+
+- [Phone switching state](screenshots/web-chat-loading-phone.png)
+- [Selected thread and matching transcript](screenshots/web-chat-selected-thread.png)

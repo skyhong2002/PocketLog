@@ -2393,17 +2393,40 @@ async function chatPage(parent, seq) {
   );
   keyed(history, "chat-history");
   history.disabled = !saved.length;
+  let historyRead = 0, historyLoading = false, sendControl = null, deleteControl = null;
+  const showHistoryLoading = (value) => {
+    historyLoading = value;
+    renderLog();
+    if (sendControl) sendControl.disabled = value || waiting;
+    if (deleteControl) deleteControl.disabled = value;
+  };
   history.onchange = () =>
     safe(async () => {
-      if (!history.value) return;
-      const thread = await api(`/v1/conversations/${history.value}`);
-      conversationId = history.value;
-      chatCursor = thread.next_cursor;
-      pendingAsk = null;
-      chatError = "";
-      chat = turnsOf(thread);
-      focusKey = "chat-history";
-      await shell();
+      const request = ++historyRead, id = history.value;
+      const current = () => request === historyRead && seq === renderSeq && history.isConnected;
+      if (!id) {
+        history.value = saved.some((t) => t.id === conversationId) ? conversationId : "";
+        showHistoryLoading(false);
+        return;
+      }
+      showHistoryLoading(true);
+      try {
+        const thread = await api(`/v1/conversations/${id}`);
+        if (!current()) return;
+        conversationId = id;
+        chatCursor = thread.next_cursor;
+        pendingAsk = null;
+        chatError = "";
+        chat = turnsOf(thread);
+        focusKey = "chat-history";
+        await shell();
+      } catch (error) {
+        if (!current()) return;
+        history.value = saved.some((t) => t.id === conversationId) ? conversationId : "";
+        throw error;
+      } finally {
+        if (current()) showHistoryLoading(false);
+      }
     });
   const existing = saved.some((t) => t.id === conversationId);
   const fresh = () => {
@@ -2424,7 +2447,7 @@ async function chatPage(parent, seq) {
         "chat-new",
       ),
       existing || chat.length
-        ? btn("刪除此對話", async () => {
+        ? (deleteControl = btn("刪除此對話", async () => {
             if (
               !(await ask(
                 "永久刪除這個對話？",
@@ -2437,7 +2460,7 @@ async function chatPage(parent, seq) {
             await api(`/v1/conversations/${conversationId}`, null, "DELETE");
             fresh();
             await shell();
-          })
+          }))
         : null,
     ),
   );
@@ -2449,16 +2472,30 @@ async function chatPage(parent, seq) {
   const question = el("textarea");
   const renderLog = () => {
     log.replaceChildren();
+    log.setAttribute("aria-busy", String(historyLoading));
+    if (historyLoading) {
+      const status = el("p", "正在讀取所選對話…", "loading-state");
+      status.setAttribute("role", "status");
+      add(log, status);
+      return;
+    }
     if (chatCursor)
       add(
         log,
         btn("載入更早的問答", async () => {
-          const thread = await api(
-            `/v1/conversations/${conversationId}?before_ms=${chatCursor.before_ms}&before_id=${encodeURIComponent(chatCursor.before_id)}`,
-          );
-          chatCursor = thread.next_cursor;
-          chat = [...turnsOf(thread), ...chat];
-          renderLog();
+          const id = conversationId, cursor = chatCursor, request = ++historyRead;
+          const current = () => request === historyRead && seq === renderSeq && p.isConnected && conversationId === id;
+          try {
+            const thread = await api(
+              `/v1/conversations/${id}?before_ms=${cursor.before_ms}&before_id=${encodeURIComponent(cursor.before_id)}`,
+            );
+            if (!current()) return;
+            chatCursor = thread.next_cursor;
+            chat = [...turnsOf(thread), ...chat];
+            renderLog();
+          } catch (error) {
+            if (current()) throw error;
+          }
         }),
       );
     if (!chat.length && !waiting)
@@ -2562,9 +2599,10 @@ async function chatPage(parent, seq) {
     composer,
     "我同意這次將上述範圍的活動卡、問題與本對話最近最多 6 輪（6,000 字）的內容傳給這個模型，並將問答保存在私人伺服器 30 天；API 費用由我承擔。",
   );
-  const send = btn(
+  const send = sendControl = btn(
     "傳送這次提問",
     async () => {
+      if (historyLoading) throw Error("所選對話仍在讀取，請稍候再提問。");
       if (!consent.checked) throw Error("請先勾選同意這次的傳送範圍");
       const q = question.value.trim();
       if (!q) throw Error("請輸入問題");
