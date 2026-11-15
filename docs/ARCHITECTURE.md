@@ -5,20 +5,23 @@ Status: accepted as the initial direction, with implementation stages below.
 ## Product boundary
 
 PocketLog is a private activity journal, not a screen-time productivity score.
-The goal is a Dayflow-like chronological review with editable categories, optional
-context, explicit feelings, and reflection on what replenishes or drains energy.
-Screen-derived descriptions are uncertain observations. Feelings are self-reported;
-AI must not diagnose mental health or equate entertainment with unhealthy behavior.
+The goal is a Dayflow-like chronological review of automatically captured activity,
+with editable categories, optional screen context and BYO AI, readable native/web
+views and a private API. Manual mood/energy entry was removed at the owner's
+request; existing historical records and bounded legacy APIs remain available.
+Optional text reflection and focus review are separate from mood recording.
+Screen-derived descriptions are uncertain observations. AI must not infer emotions,
+diagnose mental health or equate entertainment with unhealthy behavior.
 
 ## Responsibilities
 
 | Component | Technology | Responsibility |
 |---|---|---|
-| Android | Kotlin, platform APIs; Compose UI planned | Consent, low-cost sampling, pre-capture exclusions, encrypted bounded queue, sync, cached timeline, check-ins |
+| Android | Kotlin, platform Views and APIs | Separate capture consent, bounded event-driven context, pre-capture exclusions, encrypted queue/cache, sync, timeline, rule editing and optional reflection |
 | API/storage | Rust, Axum, Tokio, SQLite | Authentication, validation, limits, retention, private history and derived records |
-| Analysis worker | Separate Rust process and configurable inference provider | Deduplication, segmentation, classification, summaries and daily reflection |
+| Analysis worker | Separate Rust process and configurable inference provider | Deduplication, segmentation, classification and summaries; separately consented saved/scheduled activity briefs |
 | Deployment | Docker Compose, HTTPS proxy/Tailscale | Single-owner service, persistent encrypted host storage, explicit ingress |
-| infovore (planned) | Restricted outbound connector | Owner-approved projection only; never direct access to PocketLog's DB |
+| infovore | No active connector | PocketLog operates independently; no outbound publishing or direct access to its journal |
 
 The API must remain responsive without an AI model. A worker may read only the
 jobs it needs; it will not have administrator credentials or arbitrary tools.
@@ -33,8 +36,8 @@ NAS, or VPS. A server is a process, not necessarily a separately rented machine.
 Docker makes setup reproducible; it does not make a host confidential or secure
 by itself. SQLite remains sufficient; API and worker run as separate services. Add PostgreSQL or a broker only when real concurrency needs justify it.
 
-A future lightweight local mode should support app durations, rules, check-ins,
-and cached review without a server. It should not promise automatic semantic
+A future lightweight local mode could support app durations, rules and cached
+review without a server; it is not implemented. It should not promise automatic semantic
 understanding of all activity. On-device models may become an explicit future
 option, gated by capability, charging state and measured cost. Do not silently
 fall back to cloud processing. The current development client requires a server.
@@ -64,7 +67,7 @@ model, independent device identities, account recovery, abuse limits and audits.
    and battery cost need a measured tradeoff. Do not promise five-minute delivery.
 6. Server raw context has a short TTL (24 h) and is removed after derived
    cards commit. Summaries and optional user notes have independent retention.
-   Implemented raw TTL is 24 hours; derived cards and check-ins retain 30 days.
+   Implemented raw TTL is 24 hours; derived cards and legacy check-ins retain 30 days.
 7. Phone caches derived records with a size/time budget and supports offline
    reading. Small structured summaries need not consume excessive phone storage;
    screenshots and indefinite retention are the main avoidable growth sources.

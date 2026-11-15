@@ -29,6 +29,13 @@ do not replace them with an unrelated minimal mark or copy Dayflow artwork.
   request are separate actions. Distinguish model output, excerpts and user edits.
 - Empty, offline, truncated, loading and failed states must be real states, with
   recovery actions. Do not display demo journals in an owner's production account.
+- Treat each asynchronous read/write as belonging to its initiating page, dialog,
+  selected data and submitted draft. Closing or replacing that context must prevent
+  old responses from closing new editors, overwriting newer typing or expiring a
+  newer UI. A successful save must distinguish submitted values from later edits.
+- Arrival of new activity should preserve the current reading snapshot and offer
+  an explicit reload. Foreground update checks must be bounded, stop while hidden
+  and avoid interrupting editing. This is a display read, not capture or AI consent.
 - Private exports and deletion need clear, specific confirmation. Keep routine
   reading/editing smooth. Never expose configuration paths or technical credentials
   in ordinary timeline cards. Never add analytics to measure UI use.
