@@ -39,6 +39,11 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 result.putString("stream", "Synthetic activity-edit validation, failure/busy draft retention and exact encrypted Unicode payload checks passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
+            if ("yes".equals(args.getString("exportLifecycle"))) {
+                new ExportLifecycleChecks(this,args).run();
+                result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy pending export loss on Activity recreation reproduced.\n" : "Synthetic export recreation, exact Unicode write, cancel/reset/missing-state and buffer disposal passed.\n");
+                finish(Activity.RESULT_OK,result); return;
+            }
             if ("yes".equals(args.getString("readiness"))) {
                 new CaptureReadinessChecks(this,args).run();
                 result.putString("stream", "Synthetic effective-allowlist readiness and historical diagnostics checks passed; original settings restored.\n");
@@ -99,7 +104,7 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
             result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness"))) ? " " + error.getMessage() : "") + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }

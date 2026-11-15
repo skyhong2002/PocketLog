@@ -103,9 +103,9 @@ class MainActivity : Activity() {
     private var reflectionInput: EditText? = null
     private var reflectionDrafts = EditorDrafts(29, 2000)
     private var questionDrafts = EditorDrafts(20, 1000)
-    private data class RetainedEditors(val reflections: EditorDrafts, val questions: EditorDrafts, val conversation: String, val weekly: Boolean, val request: JSONObject?, val requestWeekly: Boolean)
+    private data class RetainedEditors(val reflections: EditorDrafts, val questions: EditorDrafts, val conversation: String, val weekly: Boolean, val request: JSONObject?, val requestWeekly: Boolean, val export: ByteArray?)
     private var bindingReflection = false
-    private fun clearDrafts() { reflectionDrafts.clear(); questionDrafts.clear(); mutedCategories.clear() }
+    private fun clearDrafts() { reflectionDrafts.clear(); questionDrafts.clear(); mutedCategories.clear(); exportBytes?.fill(0); exportBytes = null }
     private var exportBytes: ByteArray? = null
     private var agentImportSource = "codex"
     private var pendingAsk: JSONObject? = null
@@ -126,6 +126,7 @@ class MainActivity : Activity() {
         (lastNonConfigurationInstance as? RetainedEditors)?.let {
             reflectionDrafts = it.reflections; questionDrafts = it.questions; conversationId = it.conversation
             chatWeekly = it.weekly; pendingAsk = it.request; pendingAskWeekly = it.requestWeekly
+            exportBytes = it.export
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         window.setDecorFitsSystemWindows(false)
@@ -139,7 +140,11 @@ class MainActivity : Activity() {
         boot()
     }
 
-    override fun onRetainNonConfigurationInstance(): Any = RetainedEditors(reflectionDrafts, questionDrafts, conversationId, chatWeekly, pendingAsk, pendingAskWeekly)
+    override fun onRetainNonConfigurationInstance(): Any {
+        // Transfer the confirmed snapshot in memory only; the old Activity must not wipe it.
+        val pendingExport = exportBytes; exportBytes = null
+        return RetainedEditors(reflectionDrafts, questionDrafts, conversationId, chatWeekly, pendingAsk, pendingAskWeekly, pendingExport)
+    }
 
     override fun onSaveInstanceState(out: Bundle) {
         super.onSaveInstanceState(out)
@@ -2241,10 +2246,16 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != 20) return
-        val bytes = exportBytes ?: return
+        val bytes = exportBytes ?: run {
+            if (resultCode == RESULT_OK) notice("匯出內容已因 app 重啟或清除資料而移除；請返回時間軸重新匯出。", Kind.WARN)
+            return
+        }
         exportBytes = null
         if (resultCode != RESULT_OK || data?.data == null) { bytes.fill(0); return }
-        task("匯出中…", { try { contentResolver.openOutputStream(requireNotNull(data.data), "wt").use { requireNotNull(it).write(bytes) } } finally { bytes.fill(0) } }) { notice("已匯出私人 JSON。請妥善保管檔案。") }
+        if (busy) { bytes.fill(0); notice("上一個操作尚在處理中，這次匯出未完成；請稍後重新匯出。", Kind.WARN); return }
+        task("匯出中…", { try { contentResolver.openOutputStream(requireNotNull(data.data), "wt").use { requireNotNull(it).write(bytes) } } finally { bytes.fill(0) } }, failed = {
+            notice("匯出未完成。請檢查儲存位置與可用空間，再返回時間軸重新匯出；目的地可能留有空白或不完整的檔案。", Kind.ERROR)
+        }) { notice("已匯出私人 JSON。請妥善保管檔案。") }
     }
 
     override fun onDestroy() {

@@ -1278,3 +1278,35 @@ always-present week grid. No product failure was inferred from that test error.
 - [Partial-week warning before totals](screenshots/native-week-partial-warning.png)
 - [2× warning and loaded totals](screenshots/native-week-partial-warning-large.png)
 - [2× affected-day detail](screenshots/native-week-partial-day-large.png)
+
+## Native export snapshot ownership and recovery (#57)
+
+Old0.4.23 lifecycle harness reproduced a pending export snapshot being wiped on
+actual Activity recreation, with no bytes in the new instance. Final normal/2×
+system-font harness verifies transfer of the same exact Unicode byte snapshot,
+then invokes the production result callback and ContentResolver file-URI writer:
+output bytes match, and the consumed buffer is zeroed. Cancellation, busy-result
+rejection, reset and final Activity destruction also wipe pending bytes. A real
+write to a missing parent directory fails with export-specific retry feedback;
+a successful result with no retained snapshot writes nothing and explains retry.
+No journal bytes enter saved-state Bundles or new disk caches. Content lost on
+process restart is intentionally not reconstructed from changed journal data.
+
+This is deterministic lifecycle/callback/file-output evidence using injected
+synthetic pending state, not interaction with the real document picker or an
+actual OS process kill. The unconnected emulator displays recovery feedback on
+its setup screen in the captures; normal exports originate on Timeline. Initial
+destruction assertion ran before onDestroy completed; it now waits for actual
+destruction. One2× command had a runner-name typo before launch, corrected before
+the successful run. 56 unit tests, assembleDebug, instrumentation build, lint and
+full eight-page trusted-HTTPS/offline regression pass. Same-wave unchanged Rust
+fmt/clippy-Dwarnings/tests/audit and web checks pass. Fresh private backup restore,
+prior-row preservation and production HTTPS assets/auth pass; server unchanged.
+Official SettingsDataTabView.swift at2c79e161 provides deliberate export range/
+actions; this Android ownership fix is not a macOS lifecycle/parity claim.
+The inspected captures are synthetic secure View renders, not compositor,
+physical-device or TalkBack evidence.
+
+- [Lost snapshot retry guidance](screenshots/native-export-lost-state.png)
+- [2× lost snapshot guidance](screenshots/native-export-lost-state-large.png)
+- [2× failed write guidance](screenshots/native-export-write-failure-large.png)
