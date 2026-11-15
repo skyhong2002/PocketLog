@@ -37,7 +37,8 @@ const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
 let timelineInspector = null, inspectedCard = null;
 // One write per activity at a time, including a cancelled/reopened editor.
 const cardSaves = new Set();
-let providerChangePending = false;
+let providerChangePending = false, scheduleChangePending = false;
+let modalEpoch = 0;
 const titles = {
   timeline: "時間軸",
   daily: "每日回顧",
@@ -525,6 +526,7 @@ function classificationRecovery(base, draft, latest, attemptedRevision = draft.r
 
 /* ---------- dialogs ---------- */
 function modal(title, build) {
+  modalEpoch++;
   const p = $("#modal-body");
   const content = el("div");
   const heading = el("h2", title);
@@ -2352,8 +2354,19 @@ function briefs(parent, days, kind, saved, from, to, reviews, reviewsTruncated) 
   );
 }
 async function briefScheduleDialog() {
-  const schedule = await api("/v1/briefs/schedule");
+  const seq = renderSeq, openingEpoch = modalEpoch;
+  const openingCurrent = () => seq === renderSeq && openingEpoch === modalEpoch;
+  const savedProvider = structuredClone(ai);
+  let schedule;
+  try { schedule = await api("/v1/briefs/schedule", undefined, undefined, openingCurrent); }
+  catch (error) { if (openingCurrent()) throw error; else return; }
+  if (!openingCurrent()) return;
   modal("每日／每週 AI 摘要排程", (p) => {
+    const current = () => p.isConnected && seq === renderSeq;
+    const pendingHint = el("p", "排程變更處理中時，不能同時儲存另一份排程；請稍後再試。這裡的草稿會保留。", "callout");
+    pendingHint.setAttribute("role", "status");
+    pendingHint.hidden = !scheduleChangePending;
+    add(p, pendingHint);
     add(
       p,
       el(
@@ -2363,9 +2376,10 @@ async function briefScheduleDialog() {
     );
     const enabled = check(
       p,
-      `同意持續將上述活動卡送到 ${ai.model || "尚未設定的模型"}（${providerHost()}），並保存摘要 30 天`,
-      schedule.enabled && schedule.provider_id === ai.provider_id,
+      `同意持續將上述活動卡送到 ${savedProvider.model || "尚未設定的模型"}（${providerHost(savedProvider)}），並保存摘要 30 天`,
+      schedule.enabled && schedule.provider_id === savedProvider.provider_id,
     );
+    enabled.disabled = !savedProvider.enabled;
     const timezone = field(
       p,
       "IANA 時區",
@@ -2393,25 +2407,43 @@ async function briefScheduleDialog() {
         btn(
           "儲存排程",
           async () => {
+            if (!current()) return;
+            if (scheduleChangePending) {
+              pendingHint.hidden = false;
+              notice("先前的排程仍在儲存，請稍後再試；目前草稿已保留。", false, p);
+              return;
+            }
+            if (enabled.checked && !savedProvider.enabled)
+              throw Error("請先設定模型，再核對目的地並同意排程。");
             const parts = at.value.split(":").map(Number);
             if (parts.length !== 2 || !parts.every(Number.isInteger) ||
                 parts[0] < 4 || parts[0] > 23 || parts[1] < 0 || parts[1] > 59)
               throw Error("摘要產生時間需介於 04:00–23:59，請修改後重試。");
-            await api(
-              "/v1/briefs/schedule",
-              {
-                revision: schedule.revision,
-                enabled: enabled.checked,
-                provider_id: ai.provider_id || "",
-                timezone: timezone.value.trim(),
-                minute_of_day: parts[0] * 60 + parts[1],
-                daily: daily.checked,
-                weekly: weekly.checked,
-              },
-              "PUT",
-            );
-            close();
-            notice("摘要排程已更新");
+            const body = {
+              revision: schedule.revision,
+              enabled: enabled.checked,
+              provider_id: savedProvider.provider_id || "",
+              timezone: timezone.value.trim(),
+              minute_of_day: parts[0] * 60 + parts[1],
+              daily: daily.checked,
+              weekly: weekly.checked,
+            };
+            scheduleChangePending = true;
+            pendingHint.hidden = false;
+            const controls = [...p.querySelectorAll("input,button")].map(n => [n, n.disabled]);
+            controls.forEach(([n]) => { n.disabled = true; });
+            try {
+              await api("/v1/briefs/schedule", body, "PUT", current);
+              if (!current()) return;
+              close();
+              notice("摘要排程已更新");
+            } catch (error) {
+              if (current()) throw error;
+            } finally {
+              scheduleChangePending = false;
+              controls.forEach(([n, disabled]) => { if (n.isConnected) n.disabled = disabled; });
+              if (current()) pendingHint.hidden = true;
+            }
           },
           "primary",
         ),

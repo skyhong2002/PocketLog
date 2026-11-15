@@ -2035,3 +2035,26 @@ provider refresh. Unchanged required Rust/Android checks remain applicable.
 
 ![New category draft survives provider refresh on phone](screenshots/web-provider-refresh-phone.png)
 ![New category draft survives provider refresh on desktop](screenshots/web-provider-refresh-desktop.png)
+
+## Summary schedule asynchronous ownership (#84)
+
+The former4ccfb60 image opened a late-loading schedule over Timeline after the
+owner left Settings. Schedule loading now belongs to its page and modal generation;
+saving belongs to its originating editor. Detached responses, including401, do
+not change a newer screen. One schedule mutation may run at a time, fields pause
+while saving and a blocked second editor retains its draft. Ongoing consent is
+bound to the displayed saved provider snapshot. The server's revision/provider
+conflict checks remain authoritative; no implicit model or capture consent.
+
+Built1280/390 opt-in `scripts/check-web-schedule-ownership.js` passed14controlled
+reads and7controlled writes per run, with no schedule mutation/model call reaching
+the service. Coverage: late read200/503/401 after navigation or another modal;
+late write200/409/503/401; duplicate writes; time validation; current error/retry/
+success; displayed provider and submitted provider_id; genuine current401 expiry.
+Both inspected synthetic screenshots show the new timezone draft/focus surviving
+an old401. Node/web timeline/import regressions and final Docker smoke pass;
+unchanged required Rust/Android checks remain applicable. This is a private mobile/
+web scheduled-summary feature, not Dayflow's separate cloud Flow backend.
+
+![Schedule draft retained on phone](screenshots/web-schedule-draft-phone.png)
+![Schedule draft retained on desktop](screenshots/web-schedule-draft-desktop.png)
