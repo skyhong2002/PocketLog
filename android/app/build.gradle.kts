@@ -10,8 +10,8 @@ android {
         minSdk = 34
         targetSdk = 36
         testInstrumentationRunner = "tw.skyhong.pocketlog.UiSnapshotInstrumentation"
-        versionCode = 35
-        versionName = "0.4.30-dev"
+        versionCode = 36
+        versionName = "0.4.31-dev"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

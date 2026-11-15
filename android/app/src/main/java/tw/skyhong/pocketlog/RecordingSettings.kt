@@ -10,6 +10,16 @@ class RecordingSettings(private val context: Context) {
     val revision: Long get() = prefs.getLong("revision", 0)
     // Fail closed if a consent change cannot be persisted. Caller holds SyncEngine.lock.
     private fun update(editor: SharedPreferences.Editor) { check(editor.putLong("revision", revision + 1).commit()) }
+    fun isAuthRejected(credentials: Credentials?): Boolean = ConnectionRejection.matches(prefs.getString("rejected_destination", null), credentials)
+    // Caller holds SyncEngine.lock. Store no endpoint/key; never restore any consent on recovery.
+    fun rejectCredentials(credentials: Credentials) = update(prefs.edit()
+        .putString("rejected_destination", JournalQueue.destination(credentials))
+        .putBoolean("enabled", false).putBoolean("context", false).putBoolean("analysis", false)
+        .putBoolean("images", false).putBoolean("replay", false).putBoolean("external_ai", false)
+        .putBoolean("ai_renewal", false).putBoolean("ai_verified", false).remove("ai_provider_id")
+        .putString("status", "金鑰已過期、撤銷或失效，已停止擷取；請重新設定連線"))
+    fun confirmCollectionCredentials(credentials: Credentials) { if (isAuthRejected(credentials)) clearRejectedCredentials() }
+    fun clearRejectedCredentials() { if (prefs.contains("rejected_destination")) update(prefs.edit().remove("rejected_destination")) }
     // Saved choices remain reviewable/revocable while upstream recording is paused.
     // Capture code must continue using the gated properties below.
     val hasUsageGrant: Boolean get() = prefs.getBoolean("enabled", false)

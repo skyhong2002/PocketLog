@@ -2138,3 +2138,26 @@ unchanged Rust checks remain valid. No physical pairing claim.
 
 ![Device tool draft retained on phone](screenshots/web-device-draft-phone.png)
 ![Device tool draft retained on desktop](screenshots/web-device-draft-desktop.png)
+
+## Known rejected phone credentials (#87)
+
+Only an explicit collection-control HTTP401 marks the exact host/key destination
+as rejected. A persisted hash, with no endpoint or credential, stops all saved
+capture grants and presents actionable recovery on Timeline, Settings, Support
+and capture diagnostics. Offline/transient503/403 failures are not this state.
+A confirmed connection clears the marker without restoring capture consent.
+Existing encrypted journal cache and explicit reflection queue survive rejection;
+collected data is cleared under the existing sync lock. The explicit recovery
+confirmation accurately warns that resetting deletes local unsynced data/cache;
+cancel preserves them. Server journals are unaffected.
+
+65 unit tests, debug/test APK and lint pass. Guarded synthetic actual-View tests
+passed at normal and2× font size, including root's integrated version36 build:
+all4 capture toggles, rejection banner/recovery/cancel, exact destination binding,
+retained journal/reflection, collected queue clearing, late401 consent stop and
+confirmed collection leaving grants off. Root inspected normal Settings and2×
+Timeline/recovery captures below. No real revoked-key HTTP/physical-device claim.
+
+![Rejected connection settings](screenshots/native-rejected-settings.png)
+![Recovery confirmation at twice normal font size](screenshots/native-rejected-recovery-2x.png)
+![Rejected connection timeline at twice normal font size](screenshots/native-rejected-timeline-2x.png)

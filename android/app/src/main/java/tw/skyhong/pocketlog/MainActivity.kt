@@ -504,7 +504,7 @@ class MainActivity : Activity() {
 
     private fun confirmReset(title: String = "重設本機資料？", message: String = "用於金鑰失效或連線資料損毀。會停止紀錄、刪除未同步資料與快取，然後重新設定連線。伺服器日誌不會被刪除。") {
         dialog().setTitle(title).setMessage(message).setNegativeButton("取消", null).setPositiveButton("清除並重新設定") { _, _ ->
-            task("清除這支手機的資料…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); CredentialStore(this@MainActivity).clear() } }) {
+            task("清除這支手機的資料…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); CredentialStore(this@MainActivity).clear(); RecordingSettings(this@MainActivity).clearRejectedCredentials() } }) {
                 clearDrafts(); credentials = null; workspace = null; loaded = null; setup(); notice("已清除這支手機的連線與待傳資料；伺服器日誌仍保留。", Kind.INFO)
             }
         }.showSecure()
@@ -548,6 +548,7 @@ class MainActivity : Activity() {
                 synchronized(SyncEngine.lock) {
                     PocketLogApi(candidate).request(dayPath())
                     CredentialStore(this@MainActivity).save(candidate)
+                    RecordingSettings(this@MainActivity).clearRejectedCredentials()
                     UsageCollector(this@MainActivity).reset()
                 }
             }, failed = { fail(describe(it)) }) {
@@ -729,6 +730,7 @@ class MainActivity : Activity() {
     private fun captureCallout(parent: ViewGroup) {
         val s = RecordingSettings(this@MainActivity)
         when {
+            s.isAuthRejected(credentials) -> connectionRecoveryCallout(parent)
             s.remotePaused -> callout(parent, "所有裝置的收集已在伺服器暫停。時間軸仍可閱讀與編輯。", Kind.WARN, "管理暫停") { settings() }
             !s.enabled -> callout(parent, "手機紀錄未開啟，現有日誌仍可閱讀。", Kind.INFO, "設定紀錄") { settings() }
             !s.hasUsagePermission() -> callout(parent, "已同意記錄，但尚未授予 Android「使用情況存取權」，因此不會產生新活動。", Kind.ERROR, "開啟系統設定") { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
@@ -750,6 +752,7 @@ class MainActivity : Activity() {
             val s = RecordingSettings(this@MainActivity)
             ui.meta(card, "尚無活動")
             when {
+                s.isAuthRejected(credentials) -> ui.empty(card, "連線金鑰需要更新", "伺服器曾拒絕這把金鑰，手機已停止擷取。請先處理連線，再重新選擇紀錄同意。", "處理連線") { connectionRecovery() }
                 !s.enabled -> ui.empty(card, "這天還沒有活動", "手機紀錄尚未開啟；開啟後才會產生新的活動卡，不會補上同意前的時間。", "設定手機紀錄") { settings() }
                 day == journalDay() -> ui.empty(card, "活動整理中", "活動會在背景整理後出現，最短約 15 分鐘，由 Android 決定實際時間。", "立即同步") { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { home() } }
                 else -> ui.empty(card, "這天沒有紀錄", "空白時段不會被補上虛構的活動。")
@@ -1513,6 +1516,7 @@ class MainActivity : Activity() {
         val body = screen("支援", "檢查連線與紀錄狀態", Tab.SUPPORT, refresh = { supportPage() })
         val s = RecordingSettings(this@MainActivity)
         val usage = s.hasUsagePermission()
+        if (s.isAuthRejected(credentials)) connectionRecoveryCallout(body)
         ui.groupLabel(body, "這支手機的狀態")
         val eligible = effectiveAllowedCount(s)
         captureAllowlistWarning(body, s, eligible)
@@ -1543,10 +1547,13 @@ class MainActivity : Activity() {
     private fun captureDiagnostics(back: () -> Unit) {
         val body = screen("擷取狀態", "本機狀態，不含畫面內容", tab, back = back, action = Triple(R.drawable.ic_sync, "重新檢查擷取狀態", { captureDiagnostics(back) }), refresh = { captureDiagnostics(back) })
         val settings = RecordingSettings(this)
+        if (settings.isAuthRejected(credentials)) connectionRecoveryCallout(body)
         captureAllowlistWarning(body, settings, effectiveAllowedCount(settings))
-        if (!settings.contextEnabled) callout(body, "畫面文字未開啟；此頁不會啟用任何紀錄。", Kind.INFO, "查看設定") { settings() }
-        else if (!accessibilityServiceOn() || !settings.hasUsagePermission())
-            callout(body, "系統權限未齊全，請檢查使用情況存取權與輔助使用服務。", Kind.WARN, "查看設定") { settings() }
+        if (!settings.isAuthRejected(credentials)) {
+            if (!settings.contextEnabled) callout(body, "畫面文字未開啟；此頁不會啟用任何紀錄。", Kind.INFO, "查看設定") { settings() }
+            else if (!accessibilityServiceOn() || !settings.hasUsagePermission())
+                callout(body, "系統權限未齊全，請檢查使用情況存取權與輔助使用服務。", Kind.WARN, "查看設定") { settings() }
+        }
         val state = CaptureDiagnostics.snapshot()
         ui.card(body).apply {
             ui.heading(this, "最近一次檢查結果")
@@ -1583,6 +1590,7 @@ class MainActivity : Activity() {
     private fun settings() {
         val s = RecordingSettings(this@MainActivity)
         val body = screen("設定", "連線、紀錄、隱私與資料", Tab.SETTINGS, refresh = { settings() })
+        if (s.isAuthRejected(credentials)) connectionRecoveryCallout(body)
         ui.groupLabel(body, "連線")
         ui.card(body, padding = 8).apply {
             ui.row(this, "私人伺服器", host(), onClick = null)
@@ -1593,7 +1601,7 @@ class MainActivity : Activity() {
 
         ui.groupLabel(body, "手機紀錄")
         ui.card(body, padding = 8).apply {
-            ui.row(this, "App 使用紀錄", if (s.hasUsageGrant && !s.enabled) "本機同意已保存；伺服器暫停中，點此撤回" else "記錄同意後的 app 套件名稱與前景時段；畫面情境依下方獨立同意", (if (s.enabled) "開啟" else if (s.hasUsageGrant) "已保存" else "關閉") to s.enabled) { toggleUsage(s) }
+            ui.row(this, "App 使用紀錄", if (s.isAuthRejected(credentials)) "這把金鑰已被伺服器拒絕；請先處理連線" else if (s.hasUsageGrant && !s.enabled) "本機同意已保存；伺服器暫停中，點此撤回" else "記錄同意後的 app 套件名稱與前景時段；畫面情境依下方獨立同意", (if (s.isAuthRejected(credentials)) "需連線" else if (s.enabled) "開啟" else if (s.hasUsageGrant) "已保存" else "關閉") to s.enabled) { toggleUsage(s) }
             val usage = s.hasUsagePermission()
             ui.row(this, "Android 使用情況存取權", if (usage) "已授予；撤銷後會停止產生活動" else "開啟紀錄後需要在系統設定授予", (if (usage) "已授予" else "未授予") to usage) { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
             ui.row(this, "所有裝置的收集", if (s.remotePaused) "已在伺服器暫停；恢復不會取代本機同意" else "可暫停所有裝置；離線手機要等同步才收到", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { manageRemotePause(s) }
@@ -1689,6 +1697,14 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply { ui.row(this, "PocketLog ${version()}", "MIT 授權 · 自架私人日誌 · 無分析", onClick = null) }
     }
 
+    private fun connectionRecoveryCallout(parent: ViewGroup) {
+        callout(parent, "伺服器曾拒絕這把金鑰，手機已停止擷取。現有本機日誌與待傳反思仍依原有加密與保留期限保存。", Kind.ERROR, "處理連線") { connectionRecovery() }
+    }
+
+    private fun connectionRecovery() {
+        confirmReset("更換失效的連線？", "請先到網站的「設定 → 連線與裝置 → 管理裝置金鑰」取得新的日誌裝置金鑰。\n\n繼續會停止紀錄，刪除這支手機尚未同步的資料與快取，然後重新輸入網址與金鑰。伺服器日誌不會被刪除。若仍需保留本機資料，請取消。")
+    }
+
     /** Disclose retained independent choices before releasing an upstream capture gate. */
     private fun savedCaptureDisclosure(s: RecordingSettings, text: Boolean, images: Boolean, model: Boolean): String {
         val saved = buildList {
@@ -1709,12 +1725,13 @@ class MainActivity : Activity() {
             }
             return
         }
+        if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (s.remotePaused) { notice("伺服器已暫停所有裝置的收集，請先恢復。", Kind.WARN); return }
         val saved = savedCaptureDisclosure(s, text = true, images = true, model = true)
         dialog().setTitle("開啟 app 使用紀錄？")
             .setMessage((if (saved.isEmpty()) "" else saved.trimStart() + "\n\n") + "App 使用紀錄會記錄同意之後的 app 套件名稱及前景時段。畫面文字、縮圖、回放與模型處理各有獨立同意。背景整理最短每 15 分鐘，由 Android 決定實際時間；多視窗與系統遺漏事件可能影響精準度。\n\n若尚未授予使用情況存取權，下一步會開啟 Android 設定。")
             .setNegativeButton("取消", null).setPositiveButton(if (saved.isEmpty()) "同意並開啟" else "同意並恢復") { _, _ ->
-                task("開啟紀錄…", { synchronized(SyncEngine.lock) { require(!s.remotePaused); UsageCollector(this@MainActivity).reset(); s.enabled = true; JournalQueue(this@MainActivity).clearContexts() } }) {
+                task("開啟紀錄…", { synchronized(SyncEngine.lock) { require(!s.remotePaused && !s.isAuthRejected(credentials)); UsageCollector(this@MainActivity).reset(); s.enabled = true; JournalQueue(this@MainActivity).clearContexts() } }) {
                     SyncEngine.schedule(this@MainActivity)
                     if (!s.hasUsagePermission()) startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                     settings(); notice("已開啟 app 使用紀錄", Kind.INFO)
@@ -1743,6 +1760,7 @@ class MainActivity : Activity() {
             task("關閉畫面文字…", { synchronized(SyncEngine.lock) { s.contextEnabled = false; s.analysisConsent = false; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已關閉畫面文字並清除待傳文字") }
             return
         }
+        if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.enabled) { notice("請先開啟 App 使用紀錄", Kind.WARN); return }
         if (s.allowed.isEmpty()) { notice("請先在「排除與允許清單」加入允許的 app", Kind.WARN); appListsPage(); return }
         dialog().setTitle("允許選定 app 的畫面文字？")
@@ -1759,6 +1777,7 @@ class MainActivity : Activity() {
             task("關閉縮圖…", { synchronized(SyncEngine.lock) { s.imagesEnabled = false; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已關閉縮圖並清除待傳情境") }
             return
         }
+        if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.contextEnabled) { notice("請先開啟畫面文字", Kind.WARN); return }
         dialog().setTitle("允許選定 app 的畫面縮圖？")
             .setMessage("只在 app 切換時最多每五分鐘一次，縮圖最長邊 480 像素、JPEG 最多 24 KiB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器，原始資料最長 24 小時。只有另外同意模型處理時才可能送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false, model = true))
@@ -1772,6 +1791,7 @@ class MainActivity : Activity() {
             task("關閉回放…", { synchronized(SyncEngine.lock) { s.replayConsent = false; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已關閉回放保存並清除待傳情境") }
             return
         }
+        if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.imagesEnabled) { notice("請先開啟畫面縮圖", Kind.WARN); return }
         dialog().setTitle("保存畫面供私人回放？")
             .setMessage("這是與分析分開的同意：未來縮圖可從網站與手機讀回，最多 24 小時、256 張，最長邊 480 px。可能包含私人資訊；沒有 OCR 自動遮罩。只允許你願意保存的 app。關閉不刪除已傳送的縮圖，可另行刪除或等待到期；不代表同意傳給模型。")

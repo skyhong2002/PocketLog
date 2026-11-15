@@ -23,6 +23,12 @@ object SyncEngine {
         JournalQueue(context).enqueue(credentials, path, body)
         schedule(context)
     }
+    internal fun stopForRejectedCredentials(context: Context, credentials: Credentials, failure: Throwable): Boolean = synchronized(lock) {
+        if (!ConnectionRejection.isKnownFailure(failure)) return@synchronized false
+        RecordingSettings(context).rejectCredentials(credentials)
+        JournalQueue(context).clearCollected(); UsageCollector(context).reset()
+        true
+    }
     fun sync(context: Context): Boolean = synchronized(lock) {
         val settings = RecordingSettings(context)
         val credentials = CredentialStore(context).load() ?: return@synchronized true
@@ -43,12 +49,7 @@ object SyncEngine {
         }
         // No extra periodic worker: refresh the stop switch on the existing sync cadence.
         val control = try { PocketLogApi(credentials).request("/v1/collection") } catch (failure: Exception) {
-            if (failure is ApiFailure && failure.status == 401) {
-                settings.enabled = false; settings.contextEnabled = false; settings.imagesEnabled = false; settings.replayConsent = false; settings.externalAiConsent = false; settings.aiProviderId = null
-                JournalQueue(context).clearCollected(); UsageCollector(context).reset()
-                settings.status("金鑰已過期、撤銷或失效，已停止擷取；請重新設定連線")
-                return@synchronized true
-            }
+            if (stopForRejectedCredentials(context, credentials, failure)) return@synchronized true
             if (settings.hasExternalAiGrant) settings.recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED)
             // A transient outage is equivalent to being offline: preserve the last
             // known pause and local consent, and never upload without reading control.
@@ -59,6 +60,7 @@ object SyncEngine {
             return@synchronized false
         }
         val paused = control.getBoolean("paused")
+        settings.confirmCollectionCredentials(credentials)
         if (paused != settings.remotePaused) {
             settings.remotePaused = paused
             UsageCollector(context).reset()
