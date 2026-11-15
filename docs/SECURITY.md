@@ -59,7 +59,11 @@ report suspected vulnerabilities privately through the repository owner.
   your financial, authentication and other private apps. Structural password/editable-field checks run
   before any screenshot/text capture; incomplete traversal fails closed. Locked
   screens and secure-window screenshot failures reject capture. OS/AppOps behavior
-  and permission revocation still require physical-device validation.
+  and permission revocation still require physical-device validation. UsageStats
+  checkpoints retain observed permission state and restart their scan boundary
+  when that state changes, including on app resume. A revoke-and-restore sequence
+  entirely while the app is not executing is not detectable from the later
+  current AppOps grant; do not treat this as continuous permission-history proof.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
   filename AAD. Queue max 24 h / 32 MiB / 4,096 entries, including quarantine;
   timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the

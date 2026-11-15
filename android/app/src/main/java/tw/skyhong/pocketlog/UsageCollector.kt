@@ -7,23 +7,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class UsageCollector(private val context: Context) {
-    private val files = PrivateFiles(context)
-    fun reset(now: Long = System.currentTimeMillis()) = checkpoint(now, null, 0)
+    private val state = UsageCheckpoint(PrivateFiles(context)) { RecordingSettings(context).drop() }
+    fun reset(now: Long = System.currentTimeMillis()) = state.save(now, null, 0, RecordingSettings(context).hasUsagePermission())
+    fun reconcilePermission() {
+        state.reconcile(System.currentTimeMillis(), RecordingSettings(context).hasUsagePermission())
+    }
     private fun checkpoint(cursor: Long, app: String?, start: Long) {
-        val bytes = JSONObject().put("cursor", cursor).put("app", app).put("start", start).toString().toByteArray()
-        try { files.write("usage", bytes) } finally { bytes.fill(0) }
+        state.save(cursor, app, start, true)
     }
     fun collect(credentials: Credentials) {
         val settings = RecordingSettings(context)
         val now = System.currentTimeMillis()
         if (!settings.enabled) return
-        if (!settings.hasUsagePermission()) { reset(now); return }
-        val bytes = runCatching { files.read("usage") }.getOrNull() ?: run { reset(now); return }
-        val saved = try { runCatching { JSONObject(String(bytes)) }.getOrNull() } finally { bytes.fill(0) }
-        if (saved == null) { reset(now); settings.drop(); return }
+        val saved = state.reconcile(now, settings.hasUsagePermission()) ?: return
         val cursor = saved.optLong("cursor", now)
         if (now >= cursor && now - cursor < 15 * 60 * 1000) return
-        // Never backfill the time before consent, permission restoration, or beyond raw retention.
+        // Respect consent/observed permission boundaries and raw retention.
         if (cursor > now || now - cursor >= RecordingRules.RAW_TTL) { reset(now); settings.drop(); return }
         val stream = context.getSystemService(UsageStatsManager::class.java).queryEvents(cursor, now)
         val event = UsageEvents.Event()
