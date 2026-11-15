@@ -3809,6 +3809,8 @@ function categoriesDialog() {
   modal("分類、顏色與專注角色", (container) => {
     const p = el("div");
     add(container, p);
+    const editorSeq = renderSeq;
+    const current = () => editorSeq === renderSeq && p.isConnected && $("#modal").open;
     add(
       p,
       el(
@@ -4052,8 +4054,8 @@ function categoriesDialog() {
       const payload = { workspace: structuredClone(draft), sample: { app: sampleApp.value.trim(), title: sampleTitle.value, category: baseline.value, edited: false } };
       result.replaceChildren(el("p", "正在試算目前規則…", "muted"));
       try {
-        const response = await api("/v1/workspace/preview", payload);
-        if (!preview.isConnected || token !== epoch) return;
+        const response = await api("/v1/workspace/preview", payload, undefined, () => current() && token === epoch);
+        if (!current() || token !== epoch) return;
         const name = draft.categories.find((c) => c.id === response.category)?.name || response.category;
         const index = draft.rules.findIndex((r) => r.id === response.matched_rule_id);
         result.replaceChildren(
@@ -4063,7 +4065,7 @@ function categoriesDialog() {
         );
         result.scrollIntoView({ block: "nearest", inline: "nearest" });
       } catch (error) {
-        if (!preview.isConnected || token !== epoch) return;
+        if (!current() || token !== epoch) return;
         result.replaceChildren(el("p", error.status === 404 ? "伺服器尚未支援規則試算，請更新伺服器。分類仍可照常儲存。" : error.status === 400 ? "規則或範例尚未完整，請檢查 app、關鍵字與分類後重試。" : error.message || "試算未完成，請重試。", "callout warn"));
       }
     }), result);
@@ -4087,14 +4089,14 @@ function categoriesDialog() {
       const seq = ++recoverySeq;
       announceRecovery("分類草稿已保留", "正在核對私人伺服器的最新設定，尚未重試儲存。");
       let latest;
-      try { latest = await api("/v1/workspace"); }
+      try { latest = await api("/v1/workspace", null, undefined, () => current() && seq === recoverySeq); }
       catch {
-        if (!p.isConnected || seq !== recoverySeq) return;
+        if (!current() || seq !== recoverySeq) return;
         announceRecovery("暫時讀不到最新設定", "分類與規則草稿仍在這個表單中。恢復連線後可重新核對；不需要重新整理整個頁面。");
         add(recovery, btn("重新核對最新設定", () => recover(attemptedRevision)));
         return;
       }
-      if (!p.isConnected || seq !== recoverySeq) return;
+      if (!current() || seq !== recoverySeq) return;
       const plan = classificationRecovery(workspaceBaseline, draft, latest, attemptedRevision);
       if (plan.kind === "used") {
         announceRecovery("分類仍被活動使用", "這次不是設定版本衝突。移除的分類仍被已儲存活動使用；請取消移除或先重新分類。其他草稿修改已保留。");
@@ -4140,13 +4142,13 @@ function categoriesDialog() {
       const controls = [...p.querySelectorAll("input,select,button")].map((n) => [n, n.disabled]);
       controls.forEach(([n]) => { n.disabled = true; });
       try {
-        const saved = await api("/v1/workspace", payload, "PUT");
+        const saved = await api("/v1/workspace", payload, "PUT", current);
+        if (!current()) return;
         prefs = saved;
-        if (!p.isConnected) return;
         close();
         await shell();
       } catch (error) {
-        if (!p.isConnected) return;
+        if (!current()) return;
         if (error.status !== 409) throw error;
         await recover(payload.revision);
       } finally {

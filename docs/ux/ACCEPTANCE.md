@@ -1914,3 +1914,29 @@ newer summary/focus; these two synthetic captures were inspected.
 
 ![Desktop newer draft retained](screenshots/web-card-save-newer-desktop.png)
 ![Phone newer draft and save feedback](screenshots/web-card-save-newer-phone.png)
+
+
+## Classification asynchronous ownership (#80)
+
+Old builtb446818 reproduced: hold the read-only classification preview response,
+close/reopen the editor, type a category draft, then release an old401. Global
+session expiry closed the newer editor and discarded its draft before the old
+preview checked its attachment.
+
+Preview, revision-conflict recovery reads and classification saves now provide
+editor/render ownership before authentication handling. Preview also checks the
+sample/draft epoch. A detached save cannot install a stale workspace globally.
+Current401 still expires the current UI; current503 and retry still work.
+No change to classifier/manual-override/revision/confirmation semantics.
+
+Final built-image Chromium1280×800 and390×844 passed
+`scripts/check-web-classification-ownership.js`: seven controlled previews, three
+controlled writes and two controlled recovery reads per size; stale200/503/401,
+changed-sample401, current error/retry/success, old save/global prefs, old recovery
+and current401. No workspace write, preview or model call reached the service.
+The ordinary fixture baseline read remained authenticated. Fetch hooks restored;
+fixture logout explicit at cleanup. Separate manual late401 retained the new
+category draft and focus; both synthetic captures below were inspected.
+
+![Phone classification draft survives old failure](screenshots/web-classification-stale-phone.png)
+![Desktop classification draft survives old failure](screenshots/web-classification-stale-desktop.png)
