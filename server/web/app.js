@@ -9,6 +9,7 @@ const STALE = Symbol("stale render");
 const REPO = "https://github.com/skyhong2002/PocketLog";
 let chatScope = "day";
 let conversationId = inBrowser ? crypto.randomUUID() : "";
+let chatEpoch = 0, activeAsk = null, refreshChat = null;
 let chatCursor = null,
   pendingAsk = null,
   chatDraft = "",
@@ -279,9 +280,10 @@ async function request(path, body, method = body ? "POST" : "GET") {
     );
   }
 }
-async function api(path, body, method) {
+async function api(path, body, method, isCurrent) {
   const r = await request(path, body, method);
   if (r.status === 401) {
+    if (isCurrent && !isCurrent()) throw STALE;
     login("expired");
     throw new ApiError("請重新登入私人日誌", 401);
   }
@@ -584,6 +586,8 @@ function facts(items) {
 /* ---------- sign-in ---------- */
 function resetPrivateState() {
   renderSeq++;
+  chatEpoch++;
+  activeAsk = refreshChat = null;
   pendingAsk = null;
   chatCursor = null;
   chatDraft = chatError = "";
@@ -2397,7 +2401,7 @@ async function chatPage(parent, seq) {
   const showHistoryLoading = (value) => {
     historyLoading = value;
     renderLog();
-    if (sendControl) sendControl.disabled = value || waiting;
+    if (sendControl) sendControl.disabled = value || !!activeAsk;
     if (deleteControl) deleteControl.disabled = value;
   };
   history.onchange = () =>
@@ -2409,10 +2413,15 @@ async function chatPage(parent, seq) {
         showHistoryLoading(false);
         return;
       }
+      if (id === conversationId && activeAsk?.epoch === chatEpoch) {
+        showHistoryLoading(false);
+        return;
+      }
       showHistoryLoading(true);
       try {
-        const thread = await api(`/v1/conversations/${id}`);
+        const thread = await api(`/v1/conversations/${id}`, null, undefined, current);
         if (!current()) return;
+        chatEpoch++;
         conversationId = id;
         chatCursor = thread.next_cursor;
         pendingAsk = null;
@@ -2430,6 +2439,7 @@ async function chatPage(parent, seq) {
     });
   const existing = saved.some((t) => t.id === conversationId);
   const fresh = () => {
+    chatEpoch++;
     conversationId = crypto.randomUUID();
     chatCursor = null;
     pendingAsk = null;
@@ -2448,6 +2458,8 @@ async function chatPage(parent, seq) {
       ),
       existing || chat.length
         ? (deleteControl = btn("刪除此對話", async () => {
+            const id = conversationId, epoch = chatEpoch;
+            const owns = () => id === conversationId && epoch === chatEpoch;
             if (
               !(await ask(
                 "永久刪除這個對話？",
@@ -2457,9 +2469,15 @@ async function chatPage(parent, seq) {
               ))
             )
               return;
-            await api(`/v1/conversations/${conversationId}`, null, "DELETE");
-            fresh();
-            await shell();
+            try {
+              await api(`/v1/conversations/${id}`, null, "DELETE", owns);
+              if (!owns()) return;
+              fresh();
+              focusKey = "chat-new";
+              await shell();
+            } catch (error) {
+              if (owns()) throw error;
+            }
           }))
         : null,
     ),
@@ -2468,11 +2486,11 @@ async function chatPage(parent, seq) {
   log.setAttribute("role", "log");
   log.setAttribute("aria-label", "對話內容");
   add(p, log);
-  let waiting = false;
+  const waiting = () => activeAsk?.epoch === chatEpoch && activeAsk?.id === conversationId;
   const question = el("textarea");
   const renderLog = () => {
     log.replaceChildren();
-    log.setAttribute("aria-busy", String(historyLoading));
+    log.setAttribute("aria-busy", String(historyLoading || waiting()));
     if (historyLoading) {
       const status = el("p", "正在讀取所選對話…", "loading-state");
       status.setAttribute("role", "status");
@@ -2488,6 +2506,7 @@ async function chatPage(parent, seq) {
           try {
             const thread = await api(
               `/v1/conversations/${id}?before_ms=${cursor.before_ms}&before_id=${encodeURIComponent(cursor.before_id)}`,
+              null, undefined, current,
             );
             if (!current()) return;
             chatCursor = thread.next_cursor;
@@ -2498,7 +2517,7 @@ async function chatPage(parent, seq) {
           }
         }),
       );
-    if (!chat.length && !waiting)
+    if (!chat.length && !waiting())
       add(
         log,
         el(
@@ -2518,7 +2537,7 @@ async function chatPage(parent, seq) {
       );
       add(log, bubble);
     });
-    if (waiting) {
+    if (waiting()) {
       const wait = el("div", null, "message assistant pending");
       wait.setAttribute("role", "status");
       add(wait, el("small", "模型輸出"), el("p", "正在等待模型回答（最多約 10 秒）…"));
@@ -2531,9 +2550,10 @@ async function chatPage(parent, seq) {
         fail,
         el(
           "p",
-          `這次提問沒有完成：${chatError}。你的問題已放回輸入框；重新勾選同意後可以再送一次，已完成的回答不會重複計費。`,
+          `這次提問沒有完成：${chatError}。草稿會保留；重新勾選同意後可以重試原問題，已完成的回答不會重複計費。`,
         ),
       );
+      if (pendingAsk) add(fail, el("p", `原問題：${pendingAsk.body.question}`));
       add(log, fail);
     }
   };
@@ -2602,6 +2622,7 @@ async function chatPage(parent, seq) {
   const send = sendControl = btn(
     "傳送這次提問",
     async () => {
+      if (activeAsk) throw Error("上一個提問仍在等待回答，完成後才能再次傳送。");
       if (historyLoading) throw Error("所選對話仍在讀取，請稍候再提問。");
       if (!consent.checked) throw Error("請先勾選同意這次的傳送範圍");
       const q = question.value.trim();
@@ -2628,45 +2649,59 @@ async function chatPage(parent, seq) {
         };
       consent.checked = false;
       chatError = "";
-      chat.push({ role: "user", text: q });
-      waiting = true;
+      const message = { role: "user", text: q };
+      const op = activeAsk = { id: conversationId, epoch: chatEpoch, retry: pendingAsk, message };
+      const owns = () => op.epoch === chatEpoch && op.id === conversationId;
+      chat.push(message);
       question.value = chatDraft = "";
-      question.disabled = true;
-      renderLog();
-      let refreshStored = false;
+      refreshChat();
+      let stored = false;
       try {
-        const result = await api("/v1/ask", pendingAsk.body);
-        refreshStored = result.stored === true;
-        pendingAsk = null;
+        const result = await api("/v1/ask", op.retry.body, undefined, owns);
+        stored = result.stored === true;
+        if (!owns()) return;
+        if (pendingAsk === op.retry) pendingAsk = null;
         chat.push({ role: "assistant", text: result.answer });
         chat = chat.slice(-20);
       } catch (e) {
-        if (e.status === 401) throw e;
-        chat.pop();
-        question.value = chatDraft = q;
+        if (!owns()) return;
+        // Remove exactly this optimistic turn, never another thread's last turn.
+        chat = chat.filter(m => m !== op.message);
+        if (!chatDraft) chatDraft = q;
         chatError = e.message;
       } finally {
-        waiting = false;
-        question.disabled = false;
-        renderLog();
-        question.focus();
+        if (activeAsk === op) activeAsk = null;
+        refreshChat?.();
       }
-      if (refreshStored && seq === renderSeq) {
-        focusKey = "chat-question";
+      if (owns() && stored && page === "chat") {
+        if (document.activeElement === document.body) focusKey = "chat-question";
         await shell();
       }
     },
     "primary",
   );
+  const busy = el("p", "", "muted");
+  busy.setAttribute("role", "status");
+  refreshChat = () => {
+    if (seq !== renderSeq || !p.isConnected) return;
+    send.disabled = historyLoading || !!activeAsk;
+    send.setAttribute("aria-busy", String(!!activeAsk));
+    busy.textContent = activeAsk && !waiting()
+      ? "上一個對話的提問仍在等待回答；你可以先寫草稿，完成後再傳送。" : "";
+    if (question.value !== chatDraft) question.value = chatDraft;
+    renderLog();
+  };
   add(
     composer,
     send,
+    busy,
     el(
       "p",
       "對話可於網站與手機接續。更換模型設定後請開啟新對話；舊對話不會轉送給新提供者。",
       "muted",
     ),
   );
+  mounted.push(refreshChat);
 }
 async function chatChart(from, to) {
   const data = await api(`/v1/overview?from_ms=${from}&to_ms=${to}`);

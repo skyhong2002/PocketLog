@@ -1650,3 +1650,43 @@ Rust/native code retains the preceding same-wave checks.
 
 - [Invited-user help](screenshots/web-api-invited-help-phone.png)
 - [Phone/API key manager](screenshots/web-api-key-manager-phone.png)
+
+## Pending Chat send/delete ownership (#70)
+
+The old rebuilt UI reproduced a late answer from A appearing in a new conversation
+after a scope change. Send operations now capture their conversation generation,
+retry body and exact optimistic message. A late success/failure cannot mutate a
+new transcript, draft or retry candidate. Same-conversation scope/navigation
+rerenders keep the waiting state; one explicit call remains pending at a time,
+with an explanation when writing a different conversation's draft. New drafts
+remain editable and survive failures. Delete captures its target before asking
+for confirmation and only resets that same active conversation on completion.
+Stale ask/delete/history 401 responses cannot replace newer private-state reset.
+
+Astra source review found and prompted fixes for returning to active A while B's
+history read waits, the second-delete test helper, and stale history authentication
+responses. Actual built-image acceptance then caught initial busy controls being
+updated before attachment; their initial refresh now runs after mounting.
+
+scripts/check-web-chat-writes.js requires explicit synthetic opt-in and loopback
+18751. It controls all ask/delete responses, never contacting a provider or
+writing a conversation to the service, and restores fetch in finally. Final
+1280/390 runs passed (11 controlled asks each): stale success/failure, new/B
+transcript and draft preservation, scope/navigation busy state, a single answer,
+stored-answer refresh with draft/focus retained, return-to-active during a held
+history read, unchanged retry IDs, changed question/scope IDs, current failure
+with a newer draft, delayed delete A while B is active, delete during an ask with
+no resurrection, per-request consent reset, and logout with a late 401. The
+logout response in this test is controlled too; the final manual capture cleanup
+performed a real synthetic-session logout. Existing read-race acceptance passed
+at both widths. These are controlled-response browser tests, not real-provider,
+physical keyboard, screen-reader or device claims.
+
+Official ChatView+Actions.swift guards submission/open-history with isProcessing;
+this informed the pending-state comparison. No actual Dayflow Chat runtime image
+was available on Linux. The inspected PocketLog captures contain synthetic text
+only. Web syntax/timeline/import regressions and final Docker smoke passed;
+unchanged Rust/native sources retain preceding same-wave required checks.
+
+- [Pending request on desktop](screenshots/web-chat-pending-request.png)
+- [Different conversation can keep a draft](screenshots/web-chat-pending-other-thread-phone.png)
