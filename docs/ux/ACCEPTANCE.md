@@ -1335,3 +1335,36 @@ and disposable Docker privacy/API/worker smoke pass. Android unchanged from
 
 - [Desktop selected Saturday](screenshots/web-week-anchor-desktop.png)
 - [Phone selected Saturday](screenshots/web-week-anchor-phone.png)
+
+
+## Visible week clocks (#59)
+
+Normal weeks now have one44px sticky hour gutter. Date headers and the clock
+share60px headers, keeping all track origins aligned. Selected-column entry
+accounts for the gutter. The scroller isolates its stacking context so the gutter
+cannot paint over the phone navigation, and scroll padding keeps restored cards
+clear of sticky dates/hours. Official WeekTimelineGridView.swift at2c79e161
+renders a dedicated timeColumn; no copied artwork or macOS runtime claim.
+
+Final rebuilt-image Chromium synthetic checks at1280×800 and390×844 verify
+24clock labels, matching track origins, selected Saturday fully visible, no
+document overflow, horizontal gutter stickiness and unobscured phone navigation.
+A Sunday card restored after shell reload remains focused and visible below the
+header and beyond the gutter (phone top526px, header bottom510px). Captures below
+were saved and inspected. The first capture iteration exposed gutter paint over
+the bottom bar; final isolation fixes it. Initial automation waited for a grid
+while the narrow-screen default was list; explicitly selecting grid fixed the
+harness, not product code.
+
+DST weeks use individual day clocks rather than a misleading shared clock over
+unequal elapsed-day lengths, and explain this in the UI. Node regressions verify
+the branch policy for New York23/25h and Lord Howe23.5h transitions; existing
+tick/offset tests retain repeated-hour distinction and04:00 boundaries. The
+shared preview has no timezone override, so transition-week browser layout is
+not visually verified; these captures use the normal Taipei week. No real Tab,
+TalkBack or physical-device claim. Web regressions and final-image Docker smoke
+pass. Same-wave unchanged Rust fmt/clippy-Dwarnings/58tests/audit and Android
+56unit/build/lint/connected-offline checks remain valid.
+
+- [Desktop clock gutter](screenshots/web-week-axis-desktop.png)
+- [Phone clock gutter and navigation](screenshots/web-week-axis-phone.png)

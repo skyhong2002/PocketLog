@@ -154,3 +154,16 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
   assert.equal(classificationRecovery(base,draft,reordered).kind,'other','object key order must not create a false classification conflict');
   console.log('Classification conflict recovery preserves drafts, remote goals, revision and independent snapshots');
 }
+
+const { sharedWeekAxis } = require('../server/web/app.js');
+try {
+  process.env.TZ = 'America/New_York';
+  assert.equal(sharedWeekAxis(['2026-03-06','2026-03-07','2026-03-08']), false);
+  assert.equal(sharedWeekAxis(['2026-10-30','2026-10-31','2026-11-01']), false);
+  assert.equal(sharedWeekAxis(['2026-11-09','2026-11-15']), true);
+  process.env.TZ = 'Australia/Lord_Howe';
+  assert.equal(sharedWeekAxis(['2026-10-02','2026-10-03','2026-10-04']), false);
+  process.env.TZ = 'Asia/Taipei';
+  assert.equal(sharedWeekAxis(['2026-10-03','2026-11-15']), true);
+} finally { if (originalZone === undefined) delete process.env.TZ; else process.env.TZ=originalZone; }
+console.log('Week clocks split for full-hour and half-hour DST transitions');

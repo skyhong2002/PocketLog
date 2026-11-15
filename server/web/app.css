@@ -905,6 +905,8 @@ progress.over::-moz-progress-bar {
   justify-content: center;
 }
 .scroll {
+  scroll-padding-top: 68px;
+  isolation: isolate;
   overflow: auto;
   max-width: 100%;
   max-height: calc(100vh - 330px);
@@ -919,6 +921,33 @@ progress.over::-moz-progress-bar {
 .week .timeline {
   margin: 0;
 }
+.scroll:has(.shared-axis) {
+  scroll-padding-left: 52px;
+}
+.week.shared-axis {
+  grid-template-columns: 44px repeat(7, minmax(128px, 1fr));
+  min-width: 1012px;
+}
+.week-axis {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--panel);
+}
+.week .week-clock {
+  background: var(--panel);
+}
+.week .week-clock .hour {
+  display: block;
+  left: 0;
+}
+.week.daily-axes .timeline {
+  margin-left: 44px;
+}
+.week.daily-axes .hour {
+  display: block;
+  left: -44px;
+}
 .week .event {
   font-size: 12px;
   padding: 2px 6px;
@@ -928,6 +957,8 @@ progress.over::-moz-progress-bar {
   display: none;
 }
 .week-day {
+  height: 60px;
+  min-height: 60px;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -939,6 +970,11 @@ progress.over::-moz-progress-bar {
   padding: 6px 4px;
   margin-bottom: 8px;
   background: var(--panel);
+}
+.week-axis-heading {
+  justify-content: center;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
 }
 .week-day strong {
   font-weight: 500;

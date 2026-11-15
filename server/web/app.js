@@ -354,6 +354,21 @@ function timelineTicks(date) {
   }
   return ticks;
 }
+function sharedWeekAxis(dates) {
+  // Unequal elapsed-day lengths need their own clocks, including half-hour DST.
+  return dates.every(date => {
+    const [start, end] = fullDayBounds(date);
+    return end - start === 86400000;
+  });
+}
+function appendTimelineTicks(lane, date) {
+  for (const tick of timelineTicks(date)) {
+    const hour = el("span", tick.label, "hour");
+    hour.style.setProperty("--hour", tick.position);
+    if (tick.offset) add(hour, el("small", tick.offset));
+    add(lane, hour);
+  }
+}
 function pathFor(date) {
   const [from, to] = windowFor(date);
   return `/v1/timeline?from_ms=${from}&to_ms=${to}`;
@@ -471,7 +486,7 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery };
+  module.exports = { sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery };
 
 /* Only classification fields belong to this editor; unrelated settings stay current. */
 function classificationRecovery(base, draft, latest, attemptedRevision = draft.revision) {
@@ -1477,7 +1492,19 @@ async function timelinePage(parent, seq) {
       weekGrid = el("div", null, "week");
     scroll.tabIndex = 0;
     scroll.setAttribute("role", "group");
-    scroll.setAttribute("aria-label", "一週時間軸，可左右捲動");
+    scroll.setAttribute("aria-label", "一週時間軸，可上下左右捲動");
+    const sharedAxis = sharedWeekAxis(days.map(d => d.date));
+    weekGrid.classList.add(sharedAxis ? "shared-axis" : "daily-axes");
+    if (sharedAxis) {
+      const gutter = el("div", null, "week-axis");
+      const heading = el("div", "時間", "week-day week-axis-heading");
+      const clock = el("div", null, "timeline week-clock");
+      appendTimelineTicks(clock, day);
+      add(gutter, heading, clock);
+      add(weekGrid, gutter);
+    } else {
+      add(left, el("p", "這週有時區時間切換，各日刻度分別顯示；卡片位置依當天實際經過時間排列。", "hint"));
+    }
     for (const d of days) {
       const col = el("div");
       const total = metrics(d.cards).total;
@@ -1507,7 +1534,7 @@ async function timelinePage(parent, seq) {
       const active = weekGrid.querySelector(".week-day.active");
       if (active) {
         const bounds = scroll.getBoundingClientRect(), column = active.getBoundingClientRect();
-        scroll.scrollLeft += column.left - bounds.left;
+        scroll.scrollLeft += column.left - bounds.left - (sharedAxis ? 52 : 0);
       }
       const first = selected.cards.find((c) => !filter || c.category === filter);
       const [start, end] = fullDayBounds(day);
@@ -1643,12 +1670,7 @@ function track(data, compact) {
   const [start, end] = fullDayBounds(data.date);
   const length = end - start;
   lane.style.setProperty("--hour-px", `${(3600000 / length) * 1536}px`);
-  for (const tick of timelineTicks(data.date)) {
-    const hour = el("span", tick.label, "hour");
-    hour.style.setProperty("--hour", tick.position);
-    if (tick.offset) add(hour, el("small", tick.offset));
-    add(lane, hour);
-  }
+  appendTimelineTicks(lane, data.date);
   const px = (ms) => (ms / length) * 1536;
   const visible = data.cards.filter((c) => !filter || c.category === filter);
   for (const { card: c, lane: index, lanes } of layoutLanes(
