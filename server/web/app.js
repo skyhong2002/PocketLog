@@ -37,7 +37,7 @@ const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
 let timelineInspector = null, inspectedCard = null;
 // One write per activity at a time, including a cancelled/reopened editor.
 const cardSaves = new Set();
-let providerChangePending = false, scheduleChangePending = false;
+let providerChangePending = false, scheduleChangePending = false, deviceChangePending = false;
 let modalEpoch = 0;
 const titles = {
   timeline: "時間軸",
@@ -3469,8 +3469,39 @@ function deviceAuthenticationLabel(device) {
     : "尚無連線驗證紀錄。";
 }
 async function devicesDialog() {
-  const data = await api("/v1/devices");
+  const seq = renderSeq, openingEpoch = modalEpoch;
+  const priorContent = $("#modal").open ? $("#modal-body").lastElementChild : null;
+  const openingCurrent = () => seq === renderSeq && openingEpoch === modalEpoch &&
+    (!priorContent || ($("#modal").open && priorContent.isConnected));
+  let data;
+  try { data = await api("/v1/devices", undefined, undefined, openingCurrent); }
+  catch (error) { if (openingCurrent()) throw error; else return; }
+  if (!openingCurrent()) return;
   modal("裝置金鑰", (p) => {
+    const current = () => p.isConnected && seq === renderSeq;
+    const pendingHint = el("p", "金鑰變更處理中時，不能同時送出另一筆變更；請稍後再試。這裡的草稿會保留。", "callout");
+    pendingHint.setAttribute("role", "status");
+    pendingHint.hidden = !deviceChangePending;
+    add(p, pendingHint);
+    async function changeDevice(action) {
+      if (!current()) return;
+      if (deviceChangePending) {
+        pendingHint.hidden = false;
+        notice("先前的金鑰變更仍在處理，請稍後再試；目前草稿已保留。", false, p);
+        return;
+      }
+      deviceChangePending = true;
+      pendingHint.hidden = false;
+      const controls = [...p.querySelectorAll("input,select,button")].map(n => [n, n.disabled]);
+      controls.forEach(([n]) => { n.disabled = true; });
+      try { await action(); }
+      catch (error) { if (current()) throw error; }
+      finally {
+        deviceChangePending = false;
+        controls.forEach(([n, disabled]) => { if (n.isConnected) n.disabled = disabled; });
+        if (current()) pendingHint.hidden = true;
+      }
+    }
     add(
       p,
       el(
@@ -3507,14 +3538,18 @@ async function devicesDialog() {
               ))
             )
               return;
-            await api(`/v1/devices/${d.id}`, null, "DELETE");
-            refreshOnClose = true;
-            await devicesDialog();
+            if (!current()) return;
+            await changeDevice(async () => {
+              await api(`/v1/devices/${d.id}`, null, "DELETE", current);
+              if (!current()) return;
+              refreshOnClose = true;
+              await devicesDialog();
+            });
           }),
         ),
       ),
     );
-    add(p, el("h3", "建立新的金鑰"));
+    add(p, el("h3", "建立新的金鑰"), el("p", "建立請求送出後，關閉視窗不會取消。若沒有看到一次性金鑰，請重新開啟清單，撤銷那把金鑰後再建立。", "muted"));
     const label = field(p, "裝置或工具名稱", "", "text", "例如「我的 Pixel」或「私人時間軸工具」，方便之後辨識與撤銷。"),
       scope = select(
         p,
@@ -3538,42 +3573,42 @@ async function devicesDialog() {
           if (!label.value.trim()) throw Error("請填寫裝置名稱");
           if (!Number.isInteger(+days.value) || +days.value < 1 || +days.value > 90)
             throw Error("有效天數需為 1–90 的整數");
-          const result = await api("/v1/devices", {
-            label: label.value.trim(),
-            scope: scope.value,
-            days: +days.value,
-          });
-          refreshOnClose = true;
-          modal("這把金鑰只顯示這一次", (body) => {
-            add(
-              body,
-              listOf(true, [
-                "在手機安裝並開啟 PocketLog app。",
-                ["伺服器網址填：", code(location.origin)],
-                "裝置金鑰填下面這一串。關閉後無法再次讀取；遺失時撤銷並重建即可。",
-                "在手機按「驗證並連線」後，回到網站的開始使用清單，按「重新檢查連線」。錄製與畫面擷取仍要在手機另外同意。",
-              ]),
-            );
-            const secret = field(body, "裝置金鑰", result.token, "password");
-            secret.readOnly = true;
-            const show = check(body, "顯示金鑰");
-            show.onchange = () => (secret.type = show.checked ? "text" : "password");
-            add(
-              body,
-              el(
-                "p",
-                "請用私人方式帶到手機（例如密碼管理器）；不要放進網址、截圖或聊天訊息。",
-                "muted",
-              ),
+          const payload = { label: label.value.trim(), scope: scope.value, days: +days.value };
+          await changeDevice(async () => {
+            const result = await api("/v1/devices", payload, "POST", current);
+            if (!current()) return;
+            refreshOnClose = true;
+            modal("這把金鑰只顯示這一次", (body) => {
               add(
-                el("div", null, "actions"),
-                btn("複製金鑰", async () => {
-                  await navigator.clipboard.writeText(secret.value);
-                  notice("已複製裝置金鑰；用完請清除剪貼簿");
-                }),
-                btn("我已保存，關閉", () => close(), "primary"),
-              ),
-            );
+                body,
+                listOf(true, [
+                  "在手機安裝並開啟 PocketLog app。",
+                  ["伺服器網址填：", code(location.origin)],
+                  "裝置金鑰填下面這一串。關閉後無法再次讀取；遺失時撤銷並重建即可。",
+                  "在手機按「驗證並連線」後，回到網站的開始使用清單，按「重新檢查連線」。錄製與畫面擷取仍要在手機另外同意。",
+                ]),
+              );
+              const secret = field(body, "裝置金鑰", result.token, "password");
+              secret.readOnly = true;
+              const show = check(body, "顯示金鑰");
+              show.onchange = () => (secret.type = show.checked ? "text" : "password");
+              add(
+                body,
+                el(
+                  "p",
+                  "請用私人方式帶到手機（例如密碼管理器）；不要放進網址、截圖或聊天訊息。",
+                  "muted",
+                ),
+                add(
+                  el("div", null, "actions"),
+                  btn("複製金鑰", async () => {
+                    await navigator.clipboard.writeText(secret.value);
+                    notice("已複製裝置金鑰；用完請清除剪貼簿");
+                  }),
+                  btn("我已保存，關閉", () => close(), "primary"),
+                ),
+              );
+            });
           });
         },
         "primary",

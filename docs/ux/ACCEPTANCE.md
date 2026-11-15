@@ -2115,3 +2115,26 @@ Rust checks and integrated Android63unit/build/lint remain applicable.
 
 ![Current activity editor survives old page response on phone](screenshots/web-api-page-owner-phone.png)
 ![Current activity editor survives old page response on desktop](screenshots/web-api-page-owner-desktop.png)
+
+## Device-key editor ownership (#88)
+
+Built f886899 reproduced a held synthetic creation response replacing a newer
+Goals draft with the once-only credential dialog. Initial device-list loading,
+creation, revocation and post-revocation refresh now belong to their originating
+page/editor. Mutations are serialized across close/reopen, current fields pause
+during writes, and late responses never expose a credential in another editor.
+Before creation, copy explains that closing cannot cancel a request already sent;
+an issued credential remains revocable and can be recreated. Existing scopes,
+limits, once-only display, no browser storage and explicit copy remain unchanged.
+
+Built1280/390 `scripts/check-web-device-ownership.js` passed21controlled reads and
+11controlled writes per size, with zero real credential mutations/clipboard writes.
+Coverage includes stale list200/503/401/page/other-modal, create200/503/401,
+serialization, revoke and its follow-up read, current failure/retry, masked
+read-only once-key/current revoke, DOM clearing on close and genuine current401.
+Both inspected captures show a newer focused tool-name draft after an old401 and
+contain no key. Node/web timeline/import regressions and final Docker smoke pass;
+unchanged Rust checks remain valid. No physical pairing claim.
+
+![Device tool draft retained on phone](screenshots/web-device-draft-phone.png)
+![Device tool draft retained on desktop](screenshots/web-device-draft-desktop.png)
