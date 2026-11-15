@@ -96,8 +96,12 @@ report suspected vulnerabilities privately through the repository owner.
   Android delete action first disables capture and clears local queue/cache.
   Shared server pause rejects new captures and clears pending server context;
   phones apply it on the existing sync cadence and clear queued capture data.
-  Offline phones use their last known state until reconnection, not instant remote
+  Offline phones, including a failed private-server connection, use their last known state until reconnection, not instant remote
   control. Known invalid/revoked device credentials stop local capture after sync.
+  Transient control-read failures and server backoff preserve the normal local
+  UsageStats cadence under existing consent/pause and encrypted queue bounds;
+  no uploads occur on those paths. Confirmed authentication failure still stops
+  capture, and confirmed pause clears queued capture. Retention is not extended.
   Failed server deletion must be retried; other installations can still upload
   with the shared owner token. Rotate/revoke that token when necessary.
 - Raw screen content never belongs in logs or infovore. Daily exports contain

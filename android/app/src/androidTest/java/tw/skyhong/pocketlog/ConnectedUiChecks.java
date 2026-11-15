@@ -61,6 +61,7 @@ final class ConnectedUiChecks {
                 try(FileOutputStream out=new FileOutputStream(evidence)) { out.write(pairingId.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
                 pairingPassed=true;return;
             }
+            if ("yes".equals(args.getString("controlFailureOnly"))) { controlFailureCheck(fixtureOwner, endpoint); return; }
             if ("yes".equals(args.getString("captureAiOnly"))) { captureAiConsentCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("probeOnly"))) { providerProbeCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("previewOnly"))) { rulePreviewCheck(fixtureOwner); return; }
@@ -180,6 +181,44 @@ final class ConnectedUiChecks {
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
     }
+    private void controlFailureCheck(PocketLogApi owner,String endpoint) throws Exception {
+        stage="private server outage and local usage checkpoint";
+        Credentials c=new Credentials(endpoint.replace(":18447",":18448"),"a".repeat(64));PocketLogApi proxy=new PocketLogApi(c);
+        RecordingSettings s=new RecordingSettings(test.getTargetContext());PrivateFiles files=new PrivateFiles(test.getTargetContext());JournalQueue queue=new JournalQueue(test.getTargetContext());
+        JSONObject original=owner.request("/v1/collection",null,"GET");
+        try {
+            androidx.work.WorkManager.getInstance(test.getTargetContext()).cancelAllWork().getResult().get();
+            shell("appops set tw.skyhong.pocketlog GET_USAGE_STATS allow");if(!s.hasUsagePermission())throw new IllegalStateException("Synthetic usage permission missing");awaitUnmetered();
+            synchronized(SyncEngine.INSTANCE.getLock()){new CredentialStore(test.getTargetContext()).save(c);s.setEnabled(true);s.setContextEnabled(false);s.setRemotePaused(false);s.setNextAttempt(0);}
+            long now=System.currentTimeMillis();String activityId="synthetic-outage-"+java.util.UUID.randomUUID();
+            JSONObject batch=new JSONObject().put("activities",new org.json.JSONArray().put(new JSONObject().put("id",activityId).put("app","org.example.outage").put("category","unsorted").put("start_ms",now-60000).put("end_ms",now-1000)));
+            synchronized(SyncEngine.INSTANCE.getLock()){queue.enqueue(c,"/v1/activities",batch,now);}
+            int dropped=s.dropped();
+            for(String mode:new String[]{"busy","transport"}) {
+                stage="local collection while control "+mode;proxy.request("/v1/__synthetic_control",new JSONObject().put("mode",mode),"POST");s.setNextAttempt(0);ageUsageCheckpoint(files);
+                long before=usageCursor(files);if(SyncEngine.INSTANCE.sync(test.getTargetContext()))throw new IllegalStateException("Outage did not request retry");
+                if(usageCursor(files)<=before||s.dropped()!=dropped||!s.getEnabled())throw new IllegalStateException("Local usage scan did not advance safely");
+                if(proxy.request("/v1/__synthetic_control",null,"GET").getInt("uploads")!=0||queue.entries(c).isEmpty())throw new IllegalStateException("Outage uploaded or lost queued data");
+                if(!s.status().contains("伺服器暫時無法連線"))throw new IllegalStateException("Stale outage status");
+                if(mode.equals("busy")){click("設定");await(s.status());awaitSettled();revealFullRow(s.status());capture("control-outage-status");}
+                int reads=proxy.request("/v1/__synthetic_control",null,"GET").getInt("control_reads");ageUsageCheckpoint(files);before=usageCursor(files);
+                if(SyncEngine.INSTANCE.sync(test.getTargetContext())||usageCursor(files)<=before||proxy.request("/v1/__synthetic_control",null,"GET").getInt("control_reads")!=reads)throw new IllegalStateException("Backoff skipped local scan or made control request");
+                s.setRemotePaused(true);s.setNextAttempt(0);ageUsageCheckpoint(files);before=usageCursor(files);SyncEngine.INSTANCE.sync(test.getTargetContext());if(usageCursor(files)!=before)throw new IllegalStateException("Outage bypassed last-known pause");s.setRemotePaused(false);
+            }
+            stage="permanent control rejection is not treated as offline capture";proxy.request("/v1/__synthetic_control",new JSONObject().put("mode","forbidden"),"POST");s.setNextAttempt(0);ageUsageCheckpoint(files);long blocked=usageCursor(files);SyncEngine.INSTANCE.sync(test.getTargetContext());if(usageCursor(files)!=blocked||s.getNextAttempt()!=0||proxy.request("/v1/__synthetic_control",null,"GET").getInt("uploads")!=0)throw new IllegalStateException("Permanent rejection bypassed control");
+            stage="restored endpoint uploads retained queue";proxy.request("/v1/__synthetic_control",new JSONObject().put("mode","up"),"POST");s.setNextAttempt(0);
+            for(int i=0;i<8&&!queue.entries(c).isEmpty();i++){s.setNextAttempt(0);SyncEngine.INSTANCE.sync(test.getTargetContext());}
+            if(!queue.entries(c).isEmpty()||proxy.request("/v1/__synthetic_control",null,"GET").getInt("uploads")==0)throw new IllegalStateException("Restored upload did not drain bounded queue");
+            JSONObject timeline=owner.request("/v1/timeline?from_ms="+(now-120000)+"&to_ms="+System.currentTimeMillis(),null,"GET");boolean found=false;org.json.JSONArray activities=timeline.getJSONArray("activities");for(int i=0;i<activities.length();i++)if(activityId.equals(activities.getJSONObject(i).getString("id")))found=true;if(!found)throw new IllegalStateException("Retained activity absent after recovery");
+            stage="confirmed shared pause clears captured queue";
+            JSONObject paused=owner.request("/v1/collection",null,"GET");paused.put("paused",true);owner.request("/v1/collection",paused,"PUT");queue.enqueue(c,"/v1/activities",batch,System.currentTimeMillis());s.setNextAttempt(0);SyncEngine.INSTANCE.sync(test.getTargetContext());if(!s.getRemotePaused()||!queue.entries(c).isEmpty())throw new IllegalStateException("Confirmed pause did not clear capture");
+            stage="confirmed unauthorized stops local capture";s.setRemotePaused(false);s.setEnabled(true);queue.enqueue(c,"/v1/activities",batch,System.currentTimeMillis());proxy.request("/v1/__synthetic_control",new JSONObject().put("mode","unauthorized"),"POST");s.setNextAttempt(0);if(!SyncEngine.INSTANCE.sync(test.getTargetContext())||s.getEnabled()||!queue.entries(c).isEmpty())throw new IllegalStateException("Unauthorized did not stop and clear capture");
+        } finally {
+            proxy.request("/v1/__synthetic_control",new JSONObject().put("mode","up"),"POST");JSONObject restore=owner.request("/v1/collection",null,"GET");restore.put("paused",original.getBoolean("paused"));owner.request("/v1/collection",restore,"PUT");shell("appops set tw.skyhong.pocketlog GET_USAGE_STATS default");
+        }
+    }
+    private void ageUsageCheckpoint(PrivateFiles files)throws Exception {long old=System.currentTimeMillis()-21L*60000;byte[] clear=new JSONObject().put("cursor",old).put("app","org.example.outage").put("start",old).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);try{files.write("usage",clear);}finally{java.util.Arrays.fill(clear,(byte)0);}}
+    private long usageCursor(PrivateFiles files)throws Exception {byte[] clear=files.read("usage");if(clear==null)throw new IllegalStateException("Usage checkpoint missing");try{return new JSONObject(new String(clear,java.nio.charset.StandardCharsets.UTF_8)).getLong("cursor");}finally{java.util.Arrays.fill(clear,(byte)0);}}
     private void captureAiConsentCheck(PocketLogApi owner) throws Exception {
         stage="future-capture AI consent reconciliation";
         RecordingSettings s=new RecordingSettings(test.getTargetContext());
@@ -234,6 +273,10 @@ final class ConnectedUiChecks {
     private void revealCaptureAiRow() {
         test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&"模型處理未來情境".contentEquals(t.getText())){View row=v;while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();row=(View)row.getParent();row.requestRectangleOnScreen(new android.graphics.Rect(0,0,row.getWidth(),row.getHeight()),true);return;}throw new IllegalStateException("Capture AI row absent");});test.waitForIdleSync();
         test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&"模型處理未來情境".contentEquals(t.getText())){View row=v;while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();row=(View)row.getParent();android.graphics.Rect visible=new android.graphics.Rect();if(!row.getGlobalVisibleRect(visible)||visible.height()<row.getHeight()-2)throw new IllegalStateException("Capture AI row clipped");return;}});
+    }
+    private void revealFullRow(String label) {
+        test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&label.contentEquals(t.getText())){View row=v;while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();row.requestRectangleOnScreen(new android.graphics.Rect(0,0,row.getWidth(),row.getHeight()),true);return;}throw new IllegalStateException("Row absent");});test.waitForIdleSync();
+        test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&label.contentEquals(t.getText())){View row=v;while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();android.graphics.Rect visible=new android.graphics.Rect();if(!row.getGlobalVisibleRect(visible)||visible.height()<row.getHeight()-2)throw new IllegalStateException("Row clipped");return;}});
     }
     private void rulePreviewCheck(PocketLogApi owner) throws Exception {
         stage="unsaved rule preview";

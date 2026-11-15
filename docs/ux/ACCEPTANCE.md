@@ -1035,3 +1035,44 @@ Dayflow parity remain unverified.
 - [Remote provider change recovery](screenshots/native-capture-ai-renewal.png)
 - [2× recovery guidance](screenshots/native-capture-ai-renewal-large.png)
 - [2× offline unverified state with revoke action](screenshots/native-capture-ai-unverified-large.png)
+
+## Local recording survives private-server outages (#48)
+
+Native sync now treats transient collection-control failures as offline for local
+UsageStats collection, under the existing consent and last-known pause state.
+Server backoff also preserves this local cadence. Neither path uploads before a
+successful control read. Status explains that encrypted records remain local.
+Confirmed401 still stops and clears capture; confirmed remote pause still clears
+queued capture. Permanent control rejection is not treated as an offline capture
+permission. No retention, sampling rate or endpoint-auth policy changed.
+
+Astra's read-only audit identified the earlier control GET aborting before the
+local scan. Dayflow's FrameStore.swift and StorageManager+Screenshots.swift
+at2c79e161 persist capture locally, separate from analysis; this informs local
+capture continuity rather than copying its desktop sampling frequency.
+
+Actual secure emulator checks at normal/2× font use a disposable HTTPS failure
+proxy:503, dropped transport, future retry deadline, last-known pause,403,401,
+and restored forwarding. An aged21-minute encrypted usage checkpoint advances
+through actual UsageStats scans without drop-count changes during transient
+failures and backoff. Queued data stays destination-bound with zero upload
+requests on failed/backoff paths. With last-known pause the checkpoint stays
+unchanged. Restoring the endpoint drains the bounded queue and the unique
+synthetic activity is read back from the API. Successful server pause and401
+still clear captured records and stop as specified. Test permission/consent is
+restored/cleared. Full eight-page HTTPS/offline reflection/cache/brief regression
+passes. No full-day outage/battery or physical-device claim.
+
+Reproduction helper: `scripts/fixture-control-outage.py` binds loopback18754 and
+forwards only to the separate synthetic API on18751 using its public dummy owner
+key. Temporarily map HTTPS18448 to18754 and the existing fixture18447 to18751;
+run instrumentation with `synthetic=yes connected=yes controlFailureOnly=yes`
+and the18447 fixture endpoint. Stop the helper and remove both temporary mappings
+when done. No such test routes exist in the production Rust service.
+
+Android44unit/build/instrumentationbuild/lint pass. Final normal/2× captures were
+inspected, with full-row visible-bounds assertions. Required Rust58/fmt/clippy/
+audit1509/185 and web checks passed this same wave; server/image unchanged.
+
+- [Private server unavailable](screenshots/native-server-outage.png)
+- [2× text recovery status](screenshots/native-server-outage-large.png)

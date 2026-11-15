@@ -35,14 +35,28 @@ object SyncEngine {
             UsageCollector(context).collect(credentials)
             settings.status("已加密保留，等待符合網路設定的連線"); return@synchronized true
         }
-        if (System.currentTimeMillis() < settings.nextAttempt) return@synchronized false
+        if (System.currentTimeMillis() < settings.nextAttempt) {
+            // Server backoff must not pause the existing local UsageStats cadence.
+            UsageCollector(context).collect(credentials)
+            settings.status("等待伺服器重試；本機整理遵守原有同意與暫停設定")
+            return@synchronized false
+        }
         // No extra periodic worker: refresh the stop switch on the existing sync cadence.
-        val control = try { PocketLogApi(credentials).request("/v1/collection") } catch (failure: ApiFailure) {
-            if (failure.status != 401) throw failure
-            settings.enabled = false; settings.contextEnabled = false; settings.imagesEnabled = false; settings.replayConsent = false; settings.externalAiConsent = false; settings.aiProviderId = null
-            JournalQueue(context).clearCollected(); UsageCollector(context).reset()
-            settings.status("金鑰已過期、撤銷或失效，已停止擷取；請重新設定連線")
-            return@synchronized true
+        val control = try { PocketLogApi(credentials).request("/v1/collection") } catch (failure: Exception) {
+            if (failure is ApiFailure && failure.status == 401) {
+                settings.enabled = false; settings.contextEnabled = false; settings.imagesEnabled = false; settings.replayConsent = false; settings.externalAiConsent = false; settings.aiProviderId = null
+                JournalQueue(context).clearCollected(); UsageCollector(context).reset()
+                settings.status("金鑰已過期、撤銷或失效，已停止擷取；請重新設定連線")
+                return@synchronized true
+            }
+            if (settings.hasExternalAiGrant) settings.recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED)
+            // A transient outage is equivalent to being offline: preserve the last
+            // known pause and local consent, and never upload without reading control.
+            val transient = failure !is ApiFailure || !RetryPolicy.permanent(failure.status)
+            if (transient) UsageCollector(context).collect(credentials)
+            settings.nextAttempt = if (transient) System.currentTimeMillis() + (if (failure is ApiFailure) failure.retryMs else 60_000L) else 0L
+            settings.status(if (transient) "伺服器暫時無法連線；保留加密紀錄，依原設定繼續本機整理" else "伺服器拒絕讀取收集狀態；請檢查連線與金鑰，尚未上傳")
+            return@synchronized false
         }
         val paused = control.getBoolean("paused")
         if (paused != settings.remotePaused) {
