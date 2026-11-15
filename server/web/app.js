@@ -471,7 +471,19 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays };
+  module.exports = { metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery };
+
+/* Only classification fields belong to this editor; unrelated settings stay current. */
+function classificationRecovery(base, draft, latest, attemptedRevision = draft.revision) {
+  const key = (w) => JSON.stringify([
+    w.categories.map((c) => [c.id, c.name, c.color, c.role]),
+    (w.rules || []).map((r) => [r.id, r.app ?? null, r.title_contains ?? null, r.category, r.enabled]),
+  ]);
+  return {
+    kind: latest.revision === attemptedRevision ? "used" : key(base) === key(latest) ? "other" : "classification",
+    candidate: { ...structuredClone(latest), categories: structuredClone(draft.categories), rules: structuredClone(draft.rules || []) },
+  };
+}
 
 /* ---------- dialogs ---------- */
 function modal(title, build) {
@@ -3548,7 +3560,8 @@ function categoriesDialog() {
       preview.scrollIntoView({ block: "start", inline: "nearest" });
       sampleApp.focus({ preventScroll: true });
     }, "quiet"));
-    const draft = structuredClone(prefs);
+    const workspaceBaseline = structuredClone(prefs);
+    const draft = structuredClone(workspaceBaseline);
     let invalidatePreview = () => {};
     draft.rules ||= [];
     const categoryList = el("div");
@@ -3730,6 +3743,93 @@ function categoriesDialog() {
         result.replaceChildren(el("p", error.status === 404 ? "伺服器尚未支援規則試算，請更新伺服器。分類仍可照常儲存。" : error.status === 400 ? "規則或範例尚未完整，請檢查 app、關鍵字與分類後重試。" : error.message || "試算未完成，請重試。", "callout warn"));
       }
     }), result);
+    const recovery = el("section", null, "callout warn");
+    recovery.hidden = true;
+    recovery.setAttribute("aria-label", "分類儲存復原");
+    add(p, recovery);
+    let saving = false, recoverySeq = 0;
+    function announceRecovery(title, message) {
+      recovery.hidden = false;
+      const heading = el("h3", title);
+      heading.tabIndex = -1;
+      recovery.replaceChildren(heading, el("p", message));
+      heading.focus({ preventScroll: true });
+      requestAnimationFrame(() => {
+        if (heading.isConnected && document.activeElement === heading)
+          heading.scrollIntoView({ block: "start", inline: "nearest" });
+      });
+    }
+    async function recover(attemptedRevision) {
+      const seq = ++recoverySeq;
+      announceRecovery("分類草稿已保留", "正在核對私人伺服器的最新設定，尚未重試儲存。");
+      let latest;
+      try { latest = await api("/v1/workspace"); }
+      catch {
+        if (!p.isConnected || seq !== recoverySeq) return;
+        announceRecovery("暫時讀不到最新設定", "分類與規則草稿仍在這個表單中。恢復連線後可重新核對；不需要重新整理整個頁面。");
+        add(recovery, btn("重新核對最新設定", () => recover(attemptedRevision)));
+        return;
+      }
+      if (!p.isConnected || seq !== recoverySeq) return;
+      const plan = classificationRecovery(workspaceBaseline, draft, latest, attemptedRevision);
+      if (plan.kind === "used") {
+        announceRecovery("分類仍被活動使用", "這次不是設定版本衝突。移除的分類仍被已儲存活動使用；請取消移除或先重新分類。其他草稿修改已保留。");
+        if (latest.categories.some((c) => !draft.categories.some((d) => d.id === c.id)))
+          add(recovery, btn("還原移除的分類，保留其他草稿", () => {
+            const removed = latest.categories.filter((c) => !draft.categories.some((d) => d.id === c.id));
+            if (draft.categories.length + removed.length > 40) throw Error("還原後會超過 40 個分類；請先移除未使用的新分類，再試一次。");
+            removed.forEach((c) => { const restored = structuredClone(c); draft.categories.push(restored); renderCategory(restored); });
+            renderRules();
+            recovery.hidden = true;
+            notice("已還原移除的分類；其他草稿保留。請檢查規則後再儲存。", false, p);
+            categoryList.lastElementChild?.querySelector("input")?.focus();
+          }));
+      } else if (plan.kind === "other") {
+        announceRecovery("其他設定已更新，分類草稿仍在", `最新專注目標 ${latest.focus_minutes} 分鐘、分心預算 ${latest.distraction_minutes} 分鐘。遠端分類與規則未變；可保留這些最新設定，再儲存你的分類草稿。`);
+        add(recovery, btn("保留最新目標，重試儲存分類", () => saveCategories(classificationRecovery(workspaceBaseline, draft, latest, attemptedRevision).candidate), "primary"));
+      } else {
+        announceRecovery("遠端分類與規則也已變更", "你的草稿尚未覆蓋遠端版本。請先比較，再決定保留草稿繼續編輯，或明確取代剛讀取的遠端分類與規則。目標及其他設定會保留最新值。");
+        const compare = el("details", null, "topic");
+        add(compare, el("summary", "查看剛讀取的遠端分類與規則"),
+          listOf(false, latest.categories.map((c) => `${c.name} · ${c.role} · ${c.color}`)),
+          listOf(false, (latest.rules || []).map((r) => `${r.enabled ? "啟用" : "停用"} · ${r.app || "所有 app"} · ${r.title_contains || "所有標題"} → ${latest.categories.find((c) => c.id === r.category)?.name || r.category}`)));
+        add(recovery, compare, btn("確認以我的草稿取代遠端分類", async () => {
+          if (!(await ask("取代剛讀取的遠端分類與規則？", [
+            "會用這個表單中的全部分類與規則取代遠端版本；其他裝置的分類修改可能被取代。",
+            `保留剛讀取的專注目標 ${latest.focus_minutes} 分鐘、分心預算 ${latest.distraction_minutes} 分鐘及其他設定。不會刪除活動；使用中的分類仍不能移除。`,
+            "如果遠端又有變更，會重新核對，不會自動改向更新的版本儲存。",
+          ], "取代分類與規則", true))) return;
+          if (p.isConnected) await saveCategories(classificationRecovery(workspaceBaseline, draft, latest, attemptedRevision).candidate);
+        }, "danger"));
+      }
+      add(recovery, btn("繼續編輯草稿", () => {
+        recoverySeq++;
+        recovery.hidden = true;
+        p.querySelector("input")?.focus();
+      }), btn("重新核對最新設定", () => recover(attemptedRevision)));
+    }
+    async function saveCategories(candidate = draft) {
+      if (saving) return;
+      saving = true;
+      recoverySeq++;
+      const payload = structuredClone(candidate);
+      const controls = [...p.querySelectorAll("input,select,button")].map((n) => [n, n.disabled]);
+      controls.forEach(([n]) => { n.disabled = true; });
+      try {
+        const saved = await api("/v1/workspace", payload, "PUT");
+        prefs = saved;
+        if (!p.isConnected) return;
+        close();
+        await shell();
+      } catch (error) {
+        if (!p.isConnected) return;
+        if (error.status !== 409) throw error;
+        await recover(payload.revision);
+      } finally {
+        saving = false;
+        controls.forEach(([n, disabled]) => { if (n.isConnected) n.disabled = disabled; });
+      }
+    }
     add(
       p,
       add(
@@ -3737,11 +3837,7 @@ function categoriesDialog() {
         btn("取消", () => close()),
         btn(
           "儲存分類",
-          async () => {
-            prefs = await api("/v1/workspace", draft, "PUT");
-            close();
-            await shell();
-          },
+          () => saveCategories(),
           "primary",
         ),
       ),

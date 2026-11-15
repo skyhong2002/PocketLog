@@ -1097,3 +1097,26 @@ physical-device/TalkBack/battery validation remains separate.
 
 - [Goals retained after category save](screenshots/native-goals-after-classification.png)
 - [2× text goals and category](screenshots/native-goals-after-classification-large.png)
+
+## Web classification draft recovery (#50)
+
+Built embedded web assets, synthetic loopback fixture, 1280×800 and390×844.
+Old image reproduced repeated409 plus refresh advice. New dialog retains category
+and rule drafts, distinguishes goals-only versus classification changes, and
+requires explicit retry/replacement. Actual second-client goal update, draft edit
+after metadata read, classification/rule update, replacement cancel and confirm,
+and another remote update during confirmation all pass API readback. No automatic
+write follows a conflict. Used-category409 was exercised with a newly uploaded
+synthetic activity: restoring the removed category retains other edits and saves.
+Simulated fetch rejection on metadata refresh preserves the form and retry works.
+Held refresh and held successful-save responses cannot alter/dismiss a newer modal.
+Focused recovery heading and all actions fit at390px; screenshot inspected below.
+The final embedded image passed retry/readback and Docker private smoke. Node
+policy tests run in existing web CI. Same-wave required Rust58/fmt/clippy/audit and
+Android44unit/build/lint/full HTTPS/offline regression passed; native unchanged.
+Official Dayflow category/goal separation at2c79e161 plus supplied private screenshot
+informs this editor; conflict recovery is PocketLog-specific. CSSzoom200% exposed
+pre-existing category-row/modal overflow, tracked separately in #51; do not treat
+this as a pass for browser zoom, screen readers, or full Dayflow parity.
+
+- [390px classification recovery](screenshots/web-classification-conflict-mobile.png)

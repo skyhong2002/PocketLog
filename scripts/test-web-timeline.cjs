@@ -128,3 +128,29 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
   } finally { global.fetch = savedFetch; clearTimeout(watchdog); }
   console.log('Independent day/week snapshots survive both response orders and stale renders');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+// An explicit classification retry must retain current unrelated preferences.
+{
+  const { classificationRecovery } = require('../server/web/app.js');
+  const base = {revision: 10, focus_minutes: 270, distraction_minutes: 60, onboarding_version: 1,
+    categories: [{id:'work',name:'Work',color:'#123456',role:'focus'}],
+    rules: [{id:'rule-a',app:null,title_contains:'code',category:'work',enabled:true}]};
+  const draft=structuredClone(base);draft.categories[0].name='Local';draft.rules[0].title_contains='edited';
+  const remote=structuredClone(base);remote.revision=11;remote.focus_minutes=333;remote.distraction_minutes=77;
+  const original=JSON.stringify([base,draft,remote]);
+  const result=classificationRecovery(base,draft,remote);
+  assert.equal(result.kind,'other');assert.equal(result.candidate.revision,11);
+  assert.equal(result.candidate.focus_minutes,333);assert.equal(result.candidate.distraction_minutes,77);
+  assert.equal(result.candidate.onboarding_version,1);assert.deepEqual(result.candidate.categories,draft.categories);assert.deepEqual(result.candidate.rules,draft.rules);
+  assert.equal(JSON.stringify([base,draft,remote]),original,'recovery must not mutate original/server/draft snapshots');
+  result.candidate.categories[0].name='Isolated';assert.equal(draft.categories[0].name,'Local');
+  const changed=structuredClone(remote);changed.categories[0].color='#abcdef';
+  assert.equal(classificationRecovery(base,draft,changed).kind,'classification','remote classification changes require a separate explicit choice');
+  const ruleChange=structuredClone(remote);ruleChange.rules[0].enabled=false;
+  assert.equal(classificationRecovery(base,draft,ruleChange).kind,'classification');
+  assert.equal(classificationRecovery(base,draft,base).kind,'used','same-revision409 is distinct from optimistic conflict');
+  assert.equal(classificationRecovery(base,draft,remote,11).kind,'used','a rebased write may separately hit used-category protection');
+  const reordered=structuredClone(remote);reordered.categories=[{role:'focus',color:'#123456',name:'Work',id:'work'}];
+  assert.equal(classificationRecovery(base,draft,reordered).kind,'other','object key order must not create a false classification conflict');
+  console.log('Classification conflict recovery preserves drafts, remote goals, revision and independent snapshots');
+}
