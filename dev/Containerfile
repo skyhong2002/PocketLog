@@ -1,0 +1,4 @@
+FROM docker.io/library/rust:1-bookworm@sha256:ade39a710ef85f3506cffcfec3e8a24ba090badef1dff2fb798f71d878833fea
+ENV CARGO_BUILD_JOBS=2
+RUN rustup component add rustfmt clippy
+RUN cargo install cargo-audit --locked --version 0.23.0 --jobs 2

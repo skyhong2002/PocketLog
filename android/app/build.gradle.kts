@@ -18,7 +18,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }
+    buildTypes {
+        release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) }
+        // A new workstation's debug key must never replace the owner's installation.
+        create("sandbox") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".sandbox"
+            versionNameSuffix = "-sandbox"
+            resValue("string", "app_name", "PocketLog Dev")
+            matchingFallbacks += "debug"
+        }
+    }
 }
 dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
