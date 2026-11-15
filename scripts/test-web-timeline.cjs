@@ -97,7 +97,7 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
         const response = value => ({ ok: true, status: 200, json: async () => value });
         if (u.pathname === '/v1/reviews') {
           const scope = to - from > 86400000 ? 'week' : 'day';
-          const result = new Promise(resolve => { waiting[scope] = () => resolve(response({ records: [{ id: scope }] })); });
+          const result = new Promise(resolve => { waiting[scope] = () => resolve(response({ records: [{ id: scope }], truncated: scope === 'week' })); });
           if (waiting.day && waiting.week) arrived();
           return result;
         }
@@ -117,6 +117,8 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
       assert.equal(week.cards.length, 1, 'footer retains other-day activity');
       assert.deepEqual(day.reviews, [{ id: 'day' }]);
       assert.deepEqual(week.reviews, [{ id: 'week' }]);
+      assert.equal(day.reviewsTruncated, false);
+      assert.equal(week.reviewsTruncated, true);
       assert.equal(day.days.length, 1);
       const previousFetch = global.fetch;
       global.fetch = async path => {
@@ -196,3 +198,20 @@ assert.equal(duration(90000),'2 分鐘');
 assert.equal(duration(3600000),'1 小時');
 assert.equal(duration(3660000),'1 小時 1 分');
 console.log('Positive brief durations stay distinct from zero; minute/hour rounding retained');
+
+const { exportSnapshot } = require('../server/web/app.js');
+const exportDays = [{date:'2026-11-10',cards:[{id:'synthetic-card'}],truncated:false}];
+const exportReviews = [{id:'synthetic-review'}];
+const beforeExport = JSON.stringify([exportDays,exportReviews]);
+for (const [cardLimit,reviewLimit] of [[false,false],[true,false],[false,true],[true,true]]) {
+  const days = exportDays.map(d=>({...d,truncated:cardLimit}));
+  const snapshot = exportSnapshot(days,exportReviews,reviewLimit);
+  assert.equal(snapshot.version,1);
+  assert.equal(snapshot.truncated,cardLimit||reviewLimit);
+  assert.equal(snapshot.reviews_truncated,reviewLimit);
+  assert.deepEqual(snapshot.days,days);
+  assert.deepEqual(snapshot.reviews,exportReviews);
+}
+assert.equal(JSON.stringify([exportDays,exportReviews]),beforeExport);
+assert.equal(exportSnapshot(exportDays,exportReviews).reviews_truncated,false);
+console.log('Journal exports retain activity/review completeness without changing data');

@@ -1713,3 +1713,50 @@ physical gestures, TalkBack/VoiceOver, Firefox/Safari, browser-native zoom or al
 Dayflow features have passed. #9/#11 retain broader native/accessibility and
 iterative acceptance work. The owner's manual mood-entry removal remains in force;
 old check-in references earlier in this chronological document are historical.
+
+## Review API and export completeness (#71)
+
+On the old rebuilt UI, a controlled `reviews` response with truncated=true caused
+no page/confirmation warning and produced a Blob containing only version/days/
+reviews, losing the review completeness flag. loadDays now retains that flag
+independently for each range. Timeline, Daily/Weekly and legacy Flow/Agents lists
+explain that only loaded records are shown; empty subsets no longer claim there
+are no earlier Flow/agent records. Manual mood entry remains removed.
+
+The existing version1 export keeps days/reviews and adds explicit truncated and
+reviews_truncated booleans, preserving days[].truncated. Confirmation warns when
+either bound is reached. API.md explains scope and that no reported limit does
+not guarantee unsynced/out-of-range data is included. No server quota, retention,
+read result, consent, underlying record or raw-context export behavior changed.
+
+Final actual rebuilt-image checks passed at1280/390 using the opt-in loopback-only
+scripts/check-web-export-completeness.js: complete, activity-only, review-only and
+both flags; page/confirmation messages; captured actual Blob contents and old
+shape; individual day markers; Daily/Weekly/Flow/Agents propagation; recovery to
+complete; cancel and no overflow. Read flags are controlled and the download click
+is intercepted before writing a file; this is not native browser download-manager
+verification. It performs no service writes/provider calls/clipboard changes and
+restores hooks. Node regressions also assert independent day/week flags and
+export-data immutability. Web regressions/final Docker smoke passed. Unchanged
+Rust/native code retains preceding same-wave required checks. Both synthetic
+captures were inspected; fixture hooks/session were cleaned up.
+
+- [Loaded-subset explanation](screenshots/web-review-limit-warning.png)
+- [Incomplete export confirmation on phone](screenshots/web-export-incomplete-phone.png)
+
+## Additional native first-run OS accessibility evidence (#9, still open)
+
+Sol6.1 inspected actual Android34 uiautomator OS trees for0.4.27-dev at font1/2,
+with no credentials, journals or collection/model consent. The key exposes
+password=true; URL/key are named focusable EditTexts; connect/help are named
+focusable/clickable Buttons; ScrollView exposes scrollable=true. Actual adb
+input tap/swipe expanded help and reached its full explanation; empty submit
+showed persistent URL validation in the OS tree without networking. SECURE window
+flag remained set. Root inspected the report and password-node evidence.
+
+No new blocker was established. This was OS tree and adb touch/swipe verification,
+not accessibility performAction, TalkBack speech/gestures, compositor capture or
+full navigation/list/Settings acceptance. The existing synthetic runner exits its
+fixture Activity after rendering; those OS-level checks require a future held
+UiAutomation checkpoint. Font1 and app-clear cleanup completed; keyboard/network
+policy stayed unchanged. #9 remains open for broader accessibility acceptance.

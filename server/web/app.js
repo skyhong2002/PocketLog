@@ -505,7 +505,7 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
   };
 }
 if (typeof module !== "undefined")
-  module.exports = { timelineGroups, sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery };
+  module.exports = { timelineGroups, sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot };
 
 /* Only classification fields belong to this editor; unrelated settings stay current. */
 function classificationRecovery(base, draft, latest, attemptedRevision = draft.revision) {
@@ -1352,11 +1352,18 @@ async function loadDays(dates, seq) {
   const [from] = windowFor(dates[0]);
   const last = dates.filter((d) => d <= today).at(-1) || dates[0];
   const [, to] = windowFor(last);
-  const reviews = (await api(`/v1/reviews?from_ms=${from}&to_ms=${to}`)).records;
+  const reviewResponse = await api(`/v1/reviews?from_ms=${from}&to_ms=${to}`);
+  const reviews = reviewResponse.records;
   live(seq);
-  return { days, cards: days.flatMap((d) => d.cards), reviews };
+  return { days, cards: days.flatMap((d) => d.cards), reviews, reviewsTruncated: reviewResponse.truncated === true };
 }
-function truncatedNote(parent, days) {
+function reviewLimitNote(parent, truncated) {
+  if (truncated) add(parent, el("p",
+    "回顧紀錄已達單次讀取上限；只顯示已載入的紀錄，並不代表這段時間的全部。週間可切到單日縮小範圍；若單日仍達上限，請使用私人 API 分段讀取。",
+    "callout warn"));
+}
+function truncatedNote(parent, days, reviewsTruncated = false) {
+  reviewLimitNote(parent, reviewsTruncated);
   if (days.some((d) => d.truncated))
     add(
       parent,
@@ -1383,7 +1390,7 @@ async function timelinePage(parent, seq) {
     mode === "week" ? null : loadDays(week, seq).catch((e) => { if (e === STALE) throw e; return null; }),
   ]);
   live(seq);
-  const { days, cards, reviews } = range;
+  const { days, cards, reviews, reviewsTruncated } = range;
   if (setup && !setupComplete(setup)) add(parent, checklist(setup, false));
   const tools = el("div", null, "toolbar");
   add(
@@ -1457,7 +1464,7 @@ async function timelinePage(parent, seq) {
   prefs.categories.forEach((c) => add(chips, chip(c.name, c.id, c.color)));
   add(chips, keyed(btn("編輯分類", categoriesDialog, "chip ghost"), "chip-edit"));
   add(parent, chips);
-  truncatedNote(parent, days);
+  truncatedNote(parent, days, reviewsTruncated);
   const grid = el("div", null, "dashboard"),
     left = el("section", null, "timeline-panel"),
     aside = el("aside");
@@ -1586,7 +1593,7 @@ async function timelinePage(parent, seq) {
   add(
     foot,
     btn("複製時間軸", () => copyTimeline(cards)),
-    btn("匯出 JSON", () => exportData(days, reviews)),
+    btn("匯出 JSON", () => exportData(days, reviews, reviewsTruncated)),
     btn("回放縮圖", replayDialog),
   );
   const totalDays = mode === "week" ? days : weekTotals?.days;
@@ -1987,14 +1994,14 @@ function categoryBars(parent, m) {
     add(parent, el("p", "這個範圍沒有活動資料；空白不會被推測或填補。", "muted"));
 }
 async function reviewPage(parent, seq, kind) {
-  const { days, cards, reviews } = await loadDays(kind === "weekly" ? visibleDates() : [day], seq);
+  const { days, cards, reviews, reviewsTruncated } = await loadDays(kind === "weekly" ? visibleDates() : [day], seq);
   const [briefFrom] = windowFor(days[0].date);
   const [, briefTo] = windowFor(
     days.filter((d) => d.date <= journalDate()).at(-1)?.date || days[0].date,
   );
   const saved = await soft(`/v1/briefs?from_ms=${briefFrom}&to_ms=${briefTo}`);
   live(seq);
-  truncatedNote(parent, days);
+  truncatedNote(parent, days, reviewsTruncated);
   const m = metrics(cards);
   add(
     parent,
@@ -2164,9 +2171,9 @@ async function reviewPage(parent, seq, kind) {
     );
     add(parent, write);
   }
-  briefs(parent, days, kind, saved, briefFrom, briefTo, reviews);
+  briefs(parent, days, kind, saved, briefFrom, briefTo, reviews, reviewsTruncated);
 }
-function briefs(parent, days, kind, saved, from, to, reviews) {
+function briefs(parent, days, kind, saved, from, to, reviews, reviewsTruncated) {
   const box = panel(kind === "weekly" ? "AI 每週回顧（選用）" : "AI 每日回顧（選用）");
   const name = kind === "weekly" ? "每週" : "每日";
   if (!ai.enabled)
@@ -2264,7 +2271,7 @@ function briefs(parent, days, kind, saved, from, to, reviews) {
   add(parent, box);
   add(
     parent,
-    row(btn("匯出這個範圍的 JSON", () => exportData(days, reviews))),
+    row(btn("匯出這個範圍的 JSON", () => exportData(days, reviews, reviewsTruncated))),
   );
 }
 async function briefScheduleDialog() {
@@ -2965,9 +2972,10 @@ async function flowPage(parent, seq) {
   add(parent, done);
   if (!records)
     return add(done, el("p", "暫時讀不到今天的專注紀錄；請重新整理。", "callout warn"));
+  reviewLimitNote(done, records.truncated);
   const finished = records.records.filter((r) => r.kind === "flow");
   if (!finished.length)
-    add(done, el("p", "今天還沒有完成的專注紀錄。", "muted"));
+    add(done, el("p", records.truncated ? "已載入的紀錄中沒有完成的專注；較早紀錄可能未載入。" : "今天還沒有完成的專注紀錄。", "muted"));
   finished.forEach((r) =>
     add(
       done,
@@ -3221,10 +3229,11 @@ async function agentsPage(parent, seq) {
   }
   const notes = panel(`工作摘要 · ${dayTitle(day)}`);
   add(parent, notes);
+  reviewLimitNote(notes, records?.truncated);
   const written = records ? records.records.filter((r) => r.kind === "agent") : [];
   if (!records) add(notes, el("p", "暫時讀不到這天的摘要；請重新整理。", "callout warn"));
   else if (!written.length)
-    add(notes, el("p", "這一天沒有工作摘要。", "muted"));
+    add(notes, el("p", records.truncated ? "已載入的紀錄中沒有工作摘要；較早摘要可能未載入。" : "這一天沒有工作摘要。", "muted"));
   written.forEach((r) =>
     add(
       notes,
@@ -4296,17 +4305,26 @@ async function copyTimeline(cards) {
   await navigator.clipboard.writeText(text);
   notice("已複製私人時間軸；貼上後請留意剪貼簿內容");
 }
-async function exportData(days, reviews) {
+function exportSnapshot(days, reviews, reviewsTruncated = false) {
+  return { version: 1, days, reviews,
+    truncated: reviewsTruncated || days.some(d => d.truncated),
+    reviews_truncated: reviewsTruncated };
+}
+async function exportData(days, reviews, reviewsTruncated = false) {
+  const snapshot = exportSnapshot(days, reviews, reviewsTruncated);
   if (
     !(await ask(
       "匯出這個範圍的私人日誌？",
-      `會下載一個 JSON 檔，內含 ${days.length} 天的活動、感受、反思與回顧紀錄。檔案離開 PocketLog 後不受保留與刪除機制保護，請存放在信任的位置。`,
+      [
+        `會下載一個 JSON 檔，內含 ${days.length} 天已載入的活動、感受、反思與回顧紀錄。檔案離開 PocketLog 後不受保留與刪除機制保護，請存放在信任的位置。`,
+        ...(snapshot.truncated ? ["這份匯出不完整：活動或回顧紀錄已達讀取上限，只包含畫面已載入的資料。請勿把它當作完整備份；可縮小範圍或使用私人 API 分段讀取。"] : []),
+      ],
       "下載 JSON",
     ))
   )
     return;
   const blob = new Blob(
-    [JSON.stringify({ version: 1, days, reviews }, null, 2)],
+    [JSON.stringify(snapshot, null, 2)],
     { type: "application/json" },
   );
   const url = URL.createObjectURL(blob);

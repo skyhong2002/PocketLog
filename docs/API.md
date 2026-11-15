@@ -240,3 +240,15 @@ retention cleanup, saved preferences or journal mutations. Existing authenticati
 metadata for journal keys remains unchanged. Draft validation is shared with Save;
 save-only revision/category-in-use conflicts are checked only when saving. A
 successful preview does not reserve a revision or guarantee a subsequent Save.
+
+## Browser JSON export completeness
+
+The website exports the data it has loaded, not a full database backup. Version1
+keeps `days` and `reviews` and adds `truncated` (any activity/review limit reached)
+and `reviews_truncated` (the reviews response was incomplete). Individual
+`days[].truncated` markers are retained. Both markers are explicit booleans; a
+false marker means no server read-limit was reported, not a guarantee against
+unavailable devices, unsynced data or records outside the selected range. When
+true, narrow the range or read smaller authenticated API windows; do not treat
+the file as a complete backup. This includes retained legacy review data and
+does not reintroduce manual mood entry. Raw observations/images are excluded.
