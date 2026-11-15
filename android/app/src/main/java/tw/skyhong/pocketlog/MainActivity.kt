@@ -400,8 +400,9 @@ class MainActivity : Activity() {
     private fun label(id: String): String = style(id)?.optString("name")?.takeIf { it.isNotBlank() } ?: categoryLabels.getOrElse(baseCategories.indexOf(id)) { id }
     private fun colorFor(id: String): Int = style(id)?.let { Palette.parse(it.optString("color")) } ?: Palette.parse(defaultColors.getOrNull(baseCategories.indexOf(id)))
     private fun sourceLabel(source: String) = when (source) { "user" -> "你的修改"; "ai" -> "AI 摘要，請核對"; "local_excerpt" -> "可見文字摘錄"; else -> "僅 app 使用紀錄" }
+    private fun cardSource(card: JSONObject) = if (card.optBoolean("pending_edit")) "手機修改，待同步" else sourceLabel(card.optString("source"))
     private fun cardsOf(data: JSONObject?): List<JSONObject> = data?.optJSONArray("cards")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
-    private fun item(c: JSONObject) = TimelineItem(c.getLong("start_ms"), c.getLong("end_ms"), c.optString("title"), label(c.getString("category")) + if (c.optBoolean("pending_context")) " · 有待處理內容" else "", colorFor(c.getString("category")))
+    private fun item(c: JSONObject) = TimelineItem(c.getLong("start_ms"), c.getLong("end_ms"), c.optString("title"), label(c.getString("category")) + (if (c.optBoolean("pending_edit")) " · 修改待同步" else "") + (if (c.optBoolean("pending_context")) " · 有待處理內容" else ""), colorFor(c.getString("category")))
     private fun intervals(list: List<JSONObject>) = list.map { TimelineMath.Interval(it.getLong("start_ms"), it.getLong("end_ms")) }
     private fun totals(list: List<JSONObject>): List<Pair<String, Long>> =
         list.groupBy { it.getString("category") }.map { (id, rows) -> id to rows.sumOf { it.getLong("end_ms") - it.getLong("start_ms") } }.sortedByDescending { it.second }
@@ -643,8 +644,9 @@ class MainActivity : Activity() {
 
     private fun renderTimeline(slot: LinearLayout, data: JSONObject) {
         loaded = data
-        if (data.optBoolean("offline")) ui.banner(slot, "離線：顯示加密快取，可能未包含最新修改。", Kind.WARN)
+        if (data.optBoolean("offline")) ui.banner(slot, "離線：顯示加密快取；伺服器可能已有更新。", Kind.WARN)
         if (data.optBoolean("truncated")) ui.banner(slot, "這天資料已達顯示上限，統計可能不完整。", Kind.WARN)
+        if (data.optBoolean("pending_card_edits")) ui.banner(slot, "活動卡先顯示手機上的修改，仍待伺服器同步確認。", Kind.INFO)
         if (data.optBoolean("pending_reflections")) ui.banner(slot, "反思有加密保存的變更等待同步；這裡先顯示手機上的版本。", Kind.INFO)
         val list = cardsOf(data)
         val card = ui.card(slot)
@@ -730,7 +732,8 @@ class MainActivity : Activity() {
             row.addView(View(this@MainActivity).apply { background = ui.shape(item.color, 2f) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginEnd = ui.dp(12) })
             val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f) }
             val range = "${clock(item.start)}–${clock(item.end)}"
-            val meta = "$range · ${TimelineMath.duration(item.end - item.start)} · ${item.label} · ${sourceLabel(c.optString("source"))}"
+            val detail = label(c.getString("category")) + if (c.optBoolean("pending_context")) " · 有待處理內容" else ""
+            val meta = "$range · ${TimelineMath.duration(item.end - item.start)} · $detail · ${cardSource(c)}"
             ui.text(column, item.title, 16f, bold = true)
             ui.meta(column, meta, top = 2)
             val summary = c.optString("summary")
@@ -846,7 +849,7 @@ class MainActivity : Activity() {
 
     private fun editCard(card: JSONObject) {
         val content = ui.column(null, 20)
-        ui.meta(content, "${clock(card.getLong("start_ms"))}–${clock(card.getLong("end_ms"))} · ${TimelineMath.duration(card.getLong("end_ms") - card.getLong("start_ms"))} · ${sourceLabel(card.optString("source"))}")
+        ui.meta(content, "${clock(card.getLong("start_ms"))}–${clock(card.getLong("end_ms"))} · ${TimelineMath.duration(card.getLong("end_ms") - card.getLong("start_ms"))} · ${cardSource(card)}")
         if (card.optBoolean("pending_context")) ui.banner(content, "伺服器仍有內容等待處理。通常在活動結束至少 12 分鐘後處理，工作程序暫停或重試時可能更久；這不代表 AI 正在生成。請稍後重新整理。", Kind.INFO)
         val title = ui.field(content, "標題", "", Field.TEXT, card.optString("title"))
         val summary = ui.field(content, "摘要", "", Field.MULTILINE, card.optString("summary")).apply { maxLines = 6 }
@@ -921,6 +924,7 @@ class MainActivity : Activity() {
         }) { (data, reviews) ->
             if (data.optBoolean("offline")) ui.banner(slot, "離線：顯示加密快取。", Kind.WARN)
             if (data.optBoolean("truncated")) ui.banner(slot, "資料達顯示上限，統計可能不完整。", Kind.WARN)
+            if (data.optBoolean("pending_card_edits")) ui.banner(slot, "活動卡先顯示手機上的修改，仍待伺服器同步確認。", Kind.INFO)
             if (data.optBoolean("pending_reflections")) ui.banner(slot, "反思的手機版本等待同步。", Kind.INFO)
             val list = cardsOf(data)
             goals(ui.card(slot), list)
@@ -977,6 +981,7 @@ class MainActivity : Activity() {
             }
         }) { days ->
             val week = days.map { (d, data) -> WeekDay(d, data != null, data?.optBoolean("offline") == true, cardsOf(data).map(::item)) }
+            if (days.any { it.second?.optBoolean("pending_card_edits") == true }) ui.banner(slot, "活動卡先顯示手機上的修改，仍待伺服器同步確認。", Kind.INFO)
             if (week.any { it.offline }) ui.banner(slot, "部分日期為離線快取。", Kind.WARN)
             val all = days.flatMap { cardsOf(it.second) }
             val tiles = ui.horizontal(slot, 8).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(12) }

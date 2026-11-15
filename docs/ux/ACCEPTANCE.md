@@ -916,3 +916,44 @@ accessibility work, not a claim about matching macOS focus behavior.
 
 - [Provider test focus after Escape](screenshots/web-focus-provider-cancel.png)
 - [Phone category-save focus above bottom navigation](screenshots/web-focus-phone-category-save.png)
+
+
+## Pending activity corrections remain visible (#45)
+
+Native timeline reads now overlay pending encrypted card edits on a copy of the
+returned cards. Existing IDs only: no missing/deleted/truncated activity is
+invented, and intervals/order/count/pending-context remain unchanged. A single
+bounded4096-entry read supplies card/reflection overlays with existing destination,
+expiry and quarantine filtering; filename order matches the uploader. Strict
+edit fields, title/summary Unicode bounds, category syntax and NUL checks apply.
+Custom membership can have changed remotely, so every overlaid card explicitly
+remains pending. Source is user, with a separate pending marker and page banner;
+Timeline/List/Daily/Week totals use the local category. Encrypted server snapshots
+remain untouched. Server overview/AI evidence still uses uploaded values, and an
+offline snapshot cannot prove a later remote deletion.
+
+Four focused tests bring Android to41: immutable snapshots/intervals, no card
+resurrection or overview overlay, latest-valid filename order/emoji bounds, and
+full retained queue destination/rejection/expiry/acknowledgement isolation beyond
+the256-item upload read. Astra's bounded read-only contract review informed these
+constraints. Dayflow's supplied timeline/category reference and DayCategorySelectionEditor
+at2c79e161 inform correction-in-context; this is an Android sync behavior improvement.
+
+Actual secure emulator tests at normal/2× font disable airplane/Wi-Fi connectivity,
+use the real editor to save a new title/Rest category, and verify immediate offline
+Timeline/List/Daily data plus intact original snapshot. Restoring an unmetered
+network and syncing preserves the correction on the server, removes pending flags
+and removes the banner on refresh. Capture consent remains off. An initial harness
+checked acknowledgement before unmetered connectivity was ready; its wait was
+fixed. Initial screenshot selection matched an earlier same-title fixture card;
+unique titles and a whole-row pending-provenance/visible-bounds assertion now
+prevent that evidence mistake. Final screenshots were inspected.
+
+Android41unit/assembleDebug/assembleDebugAndroidTest/lintDebug, full connected
+HTTPS/eight-page/offline reflection-cache regression, and the prior activity-editor
+validation/failure/Unicode encryption regression pass. Rust58/fmt/clippy/audit,
+web regressions and Docker checks from this wave remain valid; server code/image
+is unchanged by this native fix. Physical-device/TalkBack/battery not claimed.
+
+- [Local correction awaiting upload](screenshots/native-pending-card-list.png)
+- [2× text pending provenance and complete card](screenshots/native-pending-card-list-large.png)

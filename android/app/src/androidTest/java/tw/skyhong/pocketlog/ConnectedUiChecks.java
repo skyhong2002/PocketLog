@@ -25,6 +25,7 @@ final class ConnectedUiChecks {
     private final Bundle args;
     private Activity activity;
     private String stage = "fixture setup";
+    private String pendingCardTitle;
     ConnectedUiChecks(Instrumentation test, Bundle args) { this.test = test; this.args = args; }
     void run() throws Exception {
         if (!java.util.Set.of("ranchu","goldfish").contains(android.os.Build.HARDWARE))
@@ -63,6 +64,7 @@ final class ConnectedUiChecks {
             if ("yes".equals(args.getString("probeOnly"))) { providerProbeCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("previewOnly"))) { rulePreviewCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("replayOnly"))) { replayUnavailableCheck(fixtureOwner); return; }
+            if ("yes".equals(args.getString("cardPendingOnly"))) { pendingCardCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
             for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
                 stage = "navigation " + page[0]; click(page[0]); await(page[1]); awaitSettled();
@@ -165,7 +167,7 @@ final class ConnectedUiChecks {
             assertConsentOff();
             if ("yes".equals(args.getString("offline"))) offlineCacheCheck();
         } catch (Exception error) {
-            throw new IllegalStateException("Connected synthetic check failed at " + stage, error);
+            throw new IllegalStateException("Connected synthetic check failed at " + stage + ": " + error.getClass().getSimpleName() + " " + error.getMessage(), error);
         } finally {
             if (activity != null) test.runOnMainSync(() -> activity.finish());
             synchronized (SyncEngine.INSTANCE.getLock()) {
@@ -411,6 +413,53 @@ final class ConnectedUiChecks {
              java.io.InputStream in=new android.os.ParcelFileDescriptor.AutoCloseInputStream(pipe)) {
             while(in.read()!=-1) { /* commands contain no private data */ }
         }
+    }
+    private void revealPendingCard() {
+        test.runOnMainSync(()->{for(View view:views())if(view instanceof TextView t&&t.getText().toString().equals(pendingCardTitle)){View row=(View)((View)view.getParent()).getParent();row.requestRectangleOnScreen(new android.graphics.Rect(0,0,row.getWidth(),row.getHeight()),true);return;}throw new IllegalStateException("Pending card absent");});
+        test.waitForIdleSync();
+        test.runOnMainSync(()->{for(View view:views())if(view instanceof TextView t&&t.getText().toString().equals(pendingCardTitle)){View row=(View)((View)view.getParent()).getParent();if(row.getContentDescription()==null||!row.getContentDescription().toString().contains("手機修改，待同步"))throw new IllegalStateException("Wrong pending card captured");android.graphics.Rect bounds=new android.graphics.Rect();if(!row.getGlobalVisibleRect(bounds)||bounds.height()<row.getHeight())throw new IllegalStateException("Pending card clipped");return;}});
+    }
+    private void pendingCardCheck(PocketLogApi owner) throws Exception {
+        stage="offline activity correction and acknowledgement";
+        android.content.Context context=test.getTargetContext();
+        Credentials credentials=new CredentialStore(context).load();
+        String id="pending-card-"+java.util.UUID.randomUUID();pendingCardTitle="合成：離線修正 "+id.substring(id.length()-5);long now=System.currentTimeMillis();
+        owner.request("/v1/activities",new JSONObject().put("activities",new org.json.JSONArray().put(new JSONObject().put("id",id).put("app","org.example.pendingcorrection").put("start_ms",now-120000).put("end_ms",now-60000).put("category","work"))),"POST");
+        java.time.LocalDate day=TimelineMath.INSTANCE.journalDay(java.time.ZonedDateTime.now());
+        String path="/v1/timeline?from_ms="+TimelineMath.INSTANCE.dayStart(day,java.time.ZoneId.systemDefault())+"&to_ms="+now;
+        JSONObject original=SyncEngine.INSTANCE.readTimeline(context,path);
+        JSONObject selected=null;for(int i=0;i<original.getJSONArray("cards").length();i++)if(original.getJSONArray("cards").getJSONObject(i).getString("id").equals(id))selected=original.getJSONArray("cards").getJSONObject(i);
+        if(selected==null)throw new IllegalStateException("Synthetic card not returned");
+        JSONObject card=selected;
+        androidx.work.WorkManager.getInstance(context).cancelAllWork().getResult().get();
+        try {
+            shell("cmd connectivity airplane-mode enable");shell("svc wifi disable");
+            android.net.ConnectivityManager manager=context.getSystemService(android.net.ConnectivityManager.class);
+            long until=System.currentTimeMillis()+10000;while(manager.getActiveNetwork()!=null&&System.currentTimeMillis()<until)Thread.sleep(100);
+            if(manager.getActiveNetwork()!=null)throw new IllegalStateException("Still online");
+            java.lang.reflect.Method edit=MainActivity.class.getDeclaredMethod("editCard",JSONObject.class);edit.setAccessible(true);
+            test.runOnMainSync(()->{try{edit.invoke(activity,card);List<View> all=new ArrayList<>();collect(probeDialog(),all);int field=0;for(View view:all){if(view instanceof EditText e)e.setText(field++==0?pendingCardTitle:"Synthetic offline activity correction");if(view instanceof android.widget.Spinner spinner)for(int j=0;j<spinner.getCount();j++)if(spinner.getItemAtPosition(j).toString().equals("休息"))spinner.setSelection(j);}}catch(Exception e){throw new RuntimeException(e);}});
+            probeDialogClick("儲存");await("活動卡先顯示手機上的修改");awaitSettled();
+            JSONObject offline=SyncEngine.INSTANCE.readTimeline(context,path);
+            JSONObject pending=null;for(int i=0;i<offline.getJSONArray("cards").length();i++)if(offline.getJSONArray("cards").getJSONObject(i).getString("id").equals(id))pending=offline.getJSONArray("cards").getJSONObject(i);
+            if(pending==null||!offline.optBoolean("offline")||!pending.optBoolean("pending_edit")||!pending.getString("title").equals(pendingCardTitle)||!pending.getString("category").equals("rest")||!pending.getString("source").equals("user"))throw new IllegalStateException("Local edit absent");
+            if(!card.getString("title").equals("org.example.pendingcorrection")||card.has("pending_edit"))throw new IllegalStateException("Server snapshot mutated");
+            revealAction("活動卡先顯示手機上的修改，仍待伺服器同步確認。");capture("card-pending-timeline");
+            click("清單");await(pendingCardTitle);revealPendingCard();capture("card-pending-list");
+            click("每日");await("時間分配");await("活動卡先顯示手機上的修改");awaitSettled();revealAction("活動卡先顯示手機上的修改，仍待伺服器同步確認。");capture("card-pending-daily");
+            assertConsentOff();
+        } finally {shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");}
+        android.net.ConnectivityManager manager=context.getSystemService(android.net.ConnectivityManager.class);
+        long until=System.currentTimeMillis()+15000;
+        boolean ready=false;
+        while(System.currentTimeMillis()<until){android.net.NetworkCapabilities caps=manager.getNetworkCapabilities(manager.getActiveNetwork());if(caps!=null&&caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)&&caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)){ready=true;break;}Thread.sleep(200);}
+        if(!ready)throw new IllegalStateException("Unmetered network not restored");
+        synchronized(SyncEngine.INSTANCE.getLock()){if(!SyncEngine.INSTANCE.sync(context))throw new IllegalStateException("Sync failed");}
+        JSONObject synced=SyncEngine.INSTANCE.readTimeline(context,path);
+        if(synced.optBoolean("pending_card_edits"))throw new IllegalStateException("Pending flag remained after acknowledgement");
+        boolean found=false;for(int i=0;i<synced.getJSONArray("cards").length();i++){JSONObject c=synced.getJSONArray("cards").getJSONObject(i);if(c.getString("id").equals(id)){found=true;if(!c.getString("title").equals(pendingCardTitle)||!c.getString("category").equals("rest")||!c.getString("source").equals("user")||c.optBoolean("pending_edit"))throw new IllegalStateException("Synced correction mismatch");}}
+        if(!found)throw new IllegalStateException("Synced card absent");
+        click("時間軸");await("活動");awaitSettled();if(has("活動卡先顯示手機上的修改"))throw new IllegalStateException("Pending banner remained after sync");assertConsentOff();capture("card-synced");
     }
     private void offlineCacheCheck() throws Exception {
         stage="advancing current-day offline cache and queued reflection";

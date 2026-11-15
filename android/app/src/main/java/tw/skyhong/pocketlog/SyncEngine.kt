@@ -117,7 +117,8 @@ object SyncEngine {
                 cached.getJSONObject("data").put("offline", true)
             } finally { bytes.fill(0) }
         }
-        PendingReflections.overlay(base, path, JournalQueue(context).pendingReflections(credentials))
+        val pending = JournalQueue(context).pendingJournalEdits(credentials)
+        PendingCardEdits.overlay(PendingReflections.overlay(base, path, pending), path, pending)
     }
 }
 class JournalWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
