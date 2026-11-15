@@ -487,7 +487,7 @@ final class ConnectedUiChecks {
         test.runOnMainSync(()->{try{android.widget.LinearLayout target=(android.widget.LinearLayout)page.get(activity);target.removeAllViews();render.invoke(activity,target,oldServer,(kotlin.jvm.functions.Function0<kotlin.Unit>)()->kotlin.Unit.INSTANCE);}catch(Exception e){throw new RuntimeException(e);}});
         click("測試已儲存模型");await("請先更新伺服器，才能確認測試目的地");if(!probeDialogText().isEmpty())throw new IllegalStateException("Old-server probe consent opened");assertConsentOff();
     }
-    private View probeDialog(){for(View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(root!=activity.getWindow().getDecorView()&&root.isShown())return root;throw new IllegalStateException("Probe dialog absent");}
+    private View probeDialog(){View top=null;for(View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(root!=activity.getWindow().getDecorView()&&root.isShown())top=root;if(top!=null)return top;throw new IllegalStateException("Probe dialog absent");}
     private String probeDialogText(){StringBuilder out=new StringBuilder();test.runOnMainSync(()->{List<View> all=new ArrayList<>();try{collect(probeDialog(),all);}catch(IllegalStateException absent){return;}for(View v:all)if(v instanceof TextView t)out.append(t.getText()).append('\n');});return out.toString();}
     private void awaitProbeDialog(String label)throws Exception {long end=System.currentTimeMillis()+10000;while(System.currentTimeMillis()<end){try{if(probeDialogText().contains(label)){Thread.sleep(200);return;}}catch(RuntimeException ignored){}Thread.sleep(100);}throw new IllegalStateException("Probe dialog missing: "+label);}
     private void probeDialogClick(String label){test.runOnMainSync(()->{List<View> all=new ArrayList<>();collect(probeDialog(),all);for(View v:all)if(v instanceof TextView t&&label.equals(t.getText().toString())&&v.isClickable()){v.performClick();return;}throw new IllegalStateException("Probe action absent");});}
@@ -521,8 +521,20 @@ final class ConnectedUiChecks {
             if((preview.getWindow().getAttributes().flags&WindowManager.LayoutParams.FLAG_SECURE)==0)throw new IllegalStateException("Insecure replay dialog");
             List<View> tree=new ArrayList<>();collect(preview.getWindow().getDecorView(),tree);
             for(View v:tree)if(v instanceof android.widget.ImageView && ((android.widget.ImageView)v).getDrawable() instanceof android.graphics.drawable.BitmapDrawable)shown[0]=((android.graphics.drawable.BitmapDrawable)((android.widget.ImageView)v).getDrawable()).getBitmap();
+            preview.getButton(android.app.AlertDialog.BUTTON_POSITIVE).requestFocusFromTouch();
             preview.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
         });
+        awaitProbeDialog("永久刪除這張回放縮圖？");
+        if(!preview.isShowing()||shown[0]==null||shown[0].isRecycled())throw new IllegalStateException("Confirmation released the preview before consent");
+        if(!probeDialogText().contains("org.example.replayproof")||!probeDialogText().contains("活動紀錄"))throw new IllegalStateException("Deletion scope or identity absent");
+        captureProbeDialog("replay-delete-confirm");
+        if(owner.request(path,null,"GET").getJSONArray("images").length()!=1)throw new IllegalStateException("Opening confirmation deleted image");
+        probeDialogClick("取消");test.waitForIdleSync();
+        if(!preview.isShowing()||shown[0].isRecycled())throw new IllegalStateException("Cancel lost preview");
+        test.runOnMainSync(()->{if(!preview.getButton(android.app.AlertDialog.BUTTON_POSITIVE).hasFocus())throw new IllegalStateException("Cancel did not return focus");});
+        if(owner.request(path,null,"GET").getJSONArray("images").length()!=1)throw new IllegalStateException("Cancel deleted image");
+        test.runOnMainSync(()->preview.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick());
+        awaitProbeDialog("永久刪除這張回放縮圖？");probeDialogClick("刪除縮圖");
         await("沒有可回放的縮圖");awaitSettled();
         if(shown[0]==null || !shown[0].isRecycled() || owned.get(activity)!=null)throw new IllegalStateException("Delete did not release displayed media");
         if(owner.request(path,null,"GET").getJSONArray("images").length()!=0)throw new IllegalStateException("Surviving image not deleted");

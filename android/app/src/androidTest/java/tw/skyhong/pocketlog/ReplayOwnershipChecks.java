@@ -43,12 +43,18 @@ final class ReplayOwnershipChecks {
             if(!first.isRecycled() || preview()!=null) throw new IllegalStateException("Dismiss did not release bitmap/dialog");
             Bitmap second=syntheticBitmap(); show(second); settle();
             AlertDialog oldDialog=preview();
+            test.runOnMainSync(()->oldDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick());settle();
+            final View[] confirm={null};test.runOnMainSync(()->{
+                for(View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(root!=activity.getWindow().getDecorView()&&root!=oldDialog.getWindow().getDecorView()&&root.isShown())confirm[0]=root;
+                if(confirm[0]==null||!(confirm[0].getLayoutParams() instanceof WindowManager.LayoutParams p)||(p.flags&WindowManager.LayoutParams.FLAG_SECURE)==0)throw new IllegalStateException("Secure confirmation absent");
+            });
             Instrumentation.ActivityMonitor monitor=test.addMonitor(MainActivity.class.getName(),null,false);
             test.runOnMainSync(activity::recreate);
             Activity next=test.waitForMonitorWithTimeout(monitor,10000);test.removeMonitor(monitor);
             if(next==null) throw new IllegalStateException("Activity not recreated");
             activity=next;settle();
             if(oldDialog.isShowing() || !second.isRecycled() || preview()!=null) throw new IllegalStateException("Recreation leaked owned replay media");
+            if(confirm[0].isAttachedToWindow())throw new IllegalStateException("Recreation leaked confirmation window");
 
             CountDownLatch started=new CountDownLatch(1), release=new CountDownLatch(1), disposed=new CountDownLatch(1);
             AtomicBoolean delivered=new AtomicBoolean(false);

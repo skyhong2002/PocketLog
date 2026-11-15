@@ -1217,3 +1217,34 @@ compositor, physical-device or TalkBack evidence.
 
 - [Local identity and canonical editable title](screenshots/native-local-app-identity.png)
 - [2× readable usage card with unknown-package fallback](screenshots/native-local-app-list-large.png)
+
+## Native deliberate thumbnail deletion (#55)
+
+Old0.4.21 actual HTTPS replay check reproduced immediate deletion on a single
+viewer action. The final viewer first opens a secure confirmation showing app,
+time and exact deletion scope. Opening/cancelling preserves the same viewer and
+bitmap and leaves the API image list unchanged; keyboard-mode cancellation
+returns focus to the delete action. Confirmation removes only that thumbnail;
+API readback, empty list and bitmap disposal pass at normal/2× system font.
+The lifecycle harness opens both dialogs, recreates the Activity and confirms
+both windows close and media is recycled. Existing dismissal and undelivered
+bitmap disposal checks also pass. Synthetic images were validated by the real
+worker; analysis-only images remain excluded. Capture/AI consent stays off in
+the phone; no capture cadence, retention, server API or permissions changed.
+
+Initial harness selection read the underlying dialog instead of the topmost one;
+that selector was corrected. The focus test explicitly enters keyboard mode
+before activation; touch mode alone does not establish keyboard focus. This is
+scripted View focus evidence, not physical-keyboard or TalkBack verification.
+56 native unit tests, assembleDebug, instrumentation build, lint and full
+eight-page HTTPS/offline regression pass. The unchanged Rust/web required checks
+passed in this wave; server remains9928655.
+Fresh private backup/restore, prior-row preservation and production HTTPS
+assets/private authentication pass. Dayflow TimelineRateSummaryView.swift
+(at2c79e161) uses a confirming state for destructive activity actions. That is
+a source reference; supplied actual screenshots do not establish replay deletion
+interaction. The inspected synthetic captures are secure View/dialog renders,
+not compositor, physical-device or macOS runtime evidence.
+
+- [Deletion identity and scope](screenshots/native-replay-delete-confirm.png)
+- [2× confirmation and actions](screenshots/native-replay-delete-confirm-large.png)

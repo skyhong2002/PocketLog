@@ -2157,13 +2157,11 @@ class MainActivity : Activity() {
             adjustViewBounds = true
             contentDescription = "${item.getString("app")} ${stamp(item.getLong("at_ms"))} 的已核准縮圖"
         }
+        var confirmation: AlertDialog? = null
         val preview = dialog().setTitle("已核准的短期縮圖").setView(image)
-            .setNegativeButton("關閉", null).setPositiveButton("刪除") { _, _ ->
-                task("刪除縮圖…", { api().request("/v1/replay/${item.getString("id")}", method = "DELETE") }, failed = { replayUnavailable(it) }) {
-                    replayPage(); notice("已刪除縮圖")
-                }
-            }.create()
+            .setNegativeButton("關閉", null).setPositiveButton("刪除", null).create()
         preview.setOnDismissListener {
+            confirmation?.dismiss(); confirmation = null
             image.setImageDrawable(null)
             if (!bitmap.isRecycled) bitmap.recycle()
             if (replayDialog === preview) replayDialog = null
@@ -2172,6 +2170,27 @@ class MainActivity : Activity() {
             preview.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             replayDialog = preview
             preview.show()
+            preview.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (confirmation?.isShowing == true || busy) return@setOnClickListener
+                val confirm = dialog().setTitle("永久刪除這張回放縮圖？")
+                    .setMessage("${item.getString("app")}\n${stamp(item.getLong("at_ms"))}\n\n只刪除這張已保存的回放縮圖，無法復原。活動紀錄、備份及已送往 AI 供應商的資料不會因此刪除。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("刪除縮圖") { _, _ ->
+                        if (replayDialog === preview && preview.isShowing && !isDestroyed && !isFinishing) {
+                            preview.dismiss()
+                            task("刪除縮圖…", { api().request("/v1/replay/${item.getString("id")}", method = "DELETE") }, failed = { replayUnavailable(it) }) {
+                                replayPage(); notice("已刪除縮圖")
+                            }
+                        }
+                    }.create()
+                confirmation = confirm
+                confirm.setOnDismissListener {
+                    if (confirmation === confirm) confirmation = null
+                    if (preview.isShowing) preview.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus()
+                }
+                confirm.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                confirm.show()
+            }
         } catch (error: Throwable) {
             replayDialog = null
             preview.dismiss()
