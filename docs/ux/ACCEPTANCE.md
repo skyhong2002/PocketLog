@@ -2213,3 +2213,29 @@ Node/timeline/import, final Docker smoke and private backup/restore pass.
 ![Journal key setup](screenshots/web-issued-journal-desktop.png)
 ![Collector key setup](screenshots/web-issued-collector-phone.png)
 ![Collector API guidance](screenshots/web-issued-collector-guide-phone.png)
+
+## Agent JSONL import owns its completion (#91)
+
+Built2968b4a reproduced a locally held PUT200 closing a newer focused import
+draft. Import responses/errors now belong to their originating page/editor. One
+import may be pending across closed/reopened editors; active fields pause during
+the write. Pre-submit copy explains that closing cannot cancel a sent request and
+asks readers to refresh approved sessions before retrying an uncertain result.
+Local parsing, default-unchecked per-turn approval, quotas and API are unchanged.
+
+Final built1280/390 acceptance used actual file-input upload of a synthetic
+Codex response_item/message JSONL with one recent assistant output_text. For each
+size, hold a locally intercepted PUT, close/reopen, upload/preview/approve the
+fixture again, fill a newer title and attempt import. No second request is sent;
+the draft remains. Resolve the original response as200,503 or401 and check the
+new title, checked turn and active focus remain. Then the new import can proceed:
+current503 retains and unlocks the draft, explicit retry200 closes only its own
+editor. Separately, a genuinely current401 expires the session normally.
+
+All cases pass with10controlled writes per size, zero service mutations/model
+calls. Both inspected captures show the focused synthetic approved draft after
+the obsolete response, with no horizontal overflow. Node syntax, timeline/import
+regressions and Docker smoke pass. Unchanged Rust/Android checks remain applicable.
+
+![Approved import draft preserved on phone](screenshots/web-agent-import-draft-phone.png)
+![Approved import draft preserved on desktop](screenshots/web-agent-import-draft-desktop.png)

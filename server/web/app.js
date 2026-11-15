@@ -37,7 +37,7 @@ const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
 let timelineInspector = null, inspectedCard = null;
 // One write per activity at a time, including a cancelled/reopened editor.
 const cardSaves = new Set();
-let providerChangePending = false, scheduleChangePending = false, deviceChangePending = false;
+let providerChangePending = false, scheduleChangePending = false, deviceChangePending = false, agentImportPending = false;
 let modalEpoch = 0;
 const titles = {
   timeline: "時間軸",
@@ -3107,7 +3107,9 @@ async function flowPage(parent, seq) {
 
 /* ---------- agents ---------- */
 function agentImportDialog() {
+  const seq = renderSeq;
   modal("預覽原生 Agent 工作紀錄", (p) => {
+    const current = () => p.isConnected && seq === renderSeq;
     add(
       p,
       el(
@@ -3115,6 +3117,7 @@ function agentImportDialog() {
         "只在瀏覽器解析你選取的檔案。顯示近 30 天最後 40 則文字，每則最多 1000 字；工具輸出、附件、環境與路徑中繼資料不會匯入。請逐則檢查並移除金鑰、個資與不想保存的內容，只有勾選的文字會送到私人伺服器，不會送到 AI。",
       ),
     );
+    add(p, el("p", "匯入送出後，關閉視窗不會取消。若不確定是否成功，先重新整理已核准的工作紀錄，再決定是否重試。", "muted"));
     const source = select(
       p,
       "來源",
@@ -3157,9 +3160,21 @@ function agentImportDialog() {
         };
         if (new TextEncoder().encode(JSON.stringify(body)).length > 64000)
           throw Error("選取內容超過 64 KB，請減少文字");
-        await api("/v1/agent-sessions", body, "PUT");
-        close();
-        await shell();
+        if (!current()) return;
+        if (agentImportPending) throw Error("先前的匯入仍在處理，請稍後再試；目前草稿已保留。");
+        agentImportPending = true;
+        const controls = [...p.querySelectorAll("input,select,textarea,button")].map(n => [n, n.disabled]);
+        controls.forEach(([n]) => { n.disabled = true; });
+        try {
+          await api("/v1/agent-sessions", body, "PUT", current);
+          if (!current()) return;
+          close();
+          await shell();
+        } catch (error) { if (current()) throw error; }
+        finally {
+          agentImportPending = false;
+          controls.forEach(([n, disabled]) => { if (n.isConnected) n.disabled = disabled; });
+        }
       },
       "primary",
     );
