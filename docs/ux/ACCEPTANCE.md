@@ -2161,3 +2161,24 @@ Timeline/recovery captures below. No real revoked-key HTTP/physical-device claim
 ![Rejected connection settings](screenshots/native-rejected-settings.png)
 ![Recovery confirmation at twice normal font size](screenshots/native-rejected-recovery-2x.png)
 ![Rejected connection timeline at twice normal font size](screenshots/native-rejected-timeline-2x.png)
+
+## First device creation before optional guidance (#89)
+
+Built d861e95 at390×844 placed the Create button at y847–892 outside
+the modal bottom828. The name field was visible; the button needed scrolling.
+The dialog now keeps a short purpose/owner-key distinction and labelled native
+details for scope/revocation help, then the complete creation form, with counted
+issued-key management after it. No permissions or credential lifecycle changed.
+This follows the official APIKeyInputView's title/subtitle/field/help hierarchy,
+without borrowing its platform-specific storage claims.
+
+Final rebuilt390×844 puts Create at y684–728 inside the modal y42–802, at
+scroll0;1280×800 also shows the complete form. Both inspected synthetic captures
+have no document overflow. Actual Enter/Space toggles keep focus on the help
+summary. Final1280/390 device ownership suite passes21local reads/11local writes
+each, including current creation/revoke and all #88 stale response paths. Revoke
+acceptance explicitly opens the new issued-key disclosure. Zero real credential
+mutations or clipboard writes. Node/timeline/import and Docker smoke pass.
+
+![First device creation on phone](screenshots/web-device-first-form-phone.png)
+![First device creation on desktop](screenshots/web-device-first-form-desktop.png)

@@ -3508,18 +3508,19 @@ async function devicesDialog() {
         "p",
         "為每支手機或每個私人 API 工具建立獨立金鑰（最多 32 把，有效 1–90 天）。Owner 金鑰留作網站登入與復原，不必交給手機或整合工具。",
       ),
-      listOf(false, [
-        "日誌權限：手機 app 或私人 API 工具使用，可讀寫私人日誌與 AI 設定，但不能管理裝置或登入這個網站。",
-        "僅收集權限：只能上傳活動／情境，並讀取暫停與模型資訊。",
-        "撤銷後新的請求立即失效；離線中的手機要到下次同步才會知道。",
-      ]),
-      el("h3", `已發出的金鑰（${data.devices.length}）`),
     );
+    topic(p, "了解權限與撤銷", [
+      "日誌權限：手機 app 或私人 API 工具使用，可讀寫私人日誌與 AI 設定，但不能管理裝置或登入這個網站。",
+      "僅收集權限：只能上傳活動／情境，並讀取暫停與模型資訊。",
+      "撤銷後新的請求立即失效；離線中的手機要到下次同步才會知道。",
+    ]);
+    const issued = el("details", null, "topic device-issued");
+    add(issued, el("summary", `管理已發出的金鑰（${data.devices.length}）`));
     if (!data.devices.length)
-      add(p, el("p", "還沒有裝置金鑰。", "muted"));
+      add(issued, el("p", "還沒有裝置金鑰。", "muted"));
     data.devices.forEach((d) =>
       add(
-        p,
+        issued,
         add(
           el("article", null, "card"),
           el("h3", d.label),
@@ -3567,7 +3568,7 @@ async function devicesDialog() {
     days.inputMode = "numeric";
     add(
       p,
-      btn(
+      add(el("div", null, "actions"), btn(
         "建立裝置金鑰",
         async () => {
           if (!label.value.trim()) throw Error("請填寫裝置名稱");
@@ -3612,8 +3613,9 @@ async function devicesDialog() {
           });
         },
         "primary",
-      ),
+      )),
     );
+    add(p, issued);
   });
 }
 function failed(parent, what) {

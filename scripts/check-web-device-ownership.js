@@ -17,7 +17,7 @@
   const load = async () => { await until(() => !!document.querySelector('[data-key=settings-devices]')); holdReads = true; const n = reads.length; document.querySelector('[data-key=settings-devices]').click(); await until(() => reads.length > n); holdReads = false; return reads.at(-1); };
   const open = async () => { const pending = await load(); pending.resolve(json({ devices })); await until(() => modal().open && !!label()); };
   const create = async () => { label().value = '合成新工具'; const n = writes.length; button('建立裝置金鑰', modal()).click(); await until(() => writes.length > n); return writes.at(-1); };
-  const revoke = async () => { const n = writes.length; button('撤銷這把金鑰', modal()).click(); await until(() => document.querySelector('#confirm').open); button('撤銷金鑰', document.querySelector('#confirm')).click(); await until(() => writes.length > n); assert(writes.at(-1).method === 'DELETE', 'Revoke method missing'); return writes.at(-1); };
+  const revoke = async () => { const issued = modal().querySelector('.device-issued'); if (issued && !issued.open) issued.querySelector('summary').click(); const n = writes.length; button('撤銷這把金鑰', modal()).click(); await until(() => document.querySelector('#confirm').open); button('撤銷金鑰', document.querySelector('#confirm')).click(); await until(() => writes.length > n); assert(writes.at(-1).method === 'DELETE', 'Revoke method missing'); return writes.at(-1); };
   try {
     window.fetch = (url, options) => {
       const path = String(url), method = options?.method || 'GET';
