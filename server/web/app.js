@@ -35,6 +35,8 @@ let prefs,
 const drafts = {};
 const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
 let timelineInspector = null, inspectedCard = null;
+// One write per activity at a time, including a cancelled/reopened editor.
+const cardSaves = new Set();
 const titles = {
   timeline: "時間軸",
   daily: "每日回顧",
@@ -1990,6 +1992,8 @@ function editCard(c, originKey = document.activeElement?.dataset?.key || focusKe
     if (!saved) restoreFocus(originKey, true);
   }, { once: true });
   modal("活動卡", (p) => {
+    const seq = renderSeq;
+    const current = () => seq === renderSeq && p.isConnected && $("#modal").open;
     const category = styleFor(c.category);
     add(
       p,
@@ -2021,16 +2025,28 @@ function editCard(c, originKey = document.activeElement?.dataset?.key || focusKe
         btn(
           "儲存修改",
           async () => {
-            await api("/v1/cards", {
-              id: c.id,
-              title: title.value,
-              summary: note.value,
-              category: choice.value,
-            });
-            saved = true;
-            close();
-            focusKey = originKey;
-            await shell();
+            if (cardSaves.has(c.id)) {
+              notice("這張活動卡的上一筆儲存仍在處理；草稿已保留，請等候後再儲存。", false, p);
+              return;
+            }
+            const submitted = { id: c.id, title: title.value, summary: note.value, category: choice.value };
+            cardSaves.add(c.id);
+            try {
+              await api("/v1/cards", submitted, undefined, current);
+              if (!current()) return;
+              if (title.value !== submitted.title || note.value !== submitted.summary || choice.value !== submitted.category) {
+                notice("上一筆修改已儲存。你之後輸入的變更仍在這裡，尚未儲存；確認後可再按儲存修改。", false, p);
+                return;
+              }
+              saved = true;
+              close();
+              focusKey = originKey;
+              await shell();
+            } catch (error) {
+              if (current()) throw error;
+            } finally {
+              cardSaves.delete(c.id);
+            }
           },
           "primary",
         ),

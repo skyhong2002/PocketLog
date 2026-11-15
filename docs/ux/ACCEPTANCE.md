@@ -1887,3 +1887,30 @@ semantics remain in place. The four synthetic captures below were inspected.
 ![Web desktop rule chooser](screenshots/web-rule-app-picker-desktop.png)
 ![Native large-font chooser with IME](screenshots/native-rule-app-picker-large.png)
 ![Native selected rule and retained draft](screenshots/native-rule-app-picker-filled.png)
+
+
+## Activity correction save ownership (#78)
+
+Old built0dc5c39 reproduced on390px: hold a synthetic cards POST, Cancel, reopen
+an activity editor and type a new draft, then release the old200 response. The
+new editor closed and lost that draft. No service correction was submitted.
+
+Each save now captures its fields and originating dialog/render. Detached
+success/failure/401 cannot close/rebuild a new editor or expire a newer UI. A
+per-card pending guard prevents a reopened editor submitting the same activity
+while its previous save is still outstanding. New title/summary/category values
+typed after Save stay in the editor with explicit saved-versus-unsaved feedback;
+ordinary unchanged success still closes and refreshes. Manual correction API
+semantics are unchanged.
+
+Final built-image Chromium1280×800 and390×844 passed the opt-in loopback
+`scripts/check-web-card-save.js`: eight controlled writes per run, no service
+write/provider call, cancel/reopen, pending duplicate guard, stale200/503/401,
+newer fields/focus/feedback, current503 and retry, ordinary success, different
+page ownership and late401 after logout. Fetch hooks are restored in finally;
+logout is locally controlled during the check and the fixture session is
+explicitly logged out afterwards. A separate manual controlled save retained
+newer summary/focus; these two synthetic captures were inspected.
+
+![Desktop newer draft retained](screenshots/web-card-save-newer-desktop.png)
+![Phone newer draft and save feedback](screenshots/web-card-save-newer-phone.png)
