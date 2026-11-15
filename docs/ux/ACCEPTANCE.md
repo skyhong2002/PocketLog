@@ -1515,3 +1515,33 @@ remain valid for unchanged source. Fresh private production backup/restore passe
 
 - [Phone focused moved rule](screenshots/web-rule-focus-phone.png)
 - [Desktop focused moved rule](screenshots/web-rule-focus-desktop.png)
+
+Follow-up saved-state check on the same built synthetic fixture: two rules for
+one synthetic package were reordered in the UI and saved. GET workspace retained
+both selected categories in the new order; the authenticated classifier preview
+selected the first rule and retained a manually edited sample's original category.
+Save closed the dialog and returned focus to chip-edit. Fixture preferences were
+restored with the current revision in finally; no activities/model calls were made.
+
+## Discoverable private API setup (#66)
+
+Settings now has a Private API card with the actual origin and an explicit copy
+button, plus optional expanded setup steps. It explains journal versus collector
+scope, keeps owner recovery separate, links the existing device manager and API
+reference, and names the status/timeline routes, Unix milliseconds,26h range and
+truncation. No key is created or displayed by the guide. Phone capture guidance
+now matches the native Settings / phone recording / screen context sections.
+
+The final embedded image was inspected at1280×800 and390×844 with expanded help:
+no document/panel horizontal overflow, scope/range/partial-result text readable,
+no64hex key in the guide, and API reference rel=noopener+noreferrer. The actual
+copy button completed successfully; an observer wrapping the original clipboard
+write confirmed its sole payload was location.origin. Browser clipboard reading
+was denied (NotAllowedError), so clipboard readback is not claimed. Device-manager
+open and Escape-close restored focus to settings-api-devices without writes.
+No extra API/model requests, credential creation or collection consent are added.
+Final web regressions and Docker smoke pass; unchanged source retains the prior
+required Rust/native checks. Both synthetic captures below were inspected.
+
+- [Desktop API setup](screenshots/web-api-guide-desktop.png)
+- [Phone API setup](screenshots/web-api-guide-phone.png)

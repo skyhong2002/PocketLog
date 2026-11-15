@@ -3282,7 +3282,7 @@ async function devicesDialog() {
         "為每支手機建立獨立金鑰（最多 32 把，有效 1–90 天）。Owner 金鑰留作網站登入與復原，不必輸入到手機。",
       ),
       listOf(false, [
-        "日誌權限：手機 app 使用，可讀寫私人日誌與 AI 設定，但不能管理裝置或登入這個網站。",
+        "日誌權限：手機 app 或私人 API 工具使用，可讀寫私人日誌與 AI 設定，但不能管理裝置或登入這個網站。",
         "僅收集權限：只能上傳活動／情境，並讀取暫停與模型資訊。",
         "撤銷後新的請求立即失效；離線中的手機要到下次同步才會知道。",
       ]),
@@ -3417,6 +3417,29 @@ async function settingsPage(parent, seq) {
     row(keyed(btn("管理裝置金鑰", devicesDialog, devices && !devices.devices.length ? "primary" : ""), "settings-devices")),
   );
   add(grid, link1);
+  const integration = panel("私人 API");
+  add(integration,
+    el("p", "把自己的工具接到同一份活動時間軸。使用獨立裝置金鑰，之後可以單獨撤銷。"),
+    rich("p", "muted", "API 網址：", code(location.origin)),
+    row(keyed(btn("複製 API 網址", async () => {
+      await navigator.clipboard.writeText(location.origin);
+      notice("已複製 API 網址；不包含金鑰");
+    }), "settings-api-origin")),
+  );
+  const apiHelp = el("details");
+  add(apiHelp, el("summary", "從 API 讀取活動，怎麼開始？"),
+    listOf(true, [
+      "在「管理裝置金鑰」為這個工具建立「日誌（手機 app）」權限金鑰。Owner 金鑰留作網站登入與復原。",
+      "用 HTTPS 連線，將裝置金鑰放在 Authorization: Bearer 請求標頭，不要放在網址。僅收集權限不能讀取日誌；日誌權限也能寫入，請只交給信任的工具。",
+      "先讀取 GET /v1/status 確認連線，再查詢時間軸。完整範例與各端點的欄位在 API 文件。",
+    ]),
+    rich("p", "", code("GET /v1/timeline?from_ms=…&to_ms=…")),
+    el("p", "時間使用 Unix 毫秒，每次最多 26 小時。回傳的是私人活動卡，不含原始畫面／文字；若 truncated 為 true，代表結果不完整。", "muted"),
+    row(keyed(btn("管理 API 裝置金鑰", devicesDialog), "settings-api-devices"),
+      link("API 文件與安全的讀取範例", `${REPO}/blob/main/docs/API.md`)),
+  );
+  add(integration, apiHelp);
+  add(grid, integration);
   const record = panel("記錄與隱私");
   if (!control) failed(record, "收集狀態");
   else {
@@ -3457,7 +3480,7 @@ async function settingsPage(parent, seq) {
     record,
     el(
       "p",
-      "擷取權限在 Android app 的「紀錄、排除與同步設定」管理：使用紀錄、文字、圖片與 AI 同意彼此獨立，排除清單與密碼欄位檢查會在擷取前執行。這個網站不會更改手機的系統權限。",
+      "擷取權限在 Android app 的「設定 → 手機紀錄／畫面情境」管理：使用紀錄、文字、圖片與 AI 同意彼此獨立，排除清單與密碼欄位檢查會在擷取前執行。這個網站不會更改手機的系統權限。",
       "muted",
     ),
     el(
