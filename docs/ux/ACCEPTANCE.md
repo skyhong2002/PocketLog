@@ -1795,3 +1795,21 @@ precise checks.
 - [Accessible native list](screenshots/native-os-accessibility-list.png)
 - [2× list](screenshots/native-os-accessibility-list-large.png)
 - [2× Settings after OS navigation](screenshots/native-os-accessibility-settings-large.png)
+
+## Consolidated native interface milestone (#9)
+
+The original native shell/readability criteria now have implementation and scoped
+evidence: Kotlin Views keep the PocketLog brand, labelled eight-destination
+navigation, header/cards/spacing and recoverable loading/error/empty states;
+normal/2× phone and tablet captures; proportional day and readable week/list
+alternatives; bounded touch targets and short/dense-card repairs; draft/focus/
+keyboard continuity fixes; and #72 actual OS accessibility list/navigation actions.
+Official private Timeline screenshots and Swift source informed this work, without
+copying private journal text or adding a WebView.
+
+Closing #9 records that interface milestone, not comprehensive accessibility or
+full Dayflow parity. TalkBack speech/gestures, physical permission/Doze/Keystore
+behavior, nested-scroll feel and full-day battery still require broader acceptance
+under #11 and the documented security checklist. The shipped native version stays
+0.4.27-dev; the last addition was test-only. Earlier sections remain chronological
+evidence, including their narrower limits and later fixes.
