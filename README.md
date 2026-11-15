@@ -63,7 +63,8 @@ to your own tools. Manual mood entry is no longer part of the app.
 
 See the [infovore port coverage](docs/INFOVORE_PORT.md), [analysis setup](docs/ANALYSIS.md),
 [Dayflow feature matrix](docs/DAYFLOW_PARITY.md), [UI guidelines](docs/UI_GUIDELINES.md),
-and [roadmap](docs/ROADMAP.md) for exact boundaries and remaining work.
+[synthetic UI acceptance captures](docs/ux/ACCEPTANCE.md), and [roadmap](docs/ROADMAP.md)
+for exact boundaries, verified interface states and remaining work.
 
 ## Privacy
 
