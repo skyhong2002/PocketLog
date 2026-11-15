@@ -63,6 +63,8 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 new ConnectedUiChecks(this, args).run();
                 result.putString("stream", "yes".equals(args.getString("appNamesOnly"))
                     ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native package-ID activity titles reproduced.\n" : "Synthetic HTTPS local app-name list/canvas/overview/identity and offline checks passed; canonical journal unchanged.\n")
+                    : "yes".equals(args.getString("weeklyLimitOnly"))
+                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native Weekly hides real API truncation reproduced.\n" : "Synthetic HTTPS weekly truncated response, loaded totals and affected-day warning checks passed.\n")
                     : "yes".equals(args.getString("goalsConflictOnly"))
                     ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native repeated goal409 without recovery reproduced; fixture restored.\n" : "Synthetic HTTPS retained goal drafts, latest classification preservation, cancel/confirm/race and offline recovery passed; fixture restored.\n")
                     : "yes".equals(args.getString("classificationConflictOnly"))

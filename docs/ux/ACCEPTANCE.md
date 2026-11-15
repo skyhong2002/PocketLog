@@ -1248,3 +1248,33 @@ not compositor, physical-device or macOS runtime evidence.
 
 - [Deletion identity and scope](screenshots/native-replay-delete-confirm.png)
 - [2× confirmation and actions](screenshots/native-replay-delete-confirm-large.png)
+
+## Native transparent weekly response limits (#56)
+
+Old0.4.22 actual HTTPS fixture reproduction submitted 1,001 idempotent synthetic
+activities on the prior day. The real bounded timeline response returned1,000
+cards and truncated=true; native Weekly displayed totals without any warning.
+Final normal/2× font checks verify one affected day, a warning before the totals,
+a loaded-records label and partial-data text in that day's row. Actual airplane/
+WiFi-off cached week retains those distinctions; switching to an ordinary
+complete earlier week removes them. All requested warning/row text fits its
+visible rectangle after scrolling. At2× the duration value wraps, without loss
+of its units. Default touch mode is established for these phone captures.
+
+56 unit tests, debug APK, instrumentation build, lint and full eight-page
+HTTPS/offline regression pass. The navigation regression waits for the loaded
+week grid rather than a totals label that intentionally changes for partial data.
+Same-wave unchanged Rust58/fmt/clippy with warnings denied/audit1509/185 and web regressions pass.
+Fresh private backup restore, prior-row preservation and HTTPS assets/private
+authentication checks pass; no server deployment/API/quota change. Synthetic
+fixture activity remains in the isolated instance only, with existing retention.
+The supplied actual Dayflow screenshot and official WeekTimelineGridView.swift
+hierarchy at2c79e161 inform clear scope of factual summaries; neither establishes
+Dayflow's response-limit behavior. These inspected synthetic secure View renders
+are not compositor, physical-device or TalkBack evidence. Initial extended test
+waited for the optional category chart on an empty week; it now waits for the
+always-present week grid. No product failure was inferred from that test error.
+
+- [Partial-week warning before totals](screenshots/native-week-partial-warning.png)
+- [2× warning and loaded totals](screenshots/native-week-partial-warning-large.png)
+- [2× affected-day detail](screenshots/native-week-partial-day-large.png)

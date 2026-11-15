@@ -62,6 +62,7 @@ final class ConnectedUiChecks {
                 pairingPassed=true;return;
             }
             if ("yes".equals(args.getString("appNamesOnly"))) { appNamesCheck(fixtureOwner); return; }
+            if ("yes".equals(args.getString("weeklyLimitOnly"))) { weeklyLimitCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsConflictOnly"))) { goalsConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("classificationConflictOnly"))) { classificationConflictCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("goalsThenCategoriesOnly"))) { goalsThenCategoriesCheck(fixtureOwner); return; }
@@ -72,7 +73,7 @@ final class ConnectedUiChecks {
             if ("yes".equals(args.getString("replayOnly"))) { replayUnavailableCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("cardPendingOnly"))) { pendingCardCheck(fixtureOwner); return; }
             if ("yes".equals(args.getString("pendingOnly"))) { pendingContextCheck(); return; }
-            for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "本週已記錄"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
+            for (String[] page : new String[][] {{"每日", "時間分配"}, {"每週", "一週節奏"}, {"Chat", "你想問什麼？"}, {"Flow", "開始一段專注"}, {"Agents", "匯入"}, {"支援", "這支手機的狀態"}, {"設定", "手機紀錄"}}) {
                 stage = "navigation " + page[0]; click(page[0]); await(page[1]); awaitSettled();
                 if (has("無法載入")) throw new IllegalStateException("Connected page failed");
                 capture(page[0].equals("每日") ? "daily" : page[0].equals("設定") ? "settings" : "page-" + page[0]);
@@ -184,6 +185,31 @@ final class ConnectedUiChecks {
             // root revokes it after capture. No token is written to artifacts.
             if(pairingId!=null && !pairingPassed) fixtureOwner.request("/v1/devices/"+pairingId,null,"DELETE");
         }
+    }
+    private void weeklyLimitCheck(PocketLogApi owner) throws Exception {
+        stage="weekly API truncation transparency";
+        test.setInTouchMode(true);
+        java.time.ZoneId zone=java.time.ZoneId.systemDefault();java.time.LocalDate date=java.time.LocalDate.now(zone).minusDays(1);
+        long start=date.atTime(12,0).atZone(zone).toInstant().toEpochMilli();
+        for(int batch=0;batch<1001;batch+=100){org.json.JSONArray rows=new org.json.JSONArray();for(int i=batch;i<Math.min(1001,batch+100);i++)rows.put(new JSONObject().put("id","synthetic-week-limit-"+date+"-"+i).put("app","org.example.weeklimit").put("category","learning").put("start_ms",start+i*1000).put("end_ms",start+(i+1)*1000));owner.request("/v1/activities",new JSONObject().put("activities",rows),"POST");}
+        long from=date.atTime(4,0).atZone(zone).toInstant().toEpochMilli(),to=date.plusDays(1).atTime(4,0).atZone(zone).toInstant().toEpochMilli();
+        JSONObject raw=owner.request("/v1/timeline?from_ms="+from+"&to_ms="+to,null,"GET");
+        if(!raw.getBoolean("truncated")||raw.getJSONArray("cards").length()!=1000)throw new IllegalStateException("Real API display limit not reached");
+        Field selected=MainActivity.class.getDeclaredField("day");selected.setAccessible(true);test.runOnMainSync(()->{try{selected.set(activity,date);}catch(Exception e){throw new RuntimeException(e);}});
+        click("每週");await("一週節奏");awaitSettled();
+        if("yes".equals(args.getString("expectLegacy"))){if(has("部分資料")||has("顯示上限"))throw new IllegalStateException("Legacy unexpectedly warns");capture("weekly-limit-legacy");return;}
+        await("本週有 1 天資料達顯示上限");if(!has("部分資料")||!has("已載入的記錄"))throw new IllegalStateException("Partial day or totals not identified");
+        revealTextContaining("本週有 1 天資料達顯示上限");capture("weekly-limit-warning");
+        revealTextContaining("部分資料");capture("weekly-limit-day");
+        try{
+            shell("svc wifi disable");shell("svc data disable");shell("cmd connectivity airplane-mode enable");
+            click("時間軸");await("離線：顯示加密快取");awaitSettled();click("每週");await("部分日期為離線快取");awaitSettled();
+            if(!has("本週有 1 天資料達顯示上限")||!has("部分資料")||!has("已載入的記錄"))throw new IllegalStateException("Cached week lost partial-data warning");
+        }finally{shell("cmd connectivity airplane-mode disable");shell("svc wifi enable");awaitUnmetered();}
+        test.runOnMainSync(()->{try{selected.set(activity,date.minusWeeks(1));}catch(Exception e){throw new RuntimeException(e);}});
+        click("每週");await("一週節奏");awaitSettled();
+        if(has("本週有 1 天資料達顯示上限")||has("已載入的記錄")||!has("本週已記錄"))throw new IllegalStateException("Warning remained on a complete different week");
+        assertConsentOff();
     }
     private void appNamesCheck(PocketLogApi owner) throws Exception {
         stage="local readable app names without journal mutation";
@@ -659,6 +685,11 @@ final class ConnectedUiChecks {
         if(has("這些分類已隱藏")) throw new IllegalStateException("Reset failed");
         click("活動檢視：時間軸"); reveal("活動檢視：時間軸，已選取"); capture("category-filter-timeline");
         click("後一天"); await("活動"); awaitSettled();
+    }
+    private void revealTextContaining(String label) {
+        final View[] found={null};test.runOnMainSync(()->{for(View v:views())if(v instanceof TextView t&&t.getText().toString().contains(label)){found[0]=v;v.requestRectangleOnScreen(new android.graphics.Rect(0,0,v.getWidth(),v.getHeight()),true);return;}});test.waitForIdleSync();
+        if(found[0]==null)throw new IllegalStateException("Text to reveal absent");
+        final boolean[] visible={false};test.runOnMainSync(()->{android.graphics.Rect bounds=new android.graphics.Rect();visible[0]=found[0].getGlobalVisibleRect(bounds)&&bounds.height()>=found[0].getHeight()-2;});if(!visible[0])throw new IllegalStateException("Text clipped after scrolling");
     }
     private void reveal(String label) {
         test.runOnMainSync(() -> {

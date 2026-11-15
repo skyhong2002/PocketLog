@@ -998,9 +998,11 @@ class MainActivity : Activity() {
             val week = days.map { (d, data) -> WeekDay(d, data != null, data?.optBoolean("offline") == true, cardsOf(data).map(::item)) }
             if (days.any { it.second?.optBoolean("pending_card_edits") == true }) ui.banner(slot, "活動卡先顯示手機上的修改，仍待伺服器同步確認。", Kind.INFO)
             if (week.any { it.offline }) ui.banner(slot, "部分日期為離線快取。", Kind.WARN)
+            val limitedDays = days.count { it.second?.optBoolean("truncated") == true }
+            if (limitedDays > 0) ui.banner(slot, "本週有 $limitedDays 天資料達顯示上限；時數與分類統計只涵蓋已載入的資料。", Kind.WARN)
             val all = days.flatMap { cardsOf(it.second) }
             val tiles = ui.horizontal(slot, 8).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(12) }
-            ui.stat(tiles, "本週已記錄", TimelineMath.duration(days.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) }), null)
+            ui.stat(tiles, if (limitedDays > 0) "已載入的記錄" else "本週已記錄", TimelineMath.duration(days.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) }), null)
             ui.stat(tiles, "有活動的天數", "${days.count { cardsOf(it.second).isNotEmpty() }} / 7", null)
             ui.card(slot).apply {
                 ui.heading(this, "一週節奏")
@@ -1009,12 +1011,14 @@ class MainActivity : Activity() {
             }
             ui.card(slot, padding = 8).apply {
                 week.forEach { w ->
-                    val list = days.first { it.first == w.date }.second.let(::cardsOf)
+                    val data = days.first { it.first == w.date }.second
+                    val list = cardsOf(data)
                     val top = totals(list).firstOrNull()
                     val detail = when {
                         w.date > today -> "尚未到來"
                         !TimelineMath.inHistory(w.date, today) -> "超出 29 天可讀範圍"
                         !w.available -> "無法讀取（離線且沒有快取）"
+                        data?.optBoolean("truncated") == true -> "${TimelineMath.duration(TimelineMath.covered(intervals(list)))}（部分資料）" + (top?.let { " · 最多：${label(it.first)}" } ?: "")
                         list.isEmpty() -> "沒有活動"
                         else -> "${TimelineMath.duration(TimelineMath.covered(intervals(list)))} · 最多：${label(top!!.first)}"
                     }
