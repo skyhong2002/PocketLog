@@ -122,6 +122,41 @@ Follows "Cross-platform consistency (UX round 1)" in SIMPLIFIED_IA.md:
 - Secondary text colour darkened to about 6:1 on the lightest surfaces; icon buttons and
   switches have 44 px targets.
 
+### UX round 2 and self-hosted AI (2026-11-17)
+
+Follows "Round 2 rules" and "Networks and self-hosted AI" in SIMPLIFIED_IA.md:
+
+- Cards share one structure (`時間 · 時長` + category + at most one exception badge /
+  title / one-line summary) on a neutral background with a category stripe; app-only cards
+  read `只知道使用了這個 app`; `AI 整理中` replaces `只有 app`. Under a minute is `不到 1 分`.
+- The desktop 時間表 collapses runs of two or more empty hours into a thin `沒有記錄` gap
+  (`timeAxis()`), shows `時間 · 時長` in every block at 14 px, marks `隔天凌晨`, and rings
+  only the selected block. The inspector has a source/state line, `應用程式` and a text-style
+  `修改文字`.
+- Focus is a thin `:focus-visible` ring; selected segments, chips and AI services use soft
+  pills. The header is sticky with the short date.
+- 回顧 uses the timeline width with two balanced columns (one column in reading order on
+  phones), bold titles, `日/週` before the date navigation, stacked week bars with `4.1 時`
+  values, `平均每天`, the spec's example questions, send inside the input, and 主題 only for
+  `keyword_mode` `model`/`mixed`.
+- 設定: `暫停所有裝置` is a switch; the phone-address hint for loopback and plain-http
+  origins; a horizontally scrolling section index with the current section marked; `匯出`
+  range plus button; storage in MB below 1 GB; delete grouped last with a `無法復原`
+  confirmation; `記錄` everywhere.
+- AI page: AI 服務 → 金鑰 → 模型 + `載入模型清單` (`POST /v1/ai/models`, pickable list, free
+  text fallback, short 502/429 errors) → 讓 AI 看截圖 → 測試並儲存 → 自動化 (two switches) →
+  停用. `自訂（OpenAI 相容：CLIProxyAPI、LiteLLM、Ollama…）` takes a base `API 網址`
+  (placeholder `http://127.0.0.1:8317/v1`, http allowed for private-network hosts by the
+  same rule as the server) and an optional key.
+- Wording names any VPN／private network instead of Tailscale only; plain-http logins on a
+  private host show `這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路`.
+
+Checked: dev-check web/rust, podman image build and smoke, the nine `check-web-*.js` against
+the local mock, and a headless browser run against a disposable container (all presets
+accepted, the models request reaches the server and reports the short error for an
+unreachable endpoint). Not checked: a real CLIProxyAPI/LiteLLM/Ollama model list, Safari,
+screen readers.
+
 ## History (before 2026-11-17)
 
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues

@@ -180,7 +180,9 @@ assert.equal(duration(0),'0 分');
 assert.equal(duration(-1000),'0 分');
 assert.equal(duration(1),'不到 1 分');
 assert.equal(duration(29999),'不到 1 分');
-assert.equal(duration(30000),'1 分');
+assert.equal(duration(30000),'不到 1 分');
+assert.equal(duration(59999),'不到 1 分');
+assert.equal(duration(60000),'1 分');
 assert.equal(duration(89999),'1 分');
 assert.equal(duration(90000),'2 分');
 assert.equal(duration(3600000),'1 小時');
@@ -301,8 +303,12 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(presetFor(custom), 'custom');
   assert.equal(providerSettings('custom', 'm', 'http://[::1]:8080/v1/chat/completions').endpoint, 'http://[::1]:8080/v1/chat/completions');
   assert.equal(providerSettings('custom', 'm', 'https://llm.example/v1/chat/completions').endpoint, 'https://llm.example/v1/chat/completions');
-  assert.throws(() => providerSettings('custom', 'm', 'http://localhost:11434/v1/chat/completions'), /HTTPS/);
-  assert.throws(() => providerSettings('custom', 'm', 'http://192.168.1.2/v1'), /HTTPS/);
+  // Private-network http is allowed (same rule as the server); public http is not.
+  assert.equal(providerSettings('custom', 'm', 'http://localhost:11434/v1').endpoint, 'http://localhost:11434/v1');
+  assert.equal(providerSettings('custom', 'm', 'http://192.168.1.2:8317/v1').endpoint, 'http://192.168.1.2:8317/v1');
+  assert.equal(providerSettings('custom', 'm', 'http://cliproxy:8317/v1').endpoint, 'http://cliproxy:8317/v1');
+  assert.throws(() => providerSettings('custom', 'm', 'http://llm.example.com/v1'), /HTTPS/);
+  assert.throws(() => providerSettings('custom', 'm', 'http://8.8.8.8/v1'), /HTTPS/);
   assert.throws(() => providerSettings('custom', 'm', 'https://user:pw@llm.example/v1'), /帳號或密碼/);
   assert.throws(() => providerSettings('custom', 'm', 'not a url'), /完整/);
   assert.throws(() => providerSettings('gemini', 'gemini/../x'), /Gemini/);
@@ -342,8 +348,11 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(cardLength({ start_ms: at, end_ms: at + 56 * 60000 }), '56 分');
   assert.equal(cardLength({ start_ms: at, end_ms: at + 64 * 60000 }), '1 小時 4 分');
   assert.deepEqual(cardBadges({ source: 'ai' }), [], 'normal AI cards carry no label');
-  assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true, protected_screen: true }), ['只有 app', 'AI 整理中', '受保護畫面']);
-  assert.deepEqual(cardBadges({ source: 'user', protected_screen: true }, false), ['你改過', '受保護畫面（無截圖）']);
+  // Compact rows show one exception; AI 整理中 never appears with 只有 app.
+  assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true, protected_screen: true }), ['AI 整理中']);
+  assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true }, false), ['AI 整理中']);
+  assert.deepEqual(cardBadges({ source: 'app_only' }), ['只有 app']);
+  assert.deepEqual(cardBadges({ source: 'user', protected_screen: true }, false), ['受保護畫面（無截圖）', '你改過']);
   // 08:10–08:28 and 08:32 do not overlap, so they share one column.
   const t = (h, m) => new Date(`2026-11-16T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
   const placed = layoutLanes([{ start_ms: t(8, 10), end_ms: t(8, 28) }, { start_ms: t(8, 32), end_ms: t(8, 40) }], 60000);
@@ -352,4 +361,55 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(captureStatus({ now: 1, ai: { enabled: false }, devices: null }).text, 'AI 未設定，只顯示 app 名稱');
   assert.equal(captureStatus({ now: 1, ai: { enabled: true, auto_summarize: false }, devices: null }).text, 'AI 自動整理已關閉');
   console.log('zh-TW dates, compact units, exception-only labels and true-overlap columns');
+}
+
+// Round 2: collapsed empty hours, private networks, model lists, storage and review rules.
+{
+  const m = require('../server/web/app.js');
+  const H = 3600000, bounds = Array.from({ length: 25 }, (_, i) => i * H); // 04:00 = 0 … next 04:00 = 24h
+  const card = (from, to) => ({ start_ms: from * H, end_ms: to * H });
+  // Cards 5–6h and 12–13h (09:00 and 16:00): 0–5 empty (gap), 6–12 empty (gap), 13–24 empty (gap).
+  let axis = m.timeAxis(bounds, [card(5, 6), card(12, 13)]);
+  assert.deepEqual(axis.segments.map(s => [s.kind, s.from / H, s.to / H]), [['gap', 0, 5], ['time', 5, 6], ['gap', 6, 12], ['time', 12, 13], ['gap', 13, 24]]);
+  assert.equal(axis.height, 3 * 34 + 2 * 64);
+  assert.equal(axis.y(5.5 * H), 34 + 32, 'times map inside their hour');
+  assert.ok(axis.y(12 * H) > axis.y(6 * H), 'later times stay below earlier ones');
+  // A single empty hour is kept; zero-length cards keep their hour busy; now keeps its hour.
+  axis = m.timeAxis(bounds, [card(5, 6), card(7, 7), card(9, 10)], { now: 20.5 * H });
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'time').map(s => [s.from / H, s.to / H]), [[5, 10], [20, 21]]);
+  assert.equal(m.timeAxis(bounds, []).segments.length, 1, 'an empty day collapses to one gap');
+  assert.deepEqual(m.timeAxis(bounds, [card(0, 24)]).segments.map(s => s.kind), ['time']);
+  // Networks: same private-host rule as the server.
+  for (const h of ['127.0.0.1', 'localhost', '10.1.2.3', '172.16.0.1', '172.31.255.1', '192.168.0.5', '100.64.0.1', '100.127.1.1', '[::1]', '[fd12::1]', '[fe80::1]', 'nas', 'pi.local', 'box.lan', 'svc.internal', 'home.home.arpa'])
+    assert.equal(m.isPrivateHost(h), true, h);
+  for (const h of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '192.169.1.1', 'example.com', '[2001:db8::1]', '999.1.1.1'])
+    assert.equal(m.isPrivateHost(h), false, h);
+  assert.equal(m.originHint({ hostname: '127.0.0.1', protocol: 'http:' }), '這是本機位址；手機請用 VPN／區網位址');
+  assert.equal(m.originHint({ hostname: '100.80.1.2', protocol: 'http:' }), '這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路');
+  assert.equal(m.originHint({ hostname: 'journal.example', protocol: 'https:' }), '');
+  // Proxy base URL display and the models request/response.
+  assert.equal(m.proxyBase('http://127.0.0.1:8317/v1/chat/completions'), 'http://127.0.0.1:8317/v1');
+  assert.equal(m.proxyBase('https://openrouter.ai/api/v1'), 'https://openrouter.ai/api/v1');
+  assert.deepEqual(m.modelsRequest('custom', '', 'http://127.0.0.1:8317/v1', ''), { protocol: 'openai', endpoint: 'http://127.0.0.1:8317/v1' });
+  assert.deepEqual(m.modelsRequest('anthropic', 'x', '', 'k'), { protocol: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', api_key: 'k' });
+  assert.equal(m.modelsRequest('gemini', '', '', '').endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', 'Gemini lists via a valid model path');
+  assert.equal(m.modelsRequest('gemini', 'gemini-pro', '', '').endpoint.includes('/models/gemini-pro:'), true);
+  assert.throws(() => m.modelsRequest('custom', 'm', 'http://public.example.com/v1', ''), /HTTPS/);
+  assert.deepEqual(m.parseModels({ models: ['models/gemini-2.5-flash', 'gpt-x', 'gpt-x', '', 7, ' claude '] }), ['gemini-2.5-flash', 'gpt-x', 'claude']);
+  assert.deepEqual(m.parseModels({}), []);
+  assert.equal(m.parseModels({ models: Array.from({ length: 400 }, (_, i) => 'm' + i) }).length, 300);
+  // Storage, week values, topics, examples and app-only summaries.
+  assert.equal(m.gib(0), '0 MB');
+  assert.equal(m.gib(512 * 1024 ** 2), '512 MB');
+  assert.equal(m.gib(3.24 * 1024 ** 3), '3.2 GB');
+  assert.equal(m.weekHours(4.1 * H), '4.1 時');
+  assert.equal(m.weekHours(0), '0.0 時');
+  assert.equal(m.topicsVisible({ keyword_mode: 'local', title_keywords: [['a', 1]] }), false);
+  assert.equal(m.topicsVisible({ keyword_mode: 'model', title_keywords: [['a', 1]] }), true);
+  assert.equal(m.topicsVisible({ keyword_mode: 'mixed', title_keywords: [] }), false);
+  assert.deepEqual(m.askExamples('day'), ['今天花最多時間在哪？', '今天學了什麼？', '有哪些分心的時段？']);
+  assert.deepEqual(m.askExamples('week'), ['這週花最多時間在哪？', '這週學了什麼？', '這週有哪些分心的時段？']);
+  assert.equal(m.cardSummary({ source: 'app_only', summary: '' }), '只知道使用了這個 app');
+  assert.equal(m.cardSummary({ source: 'ai', summary: '寫報告' }), '寫報告');
+  console.log('Collapsed empty hours, private-network hosts, model lists, storage units and review rules');
 }

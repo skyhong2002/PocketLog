@@ -11,8 +11,8 @@
  const response=v=>new Response(JSON.stringify(v),{headers:{'Content-Type':'application/json'}});
  let cards=false,reviews=false,blobPromise=null;
  const button=t=>[...document.querySelectorAll('button')].find(n=>n.textContent===t);
- const nav=async label=>{document.querySelector(`button[aria-label="${label}"]`).click();await until(()=>label==='設定'?!!button('匯出 JSON'):!!document.querySelector('.page-timeline'));};
- const exportRange=async days=>{const range=document.querySelector('[data-key=settings-export-range]');range.value=String(days);blobPromise=null;button('匯出 JSON').click();await until(()=>document.querySelector('#confirm').open);};
+ const nav=async label=>{document.querySelector(`button[aria-label="${label}"]`).click();await until(()=>label==='設定'?!!document.querySelector('[data-key=settings-export]'):!!document.querySelector('.page-timeline'));};
+ const exportRange=async days=>{const range=document.querySelector('[data-key=settings-export-range]');range.value=String(days);blobPromise=null;document.querySelector('[data-key=settings-export]').click();await until(()=>document.querySelector('#confirm').open);};
  try{
   window.fetch=async(url,opt)=>{
    const path=String(url);

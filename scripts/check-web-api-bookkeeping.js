@@ -27,7 +27,7 @@
     await review(); const input = document.querySelector('[data-key=ask-input]'); input.value = marker; input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector('[data-key=ask-send]').click();
     await until(() => log()?.textContent.includes(marker) && log().textContent.includes('合成回答'));
-    await settings(); button('永久刪除全部紀錄…').click(); await until(() => document.querySelector('#confirm').open); button('刪除全部紀錄').click(); await until(() => held.length === 1);
+    await settings(); button('刪除全部記錄…').click(); await until(() => document.querySelector('#confirm').open); button('刪除全部記錄').click(); await until(() => held.length === 1);
     await review(); await until(() => log()?.textContent.includes(marker));
     held[0].resolve(new Response(null, { status: 204 }));
     await until(() => !!document.querySelector('[data-key=ask-input]') && !log()?.textContent.includes(marker));

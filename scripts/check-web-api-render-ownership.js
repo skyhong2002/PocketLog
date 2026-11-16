@@ -52,7 +52,7 @@
     }
     // An ordinary current pause still updates and renders correctly (served locally).
     await settings(); const current = await pauseAll(); syntheticCollection = { ...current.body, revision: current.body.revision + 1 };
-    current.resolve(json(syntheticCollection)); await until(() => document.querySelector('[data-key=settings-collection]')?.textContent === '恢復記錄');
+    current.resolve(json(syntheticCollection)); await until(() => document.querySelector('[data-key=settings-collection]')?.getAttribute('aria-checked') === 'true');
     assert(document.querySelector('.settings-section')?.textContent.includes('已暫停'), 'Paused state missing');
     assert(document.documentElement.scrollWidth <= innerWidth, 'Document overflow');
     // Current optional GET401 must still expire and explain the real UI session.
