@@ -52,8 +52,10 @@ report suspected vulnerabilities privately through the repository owner.
 - Deletion uses SQL secure_delete and a WAL checkpoint; backups, snapshots,
   flash wear leveling and copied exports may still retain data. Retention is
   enforced while the service runs, not while a host is powered off.
-- Automatic collection defaults off. App usage consent, context consent and image
-  consent are separate on the phone; model use is an owner server switch. Context requires an explicit app
+- Automatic collection defaults off. App usage consent and context consent are
+  separate on the phone; granting context also turns on screenshots by default
+  (Dayflow-style, disclosed in the same dialog) and screenshots can be turned off
+  separately; model use is an owner server switch. Context requires an explicit app
   allowlist; exclusions override it. Built-in sensitive-app exclusions cover known
   packages and package-name patterns, not every sensitive app; explicitly exclude
   your financial, authentication and other private apps. Structural password/editable-field checks run
