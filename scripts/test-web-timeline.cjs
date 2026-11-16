@@ -374,9 +374,12 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(axis.height, 3 * 34 + 2 * 64);
   assert.equal(axis.y(5.5 * H), 34 + 32, 'times map inside their hour');
   assert.ok(axis.y(12 * H) > axis.y(6 * H), 'later times stay below earlier ones');
-  // A single empty hour is kept; zero-length cards keep their hour busy; now keeps its hour.
+  // Every empty hour collapses consistently (even a single one); zero-length cards keep their hour; now keeps its hour.
   axis = m.timeAxis(bounds, [card(5, 6), card(7, 7), card(9, 10)], { now: 20.5 * H });
-  assert.deepEqual(axis.segments.filter(s => s.kind === 'time').map(s => [s.from / H, s.to / H]), [[5, 10], [20, 21]]);
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'time').map(s => [s.from / H, s.to / H]), [[5, 6], [7, 8], [9, 10], [20, 21]]);
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'gap').map(s => [s.from / H, s.to / H]), [[0, 5], [6, 7], [8, 9], [10, 20], [21, 24]]);
+  // Adjacent busy hours stay one segment.
+  assert.deepEqual(m.timeAxis(bounds, [card(5, 6), card(6, 7)]).segments.filter(s => s.kind === 'time').map(s => [s.from / H, s.to / H]), [[5, 7]]);
   assert.equal(m.timeAxis(bounds, []).segments.length, 1, 'an empty day collapses to one gap');
   assert.deepEqual(m.timeAxis(bounds, [card(0, 24)]).segments.map(s => s.kind), ['time']);
   // Networks: same private-host rule as the server.
@@ -384,9 +387,11 @@ console.log('Journal exports retain activity/review completeness without changin
     assert.equal(m.isPrivateHost(h), true, h);
   for (const h of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '192.169.1.1', 'example.com', '[2001:db8::1]', '999.1.1.1'])
     assert.equal(m.isPrivateHost(h), false, h);
-  assert.equal(m.originHint({ hostname: '127.0.0.1', protocol: 'http:' }), '這是本機位址；手機請用 VPN／區網位址');
-  assert.equal(m.originHint({ hostname: '100.80.1.2', protocol: 'http:' }), '這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路');
-  assert.equal(m.originHint({ hostname: 'journal.example', protocol: 'https:' }), '');
+  // Loopback over http shows both the loopback hint and the no-HTTPS warning.
+  assert.deepEqual(m.originHints({ hostname: '127.0.0.1', protocol: 'http:' }), ['這是本機位址；手機請用 VPN／區網位址', '這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路']);
+  assert.deepEqual(m.originHints({ hostname: '100.80.1.2', protocol: 'http:' }), ['這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路']);
+  assert.deepEqual(m.originHints({ hostname: 'localhost', protocol: 'https:' }), ['這是本機位址；手機請用 VPN／區網位址']);
+  assert.deepEqual(m.originHints({ hostname: 'journal.example', protocol: 'https:' }), []);
   // Proxy base URL display and the models request/response.
   assert.equal(m.proxyBase('http://127.0.0.1:8317/v1/chat/completions'), 'http://127.0.0.1:8317/v1');
   assert.equal(m.proxyBase('https://openrouter.ai/api/v1'), 'https://openrouter.ai/api/v1');
@@ -412,4 +417,27 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(m.cardSummary({ source: 'app_only', summary: '' }), '只知道使用了這個 app');
   assert.equal(m.cardSummary({ source: 'ai', summary: '寫報告' }), '寫報告');
   console.log('Collapsed empty hours, private-network hosts, model lists, storage units and review rules');
+}
+
+// Round 3: zero-length ranges, recording status, storage, week average and copy.
+{
+  const m = require('../server/web/app.js');
+  const at = new Date('2026-11-17T01:26:10').getTime();
+  assert.equal(m.cardTimes({ start_ms: at, end_ms: at + 20000 }), '01:26', 'same-minute ranges show only the start');
+  assert.equal(m.cardLength({ start_ms: at, end_ms: at + 20000 }), '不到 1 分');
+  const now = new Date('2026-11-17T03:30:00').getTime();
+  const phone = last => ({ scope: 'journal', expires_ms: now + 1, last_authenticated_ms: last });
+  assert.equal(m.recordState(null, [], now), '暫時讀不到記錄狀態');
+  assert.equal(m.recordState({ paused: true }, [phone(now)], now), '已暫停：伺服器不接受新的記錄');
+  assert.equal(m.recordState({ paused: false }, [], now), '還沒有連接手機');
+  assert.equal(m.recordState({ paused: false }, [phone(null)], now), '手機還沒連線過');
+  assert.equal(m.recordState({ paused: false }, [phone(new Date('2026-11-17T03:17:00').getTime())], now), '最後連線 11/17 03:17', 'never 記錄中 from last-seen alone');
+  assert.equal(m.recordState({ paused: false }, [phone(now - 2 * 86400000)], now), '手機超過一天沒有連線');
+  assert.equal(m.storageLine({ used_bytes: 0, limit_bytes: 10 * 1024 ** 3 }), '已用 0 MB / 10.0 GB');
+  assert.equal(m.weekAverage(3 * 3600000, 2), '平均每天 1 小時 30 分（已過 2 天）');
+  assert.equal(m.askDisclosure('api.example.com'), '會把問題和這段時間的活動卡送到 api.example.com（不含截圖）。');
+  assert.equal(m.badgeClass('AI 整理中'), 'badge pending');
+  assert.equal(m.badgeClass('受保護畫面'), 'badge protected');
+  assert.equal(m.badgeClass('只有 app'), 'badge');
+  console.log('Same-minute ranges, recording status from last contact, storage, week average and copy');
 }

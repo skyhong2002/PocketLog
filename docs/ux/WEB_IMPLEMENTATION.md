@@ -157,6 +157,32 @@ accepted, the models request reaches the server and reports the short error for 
 unreachable endpoint). Not checked: a real CLIProxyAPI/LiteLLM/Ollama model list, Safari,
 screen readers.
 
+### UX round 3 (2026-11-17)
+
+Follows "Round 3 rules" in SIMPLIFIED_IA.md:
+
+- List cards are separate neutral cards and desktop grid blocks are neutral too, each with a
+  4 px category stripe; tall blocks repeat the shared row 1 (時間 · 時長, soft category chip,
+  one badge: AI 整理中 accent, 受保護畫面 amber, others neutral). Same-minute and zero-length
+  ranges show only the start time. Every empty hour collapses into a `沒有記錄` gap.
+- Focus restoration passes `focusVisible: false`, and pointer-modality tracking hides rings
+  after pointer actions (keyboard users keep the thin ring).
+- Card detail order: title → app · time · length → summary → `AI 整理，可能有誤，請核對。`
+  (ai/local_excerpt only) → category chips → icon + text `修改文字`; no top colour border.
+- 回顧 on phones: 日/週 on row 1, `‹ 日期 › 今天` on row 2; time split is one line per
+  category with aligned bars; ask chips scroll in one row; send is an icon inside the input.
+  The week chart uses seven equal columns (~160 px), values above bars, `—` for empty days
+  and `平均每天 X（已過 N 天）`.
+- Copy: `AI 產生，可能有誤，請對照時間軸。`, `會把問題和這段時間的活動卡送到 <host>（不含截圖）。`,
+  dialog title `AI`, `API 金鑰`, `檔案含私人內容，不含截圖；請自行保管。`, `已用 0 MB / 10.0 GB`.
+- AI dialog: 自訂 tile shows only `自訂` with its description below once selected;
+  `載入模型清單` is a secondary button with a loading label, styled like the `取得 API 金鑰`
+  link; all switches share one size with a visible outlined off state.
+- 設定: the recording line reads `最後連線 11/17 03:17` (or `手機超過一天沒有連線`) instead of
+  `記錄中`; no divider under the last switch; the phone chip row fades at its edge; http
+  origins show the no-HTTPS warning row in addition to the loopback hint; desktop secondary
+  text is 14 px.
+
 ## History (before 2026-11-17)
 
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues

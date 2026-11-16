@@ -1134,18 +1134,6 @@ summary:focus-visible,
     min-width: 0;
     max-width: 100%;
   }
-  .chart-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 10px;
-  }
-  .chart-row .bar {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .chart-row small {
-    grid-column: 2;
-    grid-row: 1;
-  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1181,7 +1169,7 @@ summary:focus-visible,
   overscroll-behavior: contain;
 }
 .activity-inspector {
-  border-top: 3px solid var(--cat);
+  border-top: 1px solid var(--edge);
 }
 .activity-inspector h2,
 .activity-inspector dd {
@@ -2317,5 +2305,322 @@ dialog .disclosure {
   .main-timeline .top,
   .main-review .top {
     padding: 8px 0;
+  }
+}
+
+/* ---- UX round 3 ---- */
+/* Programmatic focus after a pointer action never shows a ring; keyboard users keep it. */
+html[data-modality="pointer"] :focus-visible {
+  outline: none;
+}
+/* Cards everywhere: neutral background, 4 px category stripe, shared row 1. */
+.event,
+.event:hover {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 4px solid var(--cat);
+  box-shadow: none;
+  top: calc(var(--top) + 2px);
+  height: calc(var(--height) - 4px);
+  padding: 4px 10px;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+.event:hover {
+  background: var(--wash);
+}
+.event.compact {
+  flex-direction: row;
+  align-items: center;
+  padding: 0 10px;
+}
+.event.compact small {
+  margin-left: auto;
+  flex: none;
+}
+.event strong {
+  flex: none;
+  max-width: 100%;
+}
+.event-head {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.event-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.event.is-selected,
+.activity.is-selected {
+  border-color: var(--accent);
+  border-left-color: var(--cat);
+  box-shadow: 0 0 0 2px var(--accent);
+  z-index: 2;
+}
+.timeline-panel.list-mode {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.activity-list li {
+  margin-bottom: 10px;
+}
+.activity {
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px #1c241e14;
+}
+.cat-chip {
+  gap: 0;
+  padding: 1px 9px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--cat, #b7c2b5) 22%, #ffffff);
+  color: #303a32;
+  white-space: nowrap;
+}
+.badge,
+.badge.note {
+  background: #eef1ec;
+  border: 0;
+  color: #3d4a40;
+  font-size: 13px;
+  padding: 1px 9px;
+  white-space: nowrap;
+}
+.badge.pending {
+  background: #dbe8de;
+  color: var(--accent-deep);
+}
+.badge.protected {
+  background: #f6ead0;
+  color: #5d4513;
+}
+.list-divider {
+  color: #5b665c;
+}
+.list-divider span {
+  background: #eef1ec;
+  border-radius: 20px;
+  padding: 1px 10px;
+}
+.detail-meta {
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.icon-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.icon-text .icon {
+  width: 18px;
+  height: 18px;
+}
+/* 回顧 */
+.chart-row {
+  grid-template-columns: minmax(64px, auto) minmax(40%, 1fr) auto;
+  gap: 10px;
+}
+.chart-row .cat-chip {
+  background: none;
+  padding: 0;
+}
+.week-bars {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+.week-day-bar {
+  width: 100%;
+  padding: 6px 0 8px;
+  gap: 6px;
+}
+.week-column {
+  width: min(36px, 70%);
+  height: 160px;
+}
+.week-value {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.week-column.is-empty {
+  border-bottom: 2px solid #cfd8cc;
+}
+.ask-ideas {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+.ask-ideas .chip {
+  flex: none;
+  white-space: nowrap;
+  font-size: 13px;
+  min-height: 32px;
+}
+.ask-form input {
+  padding-right: 56px;
+}
+.send-btn {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 44px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+}
+.send-btn:hover {
+  background: var(--accent-deep);
+}
+/* Switches: a visible off state (outlined track), same size everywhere. */
+button.switch .track,
+input.switch-input {
+  width: 52px;
+  height: 30px;
+  min-height: 30px;
+  border-radius: 30px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 2px #75837a;
+}
+button.switch i,
+input.switch-input::after {
+  top: 5px;
+  left: 5px;
+  width: 20px;
+  height: 20px;
+  background: #75837a;
+  box-shadow: none;
+}
+button.switch.on .track,
+input.switch-input:checked {
+  background: var(--accent);
+  box-shadow: none;
+}
+button.switch.on i,
+input.switch-input:checked::after {
+  background: #ffffff;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  transform: translateX(22px);
+}
+/* AI */
+.provider-note {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.key-link {
+  margin: 8px 0 0;
+}
+a.button-link,
+button.secondary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--wash);
+  color: var(--accent-deep);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+a.button-link:hover,
+button.secondary:hover {
+  background: var(--edge);
+}
+/* 設定 */
+.settings-section .switch-row:last-child {
+  border-bottom: 0;
+}
+.http-note {
+  margin: 6px 0 10px;
+  font-size: 14px;
+}
+@media (min-width: 861px) {
+  .hint,
+  .muted,
+  small,
+  .disclosure,
+  .stack-legend,
+  .source-line,
+  .provider-note,
+  .week-value,
+  .event-time,
+  .activity-head,
+  .activity-head .activity-time,
+  .badge,
+  .badge.note,
+  .facts,
+  .picker-label {
+    font-size: 14px;
+  }
+}
+.chart-row small {
+  white-space: nowrap;
+  text-align: right;
+}
+/* Fixed name/value columns keep every bar aligned. */
+.chart-row {
+  grid-template-columns: 6.5em minmax(40%, 1fr) 9.5em;
+}
+@media (max-width: 860px) {
+  .chart-row {
+    gap: 6px;
+    font-size: 13px;
+    grid-template-columns: 5.2em minmax(40%, 1fr) 8.8em;
+  }
+  .chart-row small {
+    font-size: 13px;
+  }
+  /* 回顧 header: the 日/週 segment on row 1, ‹ date › 今天 compact on row 2. */
+  .main-review .top-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .main-review .top-controls .segmented {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .main-review .top-controls .date-nav {
+    grid-column: 1;
+  }
+  .main-review .top-controls [data-key="day-today"] {
+    grid-column: 2;
+  }
+  .main-timeline .top-controls {
+    flex-wrap: nowrap;
+  }
+  .ask-ideas {
+    margin: 12px -16px 0;
+    padding: 0 16px 4px;
+  }
+  .week-column {
+    height: 140px;
+  }
+  /* A visible edge fade shows the section chips scroll sideways. */
+  .section-jump {
+    -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
+    mask-image: linear-gradient(to right, #000 85%, transparent);
+    padding-right: 40px;
   }
 }

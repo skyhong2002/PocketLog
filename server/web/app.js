@@ -53,6 +53,8 @@ const icons = {
   next: "M9.5 5.5L16 12l-6.5 6.5",
   done: "M5 12.5l4.5 4.5L19 7.5",
   close: "M6.5 6.5l11 11M17.5 6.5l-11 11",
+  edit: "M4.5 19.5l1-4 10-10 3 3-10 10zM14 7l3 3",
+  send: "M4.5 12h13M12 6.5l5.5 5.5-5.5 5.5",
   copy: "M8 8h11v12H8zM5 16V4h11",
 };
 function icon(name) {
@@ -352,10 +354,10 @@ function timelineTicks(date) {
   return ticks;
 }
 /* Vertical axis for one journal day. Hours with any card (or the current
-   moment) keep HOUR_PX; runs of at least minEmpty empty hours collapse into one
+   moment) keep HOUR_PX; every run of empty hours collapses into one
    thin 沒有記錄 gap. Returns the segments and y(ms), the pixel offset of a time. */
 const HOUR_PX = 64, GAP_PX = 34;
-function timeAxis(bounds, cards, { minEmpty = 2, now = null, hourPx = HOUR_PX, gapPx = GAP_PX } = {}) {
+function timeAxis(bounds, cards, { minEmpty = 1, now = null, hourPx = HOUR_PX, gapPx = GAP_PX } = {}) {
   const busy = bounds.slice(0, -1).map((from, i) => {
     const to = bounds[i + 1];
     return cards.some((c) => c.start_ms < to && Math.max(c.end_ms, c.start_ms + 1) > from) ||
@@ -442,7 +444,8 @@ function cardLength(c) {
   return duration(Math.max(1, c.end_ms - c.start_ms));
 }
 function cardTimes(c) {
-  return c.end_ms > c.start_ms ? `${time(c.start_ms)}–${time(c.end_ms)}` : time(c.start_ms);
+  const from = time(c.start_ms), to = time(c.end_ms);
+  return c.end_ms > c.start_ms && from !== to ? `${from}–${to}` : from;
 }
 function styleFor(id) {
   return prefs.categories.find((c) => c.id === id) || prefs.categories.at(-1);
@@ -1051,7 +1054,7 @@ function restoreFocus(key, complete = false) {
   // category can remove the originating card from the active filter.
   if (!n && complete && key.startsWith("card-")) n = $("#main");
   if (n && !n.disabled) {
-    n.focus({ preventScroll: true });
+    n.focus({ preventScroll: true, focusVisible: false });
     // Rebuilding the shell can reset document scrolling. Keep restored controls
     // visible, including horizontal chips and phone bottom-bar clearance.
     if (n !== $("#main"))
@@ -1438,6 +1441,8 @@ async function timelinePage(parent, seq) {
       ),
     );
   } else if (currentView() === "list") {
+    // Separate cards, not rows inside one panel.
+    left.classList.add("list-mode");
     activityList(left, shown);
   } else {
     add(left, el("p", "一天從 04:00 開始。空白時段代表沒有記錄。", "muted"));
@@ -1579,7 +1584,15 @@ function cardBadges(c, compact = true) {
   ].filter(Boolean);
   return compact ? all.slice(0, 1) : all;
 }
+function badgeClass(label) {
+  return label === PENDING_LABEL ? "badge pending" : label.startsWith("受保護畫面") ? "badge protected" : "badge";
+}
 const APP_ONLY_SUMMARY = "只知道使用了這個 app";
+function catChip(category) {
+  const chip = add(el("span", null, "cat-chip"), el("i", null, "dot"), document.createTextNode(category.name));
+  chip.style.setProperty("--cat", category.color);
+  return chip;
+}
 function cardSummary(c) {
   return c.summary || (c.source === "app_only" ? APP_ONLY_SUMMARY : "");
 }
@@ -1663,11 +1676,18 @@ function track(data) {
       b.style.setProperty("--lanes", lanes);
       b.setAttribute("aria-label", eventLabel(c));
       b.title = eventLabel(c).replaceAll("，", " · ");
-      add(b, el("strong", cardTitle(c)));
-      if (height >= 20) add(b, el("small", `${cardTimes(c)} · ${cardLength(c)}`));
-      if (height >= 56)
-        add(b, el("span", [category.name, ...cardBadges(c)].join(" · "), "event-meta"));
-      if (height >= 90 && c.summary) add(b, el("span", c.summary, "event-summary"));
+      if (height >= 46) {
+        add(b, add(el("span", null, "event-head"),
+          el("span", `${cardTimes(c)} · ${cardLength(c)}`, "event-time"),
+          catChip(category),
+          ...cardBadges(c).map((x) => el("span", x, badgeClass(x)))));
+        add(b, el("strong", cardTitle(c)));
+        if (height >= 80 && cardSummary(c)) add(b, el("span", cardSummary(c), "event-summary"));
+      } else {
+        b.classList.add("compact");
+        add(b, el("strong", cardTitle(c)));
+        if (height >= 18) add(b, el("small", `${cardTimes(c)} · ${cardLength(c)}`));
+      }
       add(lane, b);
     }
   }
@@ -1763,8 +1783,8 @@ function searchPanel(parent) {
           add(
             el("span", null, "activity-head"),
             el("span", `${shortDate(dateKey(new Date(c.start_ms)), false)} ${cardTimes(c)} · ${cardLength(c)}`, "activity-time"),
-            add(el("span", null, "cat-chip"), el("i", null, "dot"), document.createTextNode(style.name)),
-            ...cardBadges(c).map((x) => el("span", x, "badge note")),
+            catChip(style),
+            ...cardBadges(c).map((x) => el("span", x, badgeClass(x))),
           ),
           el("strong", cardTitle(c), "activity-title"),
           cardSummary(c) ? el("span", cardSummary(c), "activity-summary") : null,
@@ -1842,8 +1862,8 @@ function activityList(parent, cards) {
       add(
         el("span", null, "activity-head"),
         el("span", `${cardTimes(c)} · ${cardLength(c)}`, "activity-time"),
-        add(el("span", null, "cat-chip"), el("i", null, "dot"), document.createTextNode(category.name)),
-        ...cardBadges(c).map((x) => el("span", x, "badge note")),
+        catChip(category),
+        ...cardBadges(c).map((x) => el("span", x, badgeClass(x))),
       ),
       el("strong", cardTitle(c), "activity-title"),
       summary ? el("span", summary, "activity-summary") : null,
@@ -1873,9 +1893,8 @@ async function saveCard(c, changes, current) {
 }
 /* Card detail shared by the desktop inspector and the card dialog. Returns the
    element that should receive focus when the detail opens. */
+const DISCLAIMER = "AI 整理，可能有誤，請核對。";
 function cardDetail(box, c, { current, saved, heading = true }) {
-  const source = contentSource(c.source);
-  add(box, el("p", `${cardTimes(c)} · ${cardLength(c)}`, "eyebrow"));
   let title = null;
   if (heading) {
     // Read-only; text editing lives behind 修改文字.
@@ -1883,9 +1902,15 @@ function cardDetail(box, c, { current, saved, heading = true }) {
     title.tabIndex = -1;
     add(box, title);
   }
-  const states = [source.label, ...cardBadges(c, false).filter((x) => x !== source.label)];
-  add(box, el("p", states.join(" · "), "source-line"));
-  // The category comes first so it is always visible without scrolling.
+  const when = c.end_ms > c.start_ms && time(c.start_ms) !== time(c.end_ms)
+    ? `${shortDate(dateKey(new Date(c.start_ms)), false)} ${cardTimes(c)}` : stamp(c.start_ms);
+  add(box, el("p", `${appName(c.app)} · ${when} · ${cardLength(c)}`, "detail-meta"));
+  const badges = cardBadges(c, false);
+  if (badges.length) add(box, add(el("div", null, "badges"), ...badges.map((x) => el("span", x, badgeClass(x)))));
+  add(box, el("p", cardSummary(c) || "這張卡片還沒有摘要。", c.summary ? "detail-summary" : "detail-summary muted"));
+  if (c.source === "ai" || c.source === "local_excerpt") add(box, el("p", DISCLAIMER, "hint"));
+  if (c.protected_screen === true) add(box, el("p", PROTECTED_HELP, "hint"));
+  if (c.pending_context === true) add(box, el("p", PENDING_HELP, "hint"));
   const picker = el("div", null, "category-picker");
   picker.setAttribute("role", "group");
   picker.setAttribute("aria-label", "分類，點一下就會儲存");
@@ -1901,21 +1926,9 @@ function cardDetail(box, c, { current, saved, heading = true }) {
     b.style.setProperty("--cat", cat.color);
     add(picker, b);
   });
-  add(
-    box,
-    el("p", "分類 · 點一下就會儲存", "picker-label"),
-    picker,
-    el("p", cardSummary(c) || "這張卡片還沒有摘要。", c.summary ? "detail-summary" : "detail-summary muted"),
-    facts([
-      ["應用程式", appName(c.app)],
-      ["時間", c.end_ms > c.start_ms ? `${stamp(c.start_ms)} – ${time(c.end_ms)}` : stamp(c.start_ms)],
-    ]),
-  );
-  if (c.protected_screen === true) add(box, el("p", PROTECTED_HELP, "hint"));
-  if (c.pending_context === true) add(box, el("p", PENDING_HELP, "hint"));
-  add(box, el("p", source.detail, "hint"));
+  add(box, el("p", "分類 · 點一下就會儲存", "picker-label"), picker);
   const editor = el("div", null, "text-editor");
-  const toggle = keyed(btn("修改文字", () => {
+  const toggle = keyed(btn("", () => {
     toggle.hidden = true;
     const t = field(editor, "標題", cardTitle(c));
     const s = field(editor, "摘要", c.summary, "textarea");
@@ -1943,7 +1956,8 @@ function cardDetail(box, c, { current, saved, heading = true }) {
       ),
     );
     t.focus();
-  }, "text-btn"), "edit-text");
+  }, "icon-text"), "edit-text");
+  add(toggle, icon("edit"), el("span", "修改文字"));
   add(box, toggle, editor);
   const thumbs = el("div", null, "thumbs");
   add(box, thumbs);
@@ -2018,6 +2032,9 @@ async function reviewPage(parent, seq) {
   topics(side, overview);
   askPanel(main, from, to);
 }
+function askDisclosure(host) {
+  return `會把問題和這段時間的活動卡送到 ${host}（不含截圖）。`;
+}
 function askExamples(mode) {
   return mode === "week"
     ? ["這週花最多時間在哪？", "這週學了什麼？", "這週有哪些分心的時段？"]
@@ -2070,7 +2087,7 @@ function briefCard(parent, saved, from, to) {
     add(
       box,
       el("p", brief.text, "brief-text"),
-      el("p", `AI 產生 · ${stamp(brief.from_ms)} – ${stamp(brief.to_ms)} · 可能有誤，請對照時間軸`, "muted"),
+      el("p", "AI 產生，可能有誤，請對照時間軸。", "hint"),
       row(
         keyed(btn("重新產生", generate), "brief-generate"),
         keyed(btn("刪除", async () => {
@@ -2105,7 +2122,7 @@ function timeSplit(parent, overview) {
     bar.style.setProperty("--cat", style.color);
     add(chart, add(
       el("li", null, "chart-row"),
-      el("span", style.name),
+      catChip(style),
       bar,
       el("small", `${duration(c.duration_ms)} · ${Math.round((c.duration_ms / total) * 100)}%`),
     ));
@@ -2156,12 +2173,14 @@ function weekBars(parent, days) {
     });
     add(column, fill);
     const label = `週${WEEKDAYS[new Date(d.date + "T12:00:00").getDay()]}`;
-    const hours = future ? "" : weekHours(totals[i]);
+    const value = el("span", future || !totals[i] ? "—" : weekHours(totals[i]), "week-value");
     const item = el("li");
+    const parts = [value, column, el("strong", label)];
     if (future) {
       const b = el("div", null, "week-day-bar future");
+      b.setAttribute("role", "img");
       b.setAttribute("aria-label", `${shortDate(d.date)}：尚未到來`);
-      add(b, column, el("strong", label), el("small", hours));
+      add(b, ...parts);
       add(item, b);
     } else {
       const b = keyed(btn("", async () => {
@@ -2171,7 +2190,7 @@ function weekBars(parent, days) {
         await shell();
       }, d.date === day ? "week-day-bar selected" : "week-day-bar"), `week-${d.date}`);
       b.setAttribute("aria-label", `${shortDate(d.date)}：${totals[i] ? `記錄 ${duration(totals[i])}` : "沒有記錄"}。開啟這一天的回顧`);
-      add(b, column, el("strong", label), el("small", hours));
+      add(b, ...parts);
       add(item, b);
     }
     add(list, item);
@@ -2179,7 +2198,10 @@ function weekBars(parent, days) {
   add(box, list);
   const elapsed = days.filter((d) => d.date <= today).length;
   const sum = totals.reduce((n, ms, i) => n + (days[i].date <= today ? ms : 0), 0);
-  if (elapsed) add(box, el("p", `平均每天 ${duration(sum / elapsed)}`, "week-average"));
+  if (elapsed) add(box, el("p", weekAverage(sum, elapsed), "week-average"));
+}
+function weekAverage(sum, elapsed) {
+  return `平均每天 ${duration(sum / elapsed)}（已過 ${elapsed} 天）`;
 }
 /* Week bar values: one decimal hour, e.g. 4.1 時. */
 function weekHours(ms) {
@@ -2216,7 +2238,10 @@ function askPanel(parent, from, to) {
   input.autocomplete = "off";
   input.value = state.draft;
   input.oninput = () => (state.draft = input.value);
-  const send = keyed(el("button", "送出", "primary"), "ask-send");
+  const send = keyed(el("button", null, "send-btn"), "ask-send");
+  send.setAttribute("aria-label", "送出");
+  send.title = "送出";
+  add(send, icon("send"));
   send.type = "submit";
   add(form, label, input, send);
   const ideas = el("div", null, "chips ask-ideas");
@@ -2321,7 +2346,7 @@ function askPanel(parent, from, to) {
     log,
     form,
     ideas,
-    el("p", `送出時，這段時間的活動卡和問題會送到 ${providerHost()}（不含截圖）。`, "disclosure"),
+    el("p", askDisclosure(providerHost()), "disclosure"),
   );
   // The page is built off-screen, so render the retained conversation directly.
   send.disabled = !!activeAsk;
@@ -2510,10 +2535,32 @@ function settingsSection(parent, id, title, state, stateClass = "") {
   add(parent, s);
   return s;
 }
+/* Last contact in compact form, e.g. 11/17 03:17. */
+function shortStamp(ms) {
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}/${d.getDate()} ${time(ms)}`;
+}
+function latestContact(phones) {
+  return Math.max(0, ...phones.map((d) => (Number.isFinite(d.last_authenticated_ms) ? d.last_authenticated_ms : 0)));
+}
+function phoneStale(phones, now) {
+  const last = latestContact(phones);
+  return last > 0 && now - last > 86400000;
+}
+/* The web never claims 記錄中 from last-seen alone. */
+function recordState(control, phones, now) {
+  if (!control) return "暫時讀不到記錄狀態";
+  if (control.paused) return "已暫停：伺服器不接受新的記錄";
+  if (!phones) return "暫時讀不到手機狀態";
+  if (!phones.length) return "還沒有連接手機";
+  const last = latestContact(phones);
+  if (!last) return "手機還沒連線過";
+  return phoneStale(phones, now) ? "手機超過一天沒有連線" : `最後連線 ${shortStamp(last)}`;
+}
 function lastSeen(device) {
   if (!Object.hasOwn(device, "last_authenticated_ms")) return "伺服器沒有提供連線時間";
   return Number.isFinite(device.last_authenticated_ms) && device.last_authenticated_ms > 0
-    ? `最後連線 ${stamp(device.last_authenticated_ms)}`
+    ? `最後連線 ${shortStamp(device.last_authenticated_ms)}`
     : "還沒連線過";
 }
 /* A navigation row: one line of state, a chevron, opens a dialog. */
@@ -2570,8 +2617,8 @@ async function settingsPage(parent, seq) {
     parent,
     "record",
     "記錄",
-    !control ? "暫時讀不到記錄狀態" : control.paused ? "已暫停：伺服器不接受新的記錄" : "記錄中",
-    control?.paused ? "warn" : "ok",
+    recordState(control, devices ? activePhones : null, now),
+    control?.paused || (activePhones.length && phoneStale(activePhones, now)) ? "warn" : "",
   );
   if (!devices) failed(record, "裝置");
   else if (!activePhones.length)
@@ -2659,7 +2706,7 @@ async function settingsPage(parent, seq) {
         notice("已複製伺服器網址");
       }), "settings-copy-origin"),
     ),
-    originHint(location) ? el("p", originHint(location), "hint") : null,
+    ...originHints(location).map((text) => el("p", text, text === HTTP_NOTE ? "callout warn http-note" : "hint")),
     navRow("管理裝置金鑰", "settings-devices-manage", devicesDialog, !!devices && !devices.devices.length),
     row(keyed(btn("登出這個瀏覽器", async () => {
       await api("/session", null, "DELETE");
@@ -2673,7 +2720,7 @@ async function settingsPage(parent, seq) {
     parent,
     "data",
     "資料",
-    storage ? `已使用 ${gib(storage.used_bytes)}，上限 ${gib(storage.limit_bytes)}` : "暫時讀不到儲存空間",
+    storage ? storageLine(storage) : "暫時讀不到儲存空間",
   );
   if (storage) {
     const used = el("progress");
@@ -2714,7 +2761,7 @@ async function settingsPage(parent, seq) {
         await exportData(snapshot.days, snapshot.reviews, snapshot.reviewsTruncated, `${dates[0]}_${today}`);
       }), "settings-export"),
     ),
-    el("p", "JSON 檔含私人內容、不含截圖；離開 PocketLog 後請自行保管。", "hint"),
+    el("p", "檔案含私人內容，不含截圖；請自行保管。", "hint"),
     // Destructive actions stay last, low emphasis, behind a 無法復原 confirmation.
     add(el("div", null, "danger-zone"), keyed(btn("刪除全部記錄…", async () => {
       if (
@@ -2803,10 +2850,11 @@ function isLoopbackHost(hostname) {
 }
 /* One line under the phone address: loopback cannot be reached from the phone;
    plain http relies on the VPN／private network. */
-function originHint(loc) {
-  if (isLoopbackHost(loc.hostname)) return "這是本機位址；手機請用 VPN／區網位址";
-  if (loc.protocol === "http:") return HTTP_NOTE;
-  return "";
+function originHints(loc) {
+  const hints = [];
+  if (isLoopbackHost(loc.hostname)) hints.push("這是本機位址；手機請用 VPN／區網位址");
+  if (loc.protocol === "http:") hints.push(HTTP_NOTE);
+  return hints;
 }
 const HTTP_NOTE = "這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路";
 const PRIVATE_NETWORKS = "VPN／私人網路（例如 Tailscale、ZeroTier、Headscale、WireGuard、區網）";
@@ -2927,8 +2975,7 @@ function aiForm(p, saved) {
         renderForm();
         picker.querySelector(`[data-key="provider-${preset.id}"]`)?.focus({ focusVisible: false });
       }, chosen === preset.id ? "provider active" : "provider"), `provider-${preset.id}`);
-      add(b, el("span", preset.name), preset.note ? el("small", preset.note) : null);
-      if (preset.note) b.setAttribute("aria-label", preset.name + preset.note);
+      add(b, el("span", preset.name));
       b.setAttribute("aria-pressed", String(chosen === preset.id));
       return b;
     }));
@@ -2940,6 +2987,7 @@ function aiForm(p, saved) {
     const same = chosen === initial && ai.enabled;
     const custom = chosen === "custom";
     let endpoint = null;
+    if (preset.note) add(form, el("p", preset.note.replace(/^（|）$/g, ""), "provider-note"));
     if (custom) {
       endpoint = field(form, "API 網址", same ? proxyBase(ai.endpoint) : "", "url",
         "OpenAI 相容的網址（到 /v1 即可）；http:// 只限本機或私人網路。");
@@ -2949,7 +2997,7 @@ function aiForm(p, saved) {
     }
     const key = field(
       form,
-      "金鑰",
+      "API 金鑰",
       "",
       "password",
       custom ? "代理不需要金鑰可留白。" : same && ai.has_key ? undefined : "只存在你的伺服器，不會再顯示。",
@@ -2957,14 +3005,26 @@ function aiForm(p, saved) {
     key.autocomplete = "new-password";
     key.spellcheck = false;
     if (same && ai.has_key) key.placeholder = "已儲存金鑰 ••••，貼上新的會取代";
-    if (preset.keyUrl) add(form, add(el("p", null, "key-link"), link(`取得 ${preset.name} API 金鑰`, preset.keyUrl)));
+    if (preset.keyUrl) {
+      const keyLink = link(`取得 ${preset.name} API 金鑰`, preset.keyUrl);
+      keyLink.className = "button-link";
+      add(form, add(el("p", null, "key-link"), keyLink));
+    }
     const model = field(form, "模型", same ? ai.model : preset.model, "text", custom ? "例如 gpt-5-mini 或 llama3.2-vision；也可以載入清單選擇。" : "已填入建議的模型，可以改，或載入清單選擇。");
     model.spellcheck = false;
     model.autocapitalize = "off";
     // 載入模型清單: a pickable list; free text stays as the fallback.
     const listBox = el("div", null, "model-list");
     const loadModels = keyed(btn("載入模型清單", async () => {
-      listBox.replaceChildren(el("p", "正在讀取模型清單…", "hint"));
+      loadModels.textContent = "正在載入…";
+      try {
+        await readModels();
+      } finally {
+        loadModels.textContent = "載入模型清單";
+      }
+    }, "secondary"), "ai-load-models");
+    const readModels = async () => {
+      listBox.replaceChildren();
       let body;
       try {
         body = modelsRequest(chosen, model.value, endpoint?.value, key.value.trim());
@@ -2996,8 +3056,8 @@ function aiForm(p, saved) {
       choose.onchange = () => {
         if (choose.value) model.value = choose.value;
       };
-      choose.focus();
-    }, "text-btn"), "ai-load-models");
+      choose.focus({ focusVisible: false });
+    };
     add(form, row(loadModels), listBox);
     const images = check(form, "讓 AI 看截圖", same ? ai.image_support : preset.images !== false);
     add(form, el("p", "模型要能讀圖片；關閉時只送畫面文字。", "hint"));
@@ -3062,7 +3122,7 @@ function aiForm(p, saved) {
 }
 /* The AI page: AI 服務 → 金鑰 → 模型 → 讓 AI 看截圖 → 測試並儲存 → 自動化 → 停用. */
 function providerDialog(done) {
-  modal(ai.enabled ? "AI 設定" : "設定 AI", (p) => {
+  modal("AI", (p) => {
     const rerender = (key) => {
       // The settings summary behind the dialog refreshes when it closes.
       refreshOnClose = true;
@@ -3573,6 +3633,9 @@ function categoriesDialog() {
     );
   });
 }
+function storageLine(storage) {
+  return `已用 ${gib(storage.used_bytes)} / ${gib(storage.limit_bytes)}`;
+}
 /* Storage: MB without decimals under 1 GB, otherwise GB with one decimal. */
 function gib(bytes) {
   return bytes < 1024 ** 3 ? `${Math.round(Math.max(0, bytes) / 1024 ** 2)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -3679,11 +3742,14 @@ if (typeof module !== "undefined")
     searchActivities, timelineGroups, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds,
     timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot,
     captureStatus, providerSettings, presetFor, aiLabel, appName, cardTitle, AI_PROVIDERS,
-    timeAxis, isPrivateHost, originHint, proxyBase, modelsRequest, parseModels, topicsVisible,
+    timeAxis, isPrivateHost, originHints, proxyBase, recordState, storageLine, weekAverage, askDisclosure, badgeClass, modelsRequest, parseModels, topicsVisible,
     askExamples, weekHours, gib, cardSummary,
     shortDate, weekRange, cardLength, cardTimes, cardBadges,
   };
 if (inBrowser) {
+  const modality = (value) => () => { document.documentElement.dataset.modality = value; };
+  addEventListener("pointerdown", modality("pointer"), true);
+  addEventListener("keydown", modality("keyboard"), true);
   inspectorMedia.addEventListener("change", (event) => {
     if (timelineInspector)
       timelineInspector.reset(!event.matches && timelineInspector.ownsFocus && !$("#modal").open);
