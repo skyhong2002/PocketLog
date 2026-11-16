@@ -247,3 +247,39 @@ asset), then installs through `PackageInstaller`; Android shows its own confirma
 time asks to allow installs from PocketLog. Updates only succeed when the release is signed with
 the same key as the installed app. Only GitHub is contacted; no journal data is sent. Sandbox and
 debug builds never check.
+
+## Round 4 rules (2026-11-17)
+
+- **Selection** never uses a thick dark outline anywhere (category chips, grid blocks, tabs, nav):
+  selected = tonal soft fill (+ optional ✓). Bottom-nav/rail selected item = the soft pill behind
+  the icon on both clients.
+- **Category order** is the workspace order on both clients; colour dots sit inside chip padding.
+- **自訂 provider tile**: two lines everywhere — `自訂` and, smaller, `OpenAI 相容（CLIProxyAPI、
+  LiteLLM、Ollama…）`. Provider choices are rounded-rectangle tiles (12 px radius) on both
+  clients; `取得 API 金鑰` is a text link with an external-link icon on both.
+- **Switch rows**: title regular, subtitle one step smaller and muted; helper text sits directly
+  under its label. All switches one size.
+- **Delete confirmations** state the scope and `無法復原` (journal deletion, local data reset, AI
+  key removal).
+- **Pending card** summary placeholder `正在整理這段活動…` so every card has three rows.
+- **隔天凌晨** is a small soft neutral pill centred on a hairline.
+- **Time split**: the bar flexes up to the value column (no fixed short track); compact rows
+  (~48–56 px).
+- **Ask AI**: chip side padding ≥ 12 px, full-width `？`, edge fade on the scroll row, the
+  disclosure never breaks inside `（不含截圖）`, and an empty-state line `問題和回答會出現在這裡`.
+  Send = filled circular accent icon button inside the input on both clients.
+- **Week chart**: ~160 px/dp tall, bars ~60% of the column width, value directly above the bar,
+  `—` on the baseline for empty days, today marked only by a bold weekday label (no boxes).
+- **Headers**: all three tabs use the same header (title + optional single icon action), no logo.
+- **Actionable rows** (`立即同步`, `檢查更新`) show a trailing icon; information shows once
+  (no duplicate version footer / duplicate `最後連線`).
+- **Recording (phone)**: the `自動記錄` switch alone starts the guided flow (no extra
+  `開始記錄` button); off-state subtitle `尚未開始記錄`; battery caption directly under it;
+  `暫停所有裝置` is a visible row in 記錄.
+- **Web desktop 時間表**: blocks sit at their true times on a true hour scale (minimum height
+  only, no reflow that misaligns hour labels); blocks ≥ 40 px tall show row 1 (time · duration,
+  category chip, badge) and the title, taller ones also the summary; short blocks show at least the
+  badge icon. Empty-hour gaps are faint text-only markers; `隔天凌晨` sits at 00:00.
+- **Web controls**: native selects and date-nav buttons use the soft pill style; on narrow screens
+  the 時間表/清單 toggle is hidden (list only); settings section tabs wrap to two rows on mobile
+  instead of clipping.
