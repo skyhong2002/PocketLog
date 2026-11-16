@@ -44,11 +44,11 @@ pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
     .map_err(storage_error)?;
     // Observations, receipts and reflections are journal records and are kept
     // permanently. Screenshots are bounded by storage::enforce.
-    // Evidence that never matched an app session within a day stops being pending
-    // (the phone uploads sessions well within that window) but its text is kept.
+    // Evidence that never matched an app session within the deferred-upload window
+    // stops being pending (sessions upload sooner than context) but its text is kept.
     db.execute(
         "UPDATE observations SET processed=1 WHERE processed=0 AND at_ms<=?",
-        [now - DAY],
+        [now - MAX_CONTEXT_AGE],
     )
     .map_err(storage_error)?;
     db.execute(
@@ -91,6 +91,9 @@ struct Observation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider_id: Option<String>,
 }
+/// Phones defer screenshot uploads until charging, so context may arrive up to
+/// three days after capture and must still be analysed.
+pub(crate) const MAX_CONTEXT_AGE: i64 = 3 * DAY;
 /// About 300 KiB of JPEG, matching infovore's per-capture screenshot bound.
 pub(crate) const MAX_JPEG_BASE64: usize = 400_000;
 /// Bounds the analysis backlog, not retained history.
@@ -101,7 +104,7 @@ fn is_false(value: &bool) -> bool {
 async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> Result<StatusCode> {
     let now = now_ms();
     if !valid_id(&o.id)
-        || o.at_ms <= now - DAY
+        || o.at_ms <= now - MAX_CONTEXT_AGE
         || o.at_ms > now + 60_000
         || o.app.is_empty()
         || o.app.len() > 200

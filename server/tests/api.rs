@@ -287,7 +287,8 @@ async fn private_context_requires_consent_is_idempotent_and_never_read_back() {
         StatusCode::BAD_REQUEST
     );
     let mut expired = observation.clone();
-    expired["at_ms"] = json!(now - 86_400_001);
+    // Deferred (charging-time) uploads are accepted for three days, not longer.
+    expired["at_ms"] = json!(now - 3 * 86_400_000 - 1);
     assert_eq!(
         call(&app, "POST", "/v1/observations", expired, true)
             .await

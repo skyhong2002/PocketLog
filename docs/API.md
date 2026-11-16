@@ -87,8 +87,8 @@ are rejected; raw screenshots do not belong on `/v1/activities`.
 Context: one observation per request, ID ≤80 ASCII alphanumeric/dash/underscore,
 text ≤2,000 Unicode characters and 8,000 UTF-8 bytes. Optional base64 JPEG ≤400,000
 characters (about 300 KB); image consent required. The API bounds opaque input; JPEG
-decoding belongs to the isolated worker. Raw timestamps must fall within 24 hours and no
-more than 60 seconds in the future. Same-ID same-content replay succeeds without
+decoding belongs to the isolated worker. Raw timestamps must fall within 72 hours (phones defer
+screenshot uploads until charging) and no more than 60 seconds in the future. Same-ID same-content replay succeeds without
 duplicating retained raw content; conflicting payload returns 409. Receipt hashes
 are retained permanently.
 
