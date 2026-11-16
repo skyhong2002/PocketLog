@@ -22,15 +22,17 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
         try { files.write(name, clear) } finally { clear.fill(0) }
         prune(now)
     }
-    @JvmOverloads fun entries(credentials: Credentials, limit: Int = 32): List<Entry> = readEntries(credentials, limit)
+    /** Upload order; screen captures are left out while they wait for a charger. */
+    @JvmOverloads fun entries(credentials: Credentials, limit: Int = 32, includeObservations: Boolean = true): List<Entry> =
+        readEntries(credentials, limit, skipObservations = !includeObservations)
     // Timeline reads need all retained writes, including edits behind the upload batch.
     internal fun pendingReflections(credentials: Credentials): List<Entry> =
         readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections"))
     internal fun pendingJournalEdits(credentials: Credentials): List<Entry> =
         readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections", "/v1/cards"))
-    private fun readEntries(credentials: Credentials, limit: Int, paths: Set<String>? = null): List<Entry> {
+    private fun readEntries(credentials: Credentials, limit: Int, paths: Set<String>? = null, skipObservations: Boolean = false): List<Entry> {
         prune()
-        val skipContext = paths != null && CONTEXT_PATH !in paths
+        val skipContext = skipObservations || (paths != null && CONTEXT_PATH !in paths)
         // Decrypt lazily and stop at the limit: a day of thumbnails can be hundreds of megabytes.
         return files.names("q_").asSequence().filterNot { skipContext && it.endsWith(CONTEXT_SUFFIX) }.mapNotNull { name ->
             val bytes = runCatching { files.read(name) }.getOrNull()
@@ -48,6 +50,13 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
         files.remove(entry.name)
     }
     fun counts(): Pair<Int, Int> { prune(); return files.names("q_").size to files.names("r_").size }
+    /** Queued screen captures and their encrypted size, from file names and sizes only (nothing decrypted). */
+    fun observationBacklog(): Pair<Int, Long> {
+        val names = files.names("q_").filter { it.endsWith(CONTEXT_SUFFIX) }
+        return names.size to names.sumOf { files.size(it) }
+    }
+    /** Pending uploads, optionally without the screen captures that are waiting for a charger. */
+    fun pending(includeObservations: Boolean): Int { prune(); return files.names("q_").count { includeObservations || !it.endsWith(CONTEXT_SUFFIX) } }
     fun clearRejected() { files.names("r_").forEach(files::remove) }
     fun retryRejected(c: Credentials) {
         prune()
@@ -76,13 +85,19 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
     }
     fun prune(now: Long = System.currentTimeMillis()) {
         val all = (files.names("q_") + files.names("r_")).sortedBy { it.substringAfter('_') }
-        var total = all.sumOf { files.size(it) }
-        var count = all.size
-        all.forEach { name ->
-            val at = name.split('_').getOrNull(1)?.toLongOrNull() ?: 0
-            if (now - at >= RecordingRules.RAW_TTL || at > now + 60_000 || total > RecordingRules.MAX_QUEUE_BYTES || count > RecordingRules.MAX_QUEUE_RECORDS) {
-                total -= files.size(name); count--; files.remove(name); dropped()
-            }
+        fun at(name: String) = name.split('_').getOrNull(1)?.toLongOrNull() ?: 0
+        val kept = all.filterTo(mutableListOf()) { name ->
+            val ttl = if (name.endsWith(CONTEXT_SUFFIX)) RecordingRules.CONTEXT_TTL else RecordingRules.RAW_TTL
+            val expired = now - at(name) >= ttl || at(name) > now + 60_000
+            if (expired) { files.remove(name); dropped() }
+            !expired
+        }
+        var total = kept.sumOf { files.size(it) }
+        var count = kept.size
+        // Over the byte or record cap, drop the oldest screen captures before any app session or edit.
+        for (name in kept.filter { it.endsWith(CONTEXT_SUFFIX) } + kept.filterNot { it.endsWith(CONTEXT_SUFFIX) }) {
+            if (total <= RecordingRules.MAX_QUEUE_BYTES && count <= RecordingRules.MAX_QUEUE_RECORDS) break
+            total -= files.size(name); count--; files.remove(name); dropped()
         }
     }
 }

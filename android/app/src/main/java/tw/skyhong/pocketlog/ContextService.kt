@@ -9,8 +9,9 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * Allowlisted screen text, captured every ten seconds while an allowed app stays in front and on app
- * switches (at least five seconds apart). Pixels are a secure-window gate; thumbnails need consent.
+ * Allowlisted screen text and screenshots, captured every ten seconds while an allowed app stays in
+ * front and on app switches (at least five seconds apart). Protected windows keep text only; unchanged
+ * screens are skipped. Captures upload while charging (see [SyncEngine]).
  */
 class ContextService : AccessibilityService() {
     private val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -19,11 +20,13 @@ class ContextService : AccessibilityService() {
     private var lastCapture = 0L
     private var lastShot = 0L
     private var pending = false
+    // Last capture that was queued; only read and written on [executor].
+    @Volatile private var lastStored: ScreenChange.Fingerprint? = null
     @Volatile private var foreground = ""
     @Volatile private var generation = 0L
     private val screen = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
-            // Screen off/locked stops the minute timer; unlocking restarts it.
+            // Screen off/locked stops the capture timer; unlocking restarts it.
             if (intent.action == android.content.Intent.ACTION_SCREEN_OFF) { generation++; handler.removeCallbacks(tick) }
             else schedule(0)
         }
@@ -73,42 +76,69 @@ class ContextService : AccessibilityService() {
         fun report(outcome: CaptureDiagnostics.Outcome) = CaptureDiagnostics.complete(attempt, outcome, System.currentTimeMillis())
         // Structural exclusions and optional local text-secret checks run before pixels.
         if (safeNodes(pkg, window) == null) { report(CaptureDiagnostics.Outcome.WINDOW_REJECTED); return }
-        pending = true
         lastCapture = now
+        val capture = Attempt(pkg, window, now, currentGeneration, revision, attempt)
+        // Screenshots off: screen text only, without asking the system for pixels.
+        if (!settings.imagesEnabled) { record(capture, settings, null, shotTried = false, protectedScreen = false); return }
+        pending = true
         lastShot = now
         runCatching { takeScreenshotOfWindow(window, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
-                var imageFailed = false
-                val jpeg = try {
-                    if (currentGeneration == generation && revision == settings.revision && allowed(pkg, settings) && settings.imagesEnabled && safeNodes(pkg, window) != null)
-                        runCatching { ContextImage.jpeg(result) }.getOrNull().also { imageFailed = it == null } else null
-                } finally { result.hardwareBuffer.close() }
                 pending = false
-                runCatching { executor.execute { synchronized(SyncEngine.lock) {
-                    if (revision != settings.revision || currentGeneration != generation || foreground != pkg || !allowed(pkg, settings)) { report(CaptureDiagnostics.Outcome.CANCELED); return@synchronized }
-                    runCatching {
-                        val nodes = safeNodes(pkg, window) ?: run { report(CaptureDiagnostics.Outcome.WINDOW_REJECTED); return@runCatching }
-                        val lines = nodes.flatMap { node -> listOfNotNull(node.text?.let { RecordingRules.cap(it.toString(), 300) }, node.contentDescription?.let { RecordingRules.cap(it.toString(), 300) }) }
-                        if (revision != settings.revision || currentGeneration != generation || !allowed(pkg, settings)) { report(CaptureDiagnostics.Outcome.CANCELED); return@runCatching }
-                        val text = RecordingRules.normalize(lines)
-                        if (text.isBlank() && jpeg == null) { report(if (imageFailed) CaptureDiagnostics.Outcome.IMAGE_FAILED else CaptureDiagnostics.Outcome.EMPTY); return@runCatching }
-                        val credentials = CredentialStore(this@ContextService).load() ?: run { report(CaptureDiagnostics.Outcome.CONNECTION_MISSING); return@runCatching }
-                        // Model processing is decided once on the server (automatic summaries); no per-capture AI grant.
-                        val body = JSONObject()
-                            .put("id", UUID.randomUUID().toString()).put("at_ms", now).put("app", pkg)
-                            .put("text", text).put("analysis_consent", true)
-                        if (jpeg != null && settings.imagesEnabled) { body.put("jpeg_base64", jpeg).put("image_consent", true); if (settings.replayConsent) body.put("replay_consent", true) }
-                        JournalQueue(this@ContextService).enqueue(credentials, "/v1/observations", body)
-                        report(when { jpeg != null -> CaptureDiagnostics.Outcome.QUEUED_IMAGE; imageFailed -> CaptureDiagnostics.Outcome.QUEUED_TEXT_IMAGE_FAILED; else -> CaptureDiagnostics.Outcome.QUEUED_TEXT })
-                        runCatching { SyncEngine.schedule(this@ContextService) }.onFailure { report(CaptureDiagnostics.Outcome.QUEUED_SCHEDULE_FAILED) }
-                    }.onFailure { report(CaptureDiagnostics.Outcome.PROCESSING_FAILED) }
-                } } }.onFailure { report(CaptureDiagnostics.Outcome.PROCESSING_FAILED) }
+                val frame = try {
+                    if (currentGeneration == generation && revision == settings.revision) runCatching { ContextImage.copy(result) }.getOrNull() else null
+                } finally { result.hardwareBuffer.close() }
+                record(capture, settings, frame, shotTried = true, protectedScreen = false)
             }
             override fun onFailure(errorCode: Int) {
                 pending = false
-                report(if (errorCode == ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) CaptureDiagnostics.Outcome.SYSTEM_SECURE else CaptureDiagnostics.Outcome.SYSTEM_FAILED)
+                // Protected/DRM windows return no pixels and PocketLog never works around that: keep the
+                // app and its visible text, marked as protected, and never store a blank frame.
+                if (errorCode == ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) record(capture, settings, null, shotTried = true, protectedScreen = true)
+                else report(CaptureDiagnostics.Outcome.SYSTEM_FAILED)
             }
         }) }.onFailure { pending = false; report(CaptureDiagnostics.Outcome.SYSTEM_FAILED) }
+    }
+    private data class Attempt(val pkg: String, val window: Int, val at: Long, val generation: Long, val revision: Long, val diagnostic: Long)
+    /** Off the main thread: re-check the window, skip unchanged screens, then encode and queue. */
+    private fun record(capture: Attempt, settings: RecordingSettings, frame: android.graphics.Bitmap?, shotTried: Boolean, protectedScreen: Boolean) {
+        val pkg = capture.pkg
+        fun report(outcome: CaptureDiagnostics.Outcome) = CaptureDiagnostics.complete(capture.diagnostic, outcome, System.currentTimeMillis())
+        fun current() = capture.revision == settings.revision && capture.generation == generation && foreground == pkg && allowed(pkg, settings)
+        val submitted = runCatching { executor.execute { try { synchronized(SyncEngine.lock) {
+            if (!current()) { report(CaptureDiagnostics.Outcome.CANCELED); return@synchronized }
+            runCatching {
+                val nodes = safeNodes(pkg, capture.window) ?: run { report(CaptureDiagnostics.Outcome.WINDOW_REJECTED); return@runCatching }
+                val lines = nodes.flatMap { node -> listOfNotNull(node.text?.let { RecordingRules.cap(it.toString(), 300) }, node.contentDescription?.let { RecordingRules.cap(it.toString(), 300) }) }
+                if (!current()) { report(CaptureDiagnostics.Outcome.CANCELED); return@runCatching }
+                val text = RecordingRules.normalize(lines)
+                // Null for black/blank output: such a frame is never stored or uploaded.
+                val hash = frame?.let { runCatching { ContextImage.fingerprint(it) }.getOrNull() }
+                val imageFailed = shotTried && !protectedScreen && hash == null
+                if (text.isBlank() && hash == null) { report(if (imageFailed) CaptureDiagnostics.Outcome.IMAGE_FAILED else CaptureDiagnostics.Outcome.EMPTY); return@runCatching }
+                val fingerprint = ScreenChange.Fingerprint(pkg, RecordingRules.digest(text), hash, protectedScreen, capture.revision, capture.at)
+                // Battery: the same app, text and picture as last time is not encoded, stored or uploaded.
+                if (ScreenChange.unchanged(lastStored, fingerprint)) { report(CaptureDiagnostics.Outcome.UNCHANGED); return@runCatching }
+                val jpeg = if (hash != null && settings.imagesEnabled) ContextImage.jpeg(frame) else null
+                val credentials = CredentialStore(this@ContextService).load() ?: run { report(CaptureDiagnostics.Outcome.CONNECTION_MISSING); return@runCatching }
+                // Model processing is decided once on the server (automatic summaries); no per-capture AI grant.
+                val body = JSONObject()
+                    .put("id", UUID.randomUUID().toString()).put("at_ms", capture.at).put("app", pkg)
+                    .put("text", text).put("analysis_consent", true)
+                if (jpeg != null) { body.put("jpeg_base64", jpeg).put("image_consent", true); if (settings.replayConsent) body.put("replay_consent", true) }
+                if (protectedScreen) body.put("protected_screen", true)
+                JournalQueue(this@ContextService).enqueue(credentials, "/v1/observations", body)
+                lastStored = fingerprint.copy(imageHash = if (jpeg != null) hash else null)
+                report(when {
+                    protectedScreen -> CaptureDiagnostics.Outcome.QUEUED_PROTECTED
+                    jpeg != null -> CaptureDiagnostics.Outcome.QUEUED_IMAGE
+                    imageFailed || hash != null -> CaptureDiagnostics.Outcome.QUEUED_TEXT_IMAGE_FAILED
+                    else -> CaptureDiagnostics.Outcome.QUEUED_TEXT
+                })
+                runCatching { SyncEngine.afterCapture(this@ContextService) }.onFailure { report(CaptureDiagnostics.Outcome.QUEUED_SCHEDULE_FAILED) }
+            }.onFailure { report(CaptureDiagnostics.Outcome.PROCESSING_FAILED) }
+        } } finally { frame?.recycle() } } }
+        if (submitted.isFailure) { frame?.recycle(); report(CaptureDiagnostics.Outcome.PROCESSING_FAILED) }
     }
     /** Reject structural risks before collecting text; fail closed on partial traversal. */
     private fun safeNodes(pkg: String, window: Int): List<AccessibilityNodeInfo>? {
