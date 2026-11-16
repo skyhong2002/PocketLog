@@ -202,10 +202,10 @@ pub(super) struct Card {
     id: String,
     start_ms: i64,
     end_ms: i64,
-    app: String,
-    title: String,
-    summary: String,
-    category: Category,
+    pub(super) app: String,
+    pub(super) title: String,
+    pub(super) summary: String,
+    pub(super) category: Category,
     source: &'static str,
     // Matching raw context remains on the server; this is neither a worker
     // execution state nor permission to send context to an external provider.
@@ -329,7 +329,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Value>
         super::prune(db,now_ms())?;
         let pending:i64=db.query_row("SELECT COUNT(*) FROM observations WHERE processed=0",[],|r|r.get(0)).map_err(storage_error)?;
         let storage=crate::storage::usage(db)?;
-        Ok(Json(serde_json::json!({"schema_version":2,"analysis":"local_excerpt_or_owner_enabled_model","raw_retention":"storage_budget","journal_retention":"permanent","pending_context":pending,"storage":storage})))
+        Ok(Json(serde_json::json!({"schema_version":2,"api":crate::API_CAPABILITIES.clone(),"analysis":"local_excerpt_or_owner_enabled_model","raw_retention":"storage_budget","journal_retention":"permanent","pending_context":pending,"storage":storage})))
     }).await
 }
 

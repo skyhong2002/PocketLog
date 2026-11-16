@@ -12,7 +12,10 @@ example, timeline output is capped at480KiB and reports omitted records).
 | --- | --- |
 | Owner bearer key or owner browser session | All private APIs, including device-key management |
 | Journal device key | Private APIs except `/v1/devices` and its children; cannot log into the website |
-| Collector device key | Only POST activities/observations and GET collection/AI metadata; cannot read journals, manage devices or log into the website |
+| Collector device key | Only POST activities/observations and GET collection/AI metadata; cannot read journals (including GET `/v1/activities`), manage devices or log into the website |
+
+`server/tests/contract.rs` checks this matrix for every `/v1` route and method
+with owner, journal, collector, revoked, expired, unknown and malformed keys.
 
 Cookie-authenticated mutations require `X-PocketLog: 1` and are rejected when
 cross-site. Bearer clients do not need that browser header. Missing, expired,
@@ -53,11 +56,16 @@ a collector key intentionally cannot read status or timeline. To read activities
 use the same authentication with `/v1/timeline?from_ms=…&to_ms=…`, supplying Unix
 milliseconds and a range of at most26hours. Its response is private derived
 journal data and may have `truncated:true`; it never contains raw observations.
+For a **complete** read, use the paged `GET /v1/activities` described under
+[complete reads](#complete-reads-and-search). [`examples/pocketlog_client.py`](examples/pocketlog_client.py)
+is a standard-library client showing status, a complete paged read, search, a
+category correction and safe retries; CI runs it against a disposable server.
 
 ## Routes
 
 | Method | Path | Behavior |
 |---|---|---|
+| GET | `/v1/activities?from_ms=…&to_ms=…` | Complete keyset-paged derived cards with optional search; see [complete reads](#complete-reads-and-search) |
 | POST | `/v1/activities` | `{activities:[{id,start_ms,end_ms,app,category}]}`, max 100; stable IDs, conflicting replay 409 and atomic rollback |
 | POST | `/v1/checkins` | `{id,at_ms,mood,energy}`, mood/energy 1–5; same ID replaces |
 | POST | `/v1/workspace/preview` | `{workspace,sample:{app,title,category,edited?}}`; test an unsaved draft with the server classifier, no persistence/model call |
@@ -66,7 +74,7 @@ journal data and may have `truncated:true`; it never contains raw observations.
 | POST | `/v1/reflections` | `{id,at_ms,text}`, ≤2,000 characters; same ID replaces, blank text deletes |
 | GET | `/v1/timeline?from_ms=…&to_ms=…` | Any `from_ms` ≥ 0, up to 26 hours, clipped intervals; activities, checkins, derived cards, reflections and `truncated`; never raw context |
 | GET | `/v1/overview?from_ms=…&to_ms=…` | Any `from_ms` ≥ 0, up to 30 days; complete clipped category totals, top 20 apps, self-reported averages; `title_keywords` from the latest 1,000 card titles (model topic labels where available, else local words) and `keyword_mode` `model`/`local`/`mixed` |
-| GET | `/v1/status` | `schema_version:2`, `analysis`, `raw_retention:"storage_budget"`, `journal_retention:"permanent"`, pending-context count and `storage` usage; no secrets or content |
+| GET | `/v1/status` | `schema_version:2`, `api:{version,capabilities}`, `analysis`, `raw_retention:"storage_budget"`, `journal_retention:"permanent"`, pending-context count and `storage` usage; no secrets or content |
 | GET/PUT | `/v1/storage` | Owner storage budget; see below |
 | DELETE | `/v1/journal` | All owner activities, check-ins, notes, reflections, raw context, dedup receipts and jobs; invalidates in-flight analysis |
 
@@ -97,7 +105,8 @@ text_only_before_ms,min_limit_bytes,max_limit_bytes,default_limit_bytes}`; defau
 analyzed screenshots (text kept) down to 95% and advances `text_only_before_ms`. Timeline
 queries return at most 1,000 of each record type and cap serialized output at
 480 KiB; `truncated` is true if anything is omitted. Exports use this same contract
-and are not guaranteed complete when truncated. Pagination/import remain planned.
+and are not guaranteed complete when truncated; `GET /v1/activities` pages
+the same cards completely. Import/restore remains planned.
 Cards identify `source` as `app_only`, `local_excerpt`, `ai` or `user`. AI output
 must be reviewed and never infers feelings. Each card also includes
 `pending_context`: true when the server still has matching unanalyzed observations for
@@ -111,6 +120,70 @@ this association. No extra collection or polling is introduced. See [analysis](A
 SQLite is plaintext inside the private volume. Use encrypted host storage and
 backups. SQL deletion cannot erase provider copies, exports, SSD history or
 snapshots. See [security boundaries](SECURITY.md).
+
+## Compatibility
+
+- `/v1` only changes additively: new routes, new optional request fields and new
+  response fields. Clients must ignore unknown response fields. Requests stay
+  strict (unknown fields are rejected) so a typo cannot silently drop data.
+- Removing or changing the meaning of a field, route, status code or bound needs
+  a new version prefix; `/v1` would keep working alongside it for at least one
+  documented release, with the deprecation recorded here first.
+- Detect features with `GET /v1/status` → `api:{version:1,capabilities:[…]}`
+  instead of probing routes. Older servers omit `api`; treat that as no
+  capabilities. Current flags: `activity_pages` (GET `/v1/activities`),
+  `activity_search` (`q`/`category` on it), `json_errors` (every `/v1` error is
+  JSON) and `retry_after` (503/429 carry `Retry-After`). Older flags such as
+  `GET /v1/ai` `probe_provider_binding` remain.
+- An older Android client keeps using `/v1/timeline` unchanged.
+
+## Errors and retries
+
+Every `/v1` error response is `{"error":"<fixed message>"}` with
+`Content-Type: application/json`, including framework rejections. Messages never
+echo input, keys or content. Status codes are unchanged from earlier servers:
+
+| Status | Meaning | Retry? |
+| --- | --- | --- |
+| 400 / 422 | Invalid query/body; 422 is malformed-but-JSON such as an unknown or mistyped field | No; fix the request |
+| 401 | Missing, wrong, expired, revoked or out-of-scope key (indistinguishable on purpose) | No; reissue the key |
+| 404 / 405 | Unknown `/v1` route or method (`Allow` lists valid methods) | No |
+| 409 | Conflict: reused ID with different content, stale revision, changed provider, or `cursor expired` | No; re-read current state |
+| 413 / 415 | Body over the route limit / not `application/json` | No |
+| 423 | Collection paused; capture uploads refused | After the owner resumes |
+| 429 | Model or test slot busy, browser session limit | Yes, after `Retry-After` |
+| 503 | Server busy (bounded request slots) or storage unavailable | Yes, after `Retry-After` |
+| 507 | Journal/context capacity reached | No; owner action needed |
+
+Writes use stable client IDs (activities, observations, check-ins, reflections,
+reviews, briefs) or full replacement (cards, workspace with revision), so retrying
+after a timeout or 429/503 cannot duplicate data. A conflicting replay returns 409.
+
+## Complete reads and search
+
+`GET /v1/activities?from_ms=…&to_ms=…[&limit=][&q=][&category=][&after_start_ms=&after_id=&epoch=]`
+(journal key or owner; collector keys refused). Range up to 30 days, any past
+start. Returns `{activities,cards,next_cursor,journal_epoch,scanned}`: the same
+clipped activities and derived cards as `/v1/timeline`, ordered by **stored**
+`start_ms` then `id`. `limit` 1–500, default 200. `next_cursor` is
+`{after_start_ms,after_id}` or null; pass it back with `epoch=journal_epoch`.
+
+- **Completeness:** activities are immutable after ingest and removed only by
+  `DELETE /v1/journal`. Paging until `next_cursor` is null returns every activity
+  that existed for the whole read exactly once, including tied timestamps. An
+  activity uploaded during the read appears if it sorts after the cursor; one that
+  sorts before it is missed until a later re-read (late phone sync). Card titles,
+  summaries and categories reflect the moment each page was read.
+- **Invalidation:** journal deletion advances the epoch; a cursor from before it
+  returns `409 {"error":"cursor expired"}`. Discard partial results and restart.
+- **Bounds:** a request inspects at most 2,000 stored rows. A page over 480 KiB is
+  shortened, never truncated: `next_cursor` then points at the last returned card.
+- **Search:** `q` (1–100 characters, trimmed) matches app, card title or summary,
+  case-insensitively; `category` matches the card's effective category after
+  rules and manual edits. Filtering happens within the 2,000-row scan, so a page
+  can contain few or zero cards while `next_cursor` is non-null; keep paging until
+  it is null before concluding there are no matches. `scanned` reports rows
+  inspected. Raw observation text and screenshots are not searched or returned.
 
 ## Private browser and shared product setup
 
