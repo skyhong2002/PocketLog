@@ -50,15 +50,6 @@ pub(super) fn routes() -> Router<AppState> {
             get(|| async { Html(include_str!("../web/index.html")) }),
         )
         .route(
-            "/agent-import.js",
-            get(|| async {
-                (
-                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-                    include_str!("../web/agent-import.js"),
-                )
-            }),
-        )
-        .route(
             "/app.js",
             get(|| async {
                 (

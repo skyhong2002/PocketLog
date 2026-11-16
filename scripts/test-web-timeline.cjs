@@ -157,18 +157,6 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
   console.log('Classification conflict recovery preserves drafts, remote goals, revision and independent snapshots');
 }
 
-const { sharedWeekAxis } = require('../server/web/app.js');
-try {
-  process.env.TZ = 'America/New_York';
-  assert.equal(sharedWeekAxis(['2026-03-06','2026-03-07','2026-03-08']), false);
-  assert.equal(sharedWeekAxis(['2026-10-30','2026-10-31','2026-11-01']), false);
-  assert.equal(sharedWeekAxis(['2026-11-09','2026-11-15']), true);
-  process.env.TZ = 'Australia/Lord_Howe';
-  assert.equal(sharedWeekAxis(['2026-10-02','2026-10-03','2026-10-04']), false);
-  process.env.TZ = 'Asia/Taipei';
-  assert.equal(sharedWeekAxis(['2026-10-03','2026-11-15']), true);
-} finally { if (originalZone === undefined) delete process.env.TZ; else process.env.TZ=originalZone; }
-console.log('Week clocks split for full-hour and half-hour DST transitions');
 
 const { timelineGroups } = require('../server/web/app.js');
 const dense = Array.from({length:1000},(_,id)=>({id,start_ms:id*1000,end_ms:(id+1)*1000}));
@@ -258,4 +246,85 @@ console.log('Journal exports retain activity/review completeness without changin
     assert.equal(seen[0].limit, '1');
     console.log('Web bounded search pagination checks passed');
   })().catch((e) => { console.error(e); process.exit(1); });
+}
+
+// The timeline status line shows one state, in priority order, from server facts.
+{
+  const { captureStatus } = require('../server/web/app.js');
+  const now = 10 * 86400000;
+  const phone = (extra = {}) => ({ scope: 'journal', expires_ms: now + 1, last_authenticated_ms: now - 60000, ...extra });
+  const on = { enabled: true, auto_summarize: true };
+  const kind = (input) => captureStatus({ now, ai: on, pending: 0, paused: false, devices: [phone()], ...input }).kind;
+  assert.equal(kind({}), 'ok');
+  assert.equal(captureStatus({ now, ai: on, paused: false, devices: [phone()] }).text, '記錄中 · AI 自動整理');
+  assert.equal(kind({ paused: true, devices: [] }), 'paused', 'pause wins over everything');
+  assert.equal(kind({ devices: [] }), 'not-started');
+  assert.equal(kind({ devices: [phone({ scope: 'collector' })] }), 'not-started', 'collector keys are not phones');
+  assert.equal(kind({ devices: [phone({ expires_ms: now - 1 })] }), 'expired');
+  assert.equal(captureStatus({ now, ai: on, devices: [phone({ expires_ms: now })] }).text, '金鑰失效，請重新連線');
+  assert.equal(kind({ devices: [phone({ last_authenticated_ms: null })] }), 'not-started', 'issued but never connected');
+  assert.equal(kind({ devices: [phone({ last_authenticated_ms: now - 2 * 86400000 })] }), 'stale');
+  assert.equal(kind({ devices: [phone({ last_authenticated_ms: undefined })].map(({ last_authenticated_ms, ...d }) => d) }), 'ok', 'older servers without last-seen are not warned about');
+  assert.equal(kind({ ai: { enabled: false } }), 'no-ai');
+  assert.equal(captureStatus({ now, ai: { enabled: false }, devices: [phone()] }).target, 'ai');
+  assert.equal(kind({ ai: { enabled: true, auto_summarize: false } }), 'ai-off');
+  const busy = captureStatus({ now, ai: on, devices: [phone()], pending: 3 });
+  assert.equal(busy.kind, 'processing'); assert.equal(busy.text, '記錄中 · AI 整理中（3 張）');
+  // Unknown facts (failed reads) never produce a warning of their own.
+  assert.equal(captureStatus({ now, paused: null, devices: null, ai: on }).kind, 'ok');
+  assert.equal(captureStatus({ now, paused: null, devices: null, ai: null }).kind, 'ok');
+  console.log('Status line chooses one state: paused, keys, phone contact, AI, then pending cards');
+}
+
+// AI presets fill in the endpoint and protocol; only 自訂 takes a typed endpoint.
+{
+  const { providerSettings, presetFor, aiLabel, AI_PROVIDERS } = require('../server/web/app.js');
+  assert.deepEqual(AI_PROVIDERS.map(p => p.id), ['openai', 'anthropic', 'gemini', 'openrouter', 'deepseek', 'custom']);
+  const cases = [
+    ['openai', 'gpt-x', 'openai', 'https://api.openai.com/v1/chat/completions'],
+    ['anthropic', 'claude-x', 'anthropic', 'https://api.anthropic.com/v1/messages'],
+    ['gemini', 'gemini-2.5-flash', 'gemini', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'],
+    ['openrouter', 'vendor/model', 'openai', 'https://openrouter.ai/api/v1/chat/completions'],
+    ['deepseek', 'deepseek-chat', 'openai', 'https://api.deepseek.com/chat/completions'],
+  ];
+  for (const [id, model, protocol, endpoint] of cases) {
+    const settings = providerSettings(id, `  ${model} `, 'https://ignored.example/v1');
+    assert.equal(settings.protocol, protocol, id);
+    assert.equal(settings.endpoint, endpoint, id);
+    assert.equal(settings.model, model, 'model is trimmed');
+    assert.equal(presetFor(settings), id, 'saved settings map back to their provider');
+  }
+  assert.equal(providerSettings('openai', 'm').response_format, 'json_schema');
+  assert.equal(providerSettings('deepseek', 'm').response_format, 'json_object');
+  const custom = providerSettings('custom', 'llama3.2-vision', ' http://127.0.0.1:11434/v1/chat/completions ');
+  assert.deepEqual([custom.protocol, custom.endpoint], ['openai', 'http://127.0.0.1:11434/v1/chat/completions']);
+  assert.equal(presetFor(custom), 'custom');
+  assert.equal(providerSettings('custom', 'm', 'http://[::1]:8080/v1/chat/completions').endpoint, 'http://[::1]:8080/v1/chat/completions');
+  assert.equal(providerSettings('custom', 'm', 'https://llm.example/v1/chat/completions').endpoint, 'https://llm.example/v1/chat/completions');
+  assert.throws(() => providerSettings('custom', 'm', 'http://localhost:11434/v1/chat/completions'), /HTTPS/);
+  assert.throws(() => providerSettings('custom', 'm', 'http://192.168.1.2/v1'), /HTTPS/);
+  assert.throws(() => providerSettings('custom', 'm', 'https://user:pw@llm.example/v1'), /帳號或密碼/);
+  assert.throws(() => providerSettings('custom', 'm', 'not a url'), /完整/);
+  assert.throws(() => providerSettings('gemini', 'gemini/../x'), /Gemini/);
+  assert.throws(() => providerSettings('openai', '   '), /模型/);
+  assert.throws(() => providerSettings('nope', 'm'), /提供者/);
+  assert.equal(presetFor({ protocol: 'anthropic', endpoint: 'https://proxy.example/v1/messages', model: 'm' }), null, 'unknown native endpoints are not relabelled');
+  assert.equal(presetFor({ protocol: 'gemini', endpoint: cases[2][3], model: 'other' }), null, 'Gemini endpoint must match its model');
+  assert.equal(presetFor({}), null);
+  assert.equal(aiLabel({ protocol: 'anthropic', endpoint: cases[1][3], model: 'claude-x' }), 'Anthropic · claude-x');
+  assert.equal(aiLabel({ protocol: 'openai', endpoint: 'https://llm.example/v1/chat/completions', model: 'm' }), '自訂 · m');
+  console.log('AI provider presets map to fixed endpoints/protocols and back; custom endpoints are validated');
+}
+
+// Package names become readable app names; app-only card titles fall back to them.
+{
+  const { appName, cardTitle } = require('../server/web/app.js');
+  assert.equal(appName('com.google.android.youtube'), 'YouTube');
+  assert.equal(appName('com.example.notes'), 'Notes');
+  assert.equal(appName('org.example.app'), 'Example');
+  assert.equal(appName(''), '未知的 app');
+  assert.equal(cardTitle({ app: 'com.example.notes', title: 'com.example.notes' }), 'Notes');
+  assert.equal(cardTitle({ app: 'com.example.notes', title: '' }), 'Notes');
+  assert.equal(cardTitle({ app: 'com.example.notes', title: '寫週報' }), '寫週報');
+  console.log('App display names and app-only title fallback');
 }

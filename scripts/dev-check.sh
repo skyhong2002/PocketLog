@@ -33,8 +33,6 @@ case "${1:-help}" in
     ;;
   web)
     node --check server/web/app.js
-    node --check server/web/agent-import.js
-    node scripts/test-agent-import.cjs
     exec node scripts/test-web-timeline.cjs
     ;;
   *)
