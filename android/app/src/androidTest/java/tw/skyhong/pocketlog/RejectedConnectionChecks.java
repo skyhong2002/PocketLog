@@ -44,7 +44,7 @@ final class RejectedConnectionChecks {
             test.runOnMainSync(()->{try{var f=MainActivity.class.getDeclaredField("credentials");f.setAccessible(true);f.set(activity,fixture);}catch(Exception e){throw new RuntimeException(e);}});
             if("yes".equals(args.getString("expectLegacy"))) {
                 synchronized(SyncEngine.INSTANCE.getLock()) {
-                    settings.setEnabled(false);settings.setContextEnabled(false);settings.setImagesEnabled(false);settings.setReplayConsent(false);settings.setExternalAiConsent(false);settings.setAiProviderId(null);
+                    settings.setEnabled(false);settings.setContextEnabled(false);settings.setImagesEnabled(false);settings.setReplayConsent(false);
                     new JournalQueue(test.getTargetContext()).clearCollected();new UsageCollector(test.getTargetContext()).reset(System.currentTimeMillis());
                     settings.status("金鑰已過期、撤銷或失效，已停止擷取；請重新設定連線");
                 }
@@ -70,7 +70,7 @@ final class RejectedConnectionChecks {
         queue.enqueue(fixture,"/v1/observations",new JSONObject().put("id","synthetic context"),System.currentTimeMillis());
         for(Throwable failure:new Throwable[]{new ApiFailure(403,60000),new ApiFailure(503,60000),new java.io.IOException("synthetic outage")}) {
             check(!stop(failure)&&!settings.isAuthRejected(fixture),"Non401 inferred rejected credentials");
-            check(queue.entries(fixture).size()==3&&settings.getEnabled()&&settings.getContextEnabled()&&settings.getImagesEnabled()&&settings.getReplayConsent()&&settings.getHasExternalAiGrant(),"Non401 discarded data or revoked consent");
+            check(queue.entries(fixture).size()==3&&settings.getEnabled()&&settings.getContextEnabled()&&settings.getImagesEnabled()&&settings.getReplayConsent(),"Non401 discarded data or revoked consent");
         }
         check(stop(new ApiFailure(401,60000)),"401 not handled");
         check(settings.isAuthRejected(fixture),"Known rejection not persisted");assertOff();
@@ -96,7 +96,7 @@ final class RejectedConnectionChecks {
         check(stop(new ApiFailure(401,60000)),"Late401 not handled");clickWindow("同意並開啟");awaitIdle();assertOff();check(settings.isAuthRejected(fixture),"Stale dialog bypassed known rejection");
     }
     private boolean stop(Throwable failure)throws Exception {for(Method m:SyncEngine.class.getDeclaredMethods())if(m.getName().startsWith("stopForRejectedCredentials")){m.setAccessible(true);return (Boolean)m.invoke(SyncEngine.INSTANCE,test.getTargetContext(),fixture,failure);}throw new IllegalStateException("Rejection handler missing");}
-    private void assertOff(){check(!settings.getEnabled()&&!settings.getContextEnabled()&&!settings.getImagesEnabled()&&!settings.getReplayConsent()&&!settings.getExternalAiConsent()&&!settings.getHasExternalAiGrant()&&settings.getAiProviderId()==null,"Capture/model consent restored");}
+    private void assertOff(){check(!settings.getEnabled()&&!settings.getContextEnabled()&&!settings.getImagesEnabled()&&!settings.getReplayConsent()&&!prefs.contains("external_ai")&&!prefs.contains("ai_provider_id"),"Capture/model consent restored");}
     private void awaitIdle()throws Exception {long until=android.os.SystemClock.elapsedRealtime()+5000;while(android.os.SystemClock.elapsedRealtime()<until){settle();boolean[] busy={true};test.runOnMainSync(()->{try{var f=MainActivity.class.getDeclaredField("busy");f.setAccessible(true);busy[0]=f.getBoolean(activity);}catch(Exception e){throw new RuntimeException(e);}});if(!busy[0])return;}throw new IllegalStateException("Recovery operation timeout");}
     private void page(String name)throws Exception { invoke(name,null);settle(); }
     private void toggle(String name)throws Exception {invoke(name,settings);settle();}

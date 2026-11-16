@@ -43,7 +43,7 @@ class PendingReflectionsTest {
         val rejected = entry("r_${now}_rejected", body("rejected"))
         files.write(rejected.name, rejected.data.put("destination", JournalQueue.destination(c)).toString().toByteArray())
         queue.enqueue(c, "/v1/reflections", body("invalid").put("unexpected", true), now + 2)
-        assertEquals(256, queue.entries(c).size)
+        assertEquals(32, queue.entries(c).size)
         val result = PendingReflections.overlay(base(), path, queue.pendingReflections(c), now)
         assertEquals("B", result.getJSONArray("reflections").getJSONObject(0).getString("text"))
     }

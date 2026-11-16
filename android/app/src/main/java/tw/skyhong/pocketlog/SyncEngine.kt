@@ -37,7 +37,6 @@ object SyncEngine {
         val network = manager.getNetworkCapabilities(manager.activeNetwork)
         if (network == null || !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
             (settings.wifiOnly && !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))) {
-            if (settings.hasExternalAiGrant) settings.recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED)
             UsageCollector(context).collect(credentials)
             settings.status("已加密保留，等待符合網路設定的連線"); return@synchronized true
         }
@@ -50,7 +49,6 @@ object SyncEngine {
         // No extra periodic worker: refresh the stop switch on the existing sync cadence.
         val control = try { PocketLogApi(credentials).request("/v1/collection") } catch (failure: Exception) {
             if (stopForRejectedCredentials(context, credentials, failure)) return@synchronized true
-            if (settings.hasExternalAiGrant) settings.recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED)
             // A transient outage is equivalent to being offline: preserve the last
             // known pause and local consent, and never upload without reading control.
             val transient = failure !is ApiFailure || !RetryPolicy.permanent(failure.status)
@@ -66,36 +64,43 @@ object SyncEngine {
             UsageCollector(context).reset()
             if (paused) JournalQueue(context).clearCollected()
         }
-        // One bounded metadata read on the existing cadence; failures do not block queued uploads.
-        CaptureAiConsent.refresh(context) { PocketLogApi(credentials).request("/v1/ai") }
+        // Model processing is now a single server-side switch; drop any legacy per-capture grant.
+        settings.forgetLegacyAiGrant()
         if (!paused) UsageCollector(context).collect(credentials)
         val queue = JournalQueue(context)
         var count = 0
-        // Bound a run to at most eight requests; the next worker continues the FIFO.
-        for (entry in queue.entries(credentials).take(8)) {
-            try {
-                PocketLogApi(credentials).request(entry.data.getString("path"), entry.data.getJSONObject("body"))
-                queue.acknowledge(entry); count++
-            } catch (failure: ApiFailure) {
-                if (failure.status == 423 && entry.data.getString("path") in setOf("/v1/activities", "/v1/observations")) {
-                    settings.remotePaused = true
-                    queue.clearCollected()
-                    UsageCollector(context).reset()
-                    settings.status("伺服器已暫停活動收集；待傳活動與情境已清除")
-                    return@synchronized true
+        // Per-minute context needs more than a few requests per run: drain in batches of 32 for at
+        // most 45 seconds. The lock is held throughout and capture enqueues wait on it, so keep
+        // the run short; each capture schedules another upload and the next worker continues the FIFO.
+        val deadline = System.currentTimeMillis() + 45_000L
+        while (System.currentTimeMillis() < deadline) {
+            val batch = queue.entries(credentials, 32)
+            if (batch.isEmpty()) break
+            for (entry in batch) {
+                try {
+                    PocketLogApi(credentials).request(entry.data.getString("path"), entry.data.getJSONObject("body"))
+                    queue.acknowledge(entry); count++
+                } catch (failure: ApiFailure) {
+                    if (failure.status == 423 && entry.data.getString("path") in setOf("/v1/activities", "/v1/observations")) {
+                        settings.remotePaused = true
+                        queue.clearCollected()
+                        UsageCollector(context).reset()
+                        settings.status("伺服器已暫停活動收集；待傳活動與情境已清除")
+                        return@synchronized true
+                    }
+                    if (RetryPolicy.permanent(failure.status)) {
+                        queue.reject(entry)
+                        settings.status("有資料被拒絕（HTTP ${failure.status}），請檢查連線／金鑰後手動重試")
+                        return@synchronized true
+                    }
+                    settings.nextAttempt = System.currentTimeMillis() + failure.retryMs
+                    settings.status("伺服器暫時忙碌，稍後重試")
+                    return@synchronized false
+                } catch (_: Exception) {
+                    settings.nextAttempt = System.currentTimeMillis() + 60_000
+                    settings.status("連線失敗，資料仍加密保留")
+                    return@synchronized false
                 }
-                if (RetryPolicy.permanent(failure.status)) {
-                    queue.reject(entry)
-                    settings.status("有資料被拒絕（HTTP ${failure.status}），請檢查連線／金鑰後手動重試")
-                    return@synchronized true
-                }
-                settings.nextAttempt = System.currentTimeMillis() + failure.retryMs
-                settings.status("伺服器暫時忙碌，稍後重試")
-                return@synchronized false
-            } catch (_: Exception) {
-                settings.nextAttempt = System.currentTimeMillis() + 60_000
-                settings.status("連線失敗，資料仍加密保留")
-                return@synchronized false
             }
         }
         settings.nextAttempt = 0
@@ -104,7 +109,7 @@ object SyncEngine {
     }
     fun clearLocal(context: Context) = synchronized(lock) {
         CaptureDiagnostics.clear()
-        RecordingSettings(context).apply { enabled = false; contextEnabled = false; imagesEnabled = false; replayConsent = false; analysisConsent = false; externalAiConsent = false; aiProviderId = null; nextAttempt = 0 }
+        RecordingSettings(context).apply { enabled = false; contextEnabled = false; imagesEnabled = false; replayConsent = false; analysisConsent = false; forgetLegacyAiGrant(); nextAttempt = 0 }
         WorkManager.getInstance(context).cancelAllWork()
         PrivateFiles(context).clear()
     }

@@ -28,7 +28,7 @@ final class CaptureReadinessChecks {
         if(!Set.of("ranchu","goldfish").contains(android.os.Build.HARDWARE))throw new IllegalStateException("Disposable emulator required");
         if(new CredentialStore(test.getTargetContext()).load()!=null)throw new IllegalStateException("Connected installation refused");
         RecordingSettings settings=new RecordingSettings(test.getTargetContext());
-        if(test.getTargetContext().getSharedPreferences("recording",0).getBoolean("context",false)||settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent()||settings.getRemotePaused())throw new IllegalStateException("Unpaused, consent-off fixture required");
+        if(test.getTargetContext().getSharedPreferences("recording",0).getBoolean("context",false)||settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getRemotePaused())throw new IllegalStateException("Unpaused, consent-off fixture required");
         Set<String> allowed=settings.getAllowed(),excluded=settings.getExclusions();
         try {
             activity=test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));settle();
@@ -48,7 +48,7 @@ final class CaptureReadinessChecks {
             lists(settings,Set.of("org.example.reader","org.example.bankapp"),Set.of());
             page("supportPage");requireText("可擷取 1 個");if(text().contains("已同意畫面文字，但沒有可擷取的 app"))throw new IllegalStateException("Stale zero-eligible warning");capture("eligible","畫面文字");
             page("appListsPage");requireText("無法辨識所有");capture("privacy","無法辨識所有");
-            if(!settings.getEnabled()||!settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent())throw new IllegalStateException("Rendering changed consent");
+            if(!settings.getEnabled()||!settings.getContextEnabled()||settings.getImagesEnabled())throw new IllegalStateException("Rendering changed consent");
         }finally {
             synchronized(SyncEngine.INSTANCE.getLock()){settings.setContextEnabled(false);settings.setEnabled(false);settings.setAllowed(allowed);settings.setExclusions(excluded);}
             CaptureDiagnostics.INSTANCE.clear();

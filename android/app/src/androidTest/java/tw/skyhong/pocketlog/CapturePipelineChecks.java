@@ -41,7 +41,7 @@ final class CapturePipelineChecks {
                 new CredentialStore(test.getTargetContext()).save(credentials);
                 settings.setAllowed(Set.of("org.example.pocketlogfixture"));
                 settings.setEnabled(true); settings.setContextEnabled(true); settings.setAnalysisConsent(true);
-                settings.setImagesEnabled(true); settings.setReplayConsent(true); settings.setExternalAiConsent(false); settings.setWifiOnly(true);
+                settings.setImagesEnabled(true); settings.setReplayConsent(true);  settings.setWifiOnly(true);
             }
             JournalQueue queue=new JournalQueue(test.getTargetContext());
             launch("editable");
@@ -67,7 +67,7 @@ final class CapturePipelineChecks {
                 if(entries.size()!=1 || !"/v1/observations".equals(entries.get(0).getData().getString("path"))) throw new IllegalStateException("Synthetic observation queue missing");
                 observation=new JSONObject(entries.get(0).getData().getJSONObject("body").toString());
             }
-            if(!observation.getString("text").contains("SYNTHETIC_READ_ONLY_CONTEXT") || !"org.example.pocketlogfixture".equals(observation.getString("app")) || observation.getBoolean("external_ai_consent") || !observation.getBoolean("replay_consent"))
+            if(!observation.getString("text").contains("SYNTHETIC_READ_ONLY_CONTEXT") || !"org.example.pocketlogfixture".equals(observation.getString("app")) || observation.has("external_ai_consent") || observation.has("provider_id") || !observation.getBoolean("replay_consent"))
                 throw new IllegalStateException("Synthetic capture scope mismatch");
             byte[] image=Base64.decode(observation.getString("jpeg_base64"),Base64.NO_WRAP);
             if(image.length==0 || image.length>24*1024) throw new IllegalStateException("Captured image bounds failed");

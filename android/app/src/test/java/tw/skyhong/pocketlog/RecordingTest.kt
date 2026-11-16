@@ -91,4 +91,34 @@ class RecordingTest {
         assertEquals("/v1/checkins",queue.entries(c).single().data.getString("path"))
     }
 
+    @Test fun captureCadenceMatchesInfovore() {
+        assertEquals(0L, RecordingRules.nextCaptureDelay(1_000_000, 0, appSwitch = false))
+        assertEquals(60_000L, RecordingRules.nextCaptureDelay(1_000_000, 1_000_000, appSwitch = false))
+        assertEquals(20_000L, RecordingRules.nextCaptureDelay(1_040_000, 1_000_000, appSwitch = false))
+        assertEquals(5_000L, RecordingRules.nextCaptureDelay(1_000_000, 1_000_000, appSwitch = true))
+        assertEquals(0L, RecordingRules.nextCaptureDelay(1_010_000, 1_000_000, appSwitch = true))
+        // A clock moved backwards never stalls capture.
+        assertEquals(0L, RecordingRules.nextCaptureDelay(900_000, 1_000_000, appSwitch = true))
+    }
+    @Test fun imageBoundsFitTheServerContract() {
+        assertEquals(720, RecordingRules.MAX_IMAGE_EDGE)
+        assertTrue((RecordingRules.MAX_IMAGE_BYTES + 2) / 3 * 4 <= RecordingRules.MAX_IMAGE_BASE64)
+        assertTrue(RecordingRules.MAX_IMAGE_BASE64 + 4 * RecordingRules.MAX_TEXT + 1024 <= RecordingRules.MAX_UPLOAD_BODY)
+        assertTrue(ContextImage.isMostlyBlack(IntArray(100) { 0xff000000.toInt() }))
+        assertFalse(ContextImage.isMostlyBlack(IntArray(100) { if (it < 10) 0xffffffff.toInt() else 0xff000000.toInt() }))
+    }
+    @Test fun largeContextUploadsFitAndJournalReadsSkipThem() {
+        val files = MemoryFiles(); val queue = JournalQueue(files) {}
+        val c = Credentials("https://example.com", "a".repeat(64))
+        val now = System.currentTimeMillis()
+        queue.enqueue(c, "/v1/observations", JSONObject().put("id", "shot").put("jpeg_base64", "A".repeat(RecordingRules.MAX_IMAGE_BASE64)), now)
+        queue.enqueue(c, "/v1/reflections", JSONObject().put("id", "note"), now + 1)
+        var reads = 0
+        val counting = object : JournalFiles by files { override fun read(name: String): ByteArray? { reads++; return files.read(name) } }
+        assertEquals("note", JournalQueue(counting) {}.pendingReflections(c).single().data.getJSONObject("body").getString("id"))
+        assertEquals(1, reads)
+        assertEquals(1, JournalQueue(counting) {}.entries(c, 1).size)
+        queue.clearContexts()
+        assertEquals(1 to 0, queue.counts())
+    }
 }

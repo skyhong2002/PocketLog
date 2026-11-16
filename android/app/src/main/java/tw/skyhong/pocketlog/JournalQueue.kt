@@ -9,32 +9,37 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
     data class Entry(val name: String, val data: JSONObject)
     companion object {
         fun destination(c: Credentials) = RecordingRules.digest(c.endpoint + "\n" + c.token)
+        private const val CONTEXT_PATH = "/v1/observations"
+        private const val CONTEXT_SUFFIX = "_ctx"
     }
     fun enqueue(credentials: Credentials, path: String, body: JSONObject, now: Long = System.currentTimeMillis()) {
         require(path in setOf("/v1/activities", "/v1/checkins", "/v1/observations", "/v1/reflections", "/v1/cards"))
-        require(body.toString().toByteArray().size <= 60 * 1024)
+        require(body.toString().toByteArray().size <= RecordingRules.MAX_UPLOAD_BODY)
         val entry = JSONObject().put("destination", destination(credentials)).put("created", now).put("path", path).put("body", body)
-        val name = "q_${now}_${UUID.randomUUID()}"
+        // The name marks screen context so journal-edit reads never decrypt large thumbnails.
+        val name = "q_${now}_${UUID.randomUUID()}${if (path == CONTEXT_PATH) CONTEXT_SUFFIX else ""}"
         val clear = entry.toString().toByteArray()
         try { files.write(name, clear) } finally { clear.fill(0) }
         prune(now)
     }
-    fun entries(credentials: Credentials): List<Entry> = readEntries(credentials, 256)
+    @JvmOverloads fun entries(credentials: Credentials, limit: Int = 32): List<Entry> = readEntries(credentials, limit)
     // Timeline reads need all retained writes, including edits behind the upload batch.
     internal fun pendingReflections(credentials: Credentials): List<Entry> =
-        readEntries(credentials, 4096, setOf("/v1/reflections"))
+        readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections"))
     internal fun pendingJournalEdits(credentials: Credentials): List<Entry> =
-        readEntries(credentials, 4096, setOf("/v1/reflections", "/v1/cards"))
+        readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections", "/v1/cards"))
     private fun readEntries(credentials: Credentials, limit: Int, paths: Set<String>? = null): List<Entry> {
         prune()
-        return files.names("q_").take(limit).mapNotNull { name ->
+        val skipContext = paths != null && CONTEXT_PATH !in paths
+        // Decrypt lazily and stop at the limit: a day of thumbnails can be hundreds of megabytes.
+        return files.names("q_").asSequence().filterNot { skipContext && it.endsWith(CONTEXT_SUFFIX) }.mapNotNull { name ->
             val bytes = runCatching { files.read(name) }.getOrNull()
             if (bytes == null) { files.remove(name); dropped(); return@mapNotNull null }
             try {
                 val data = JSONObject(String(bytes, Charsets.UTF_8))
                 if (data.getString("destination") == destination(credentials) && (paths == null || data.optString("path") in paths)) Entry(name, data) else null
             } catch (_: Exception) { files.remove(name); dropped(); null } finally { bytes.fill(0) }
-        }
+        }.take(limit).toList()
     }
     fun acknowledge(entry: Entry) = files.remove(entry.name)
     fun reject(entry: Entry) {
@@ -57,10 +62,11 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
             } catch (_: Exception) { files.remove(name); dropped() } finally { bytes.fill(0) }
         }
     }
-    fun clearContexts() = clearPaths(setOf("/v1/observations"))
-    fun clearCollected() = clearPaths(setOf("/v1/observations", "/v1/activities"))
+    fun clearContexts() = clearPaths(setOf(CONTEXT_PATH))
+    fun clearCollected() = clearPaths(setOf(CONTEXT_PATH, "/v1/activities"))
     private fun clearPaths(paths: Set<String>) {
         (files.names("q_") + files.names("r_")).forEach { name ->
+            if (CONTEXT_PATH in paths && name.endsWith(CONTEXT_SUFFIX)) { files.remove(name); return@forEach }
             val bytes = runCatching { files.read(name) }.getOrNull()
             if (bytes == null) { files.remove(name); dropped(); return@forEach }
             try { if (JSONObject(String(bytes)).getString("path") in paths) files.remove(name) }
@@ -74,7 +80,7 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
         var count = all.size
         all.forEach { name ->
             val at = name.split('_').getOrNull(1)?.toLongOrNull() ?: 0
-            if (now - at >= RecordingRules.RAW_TTL || at > now + 60_000 || total > RecordingRules.MAX_QUEUE_BYTES || count > 4096) {
+            if (now - at >= RecordingRules.RAW_TTL || at > now + 60_000 || total > RecordingRules.MAX_QUEUE_BYTES || count > RecordingRules.MAX_QUEUE_RECORDS) {
                 total -= files.size(name); count--; files.remove(name); dropped()
             }
         }

@@ -31,7 +31,7 @@ final class AppPickerChecks {
         if(new CredentialStore(test.getTargetContext()).load()!=null) throw new IllegalStateException("Connected installation refused");
         RecordingSettings settings=new RecordingSettings(test.getTargetContext());
         var beforeAllowed=settings.getAllowed(); var beforeExcluded=settings.getExclusions();
-        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent()) throw new IllegalStateException("Consent must start off");
+        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()) throw new IllegalStateException("Consent must start off");
         try {
             activity=test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             settle();
@@ -56,7 +56,7 @@ final class AppPickerChecks {
             stage="empty installed list guidance";test.runOnMainSync(()->AppPicker.INSTANCE.show(activity,java.util.List.of(),java.util.Set.of("org.example.manual"),chosen->kotlin.Unit.INSTANCE));awaitDialog();
             if(!dialogText().contains("沒有可顯示的 app"))throw new IllegalStateException("Empty installed list guidance absent");capture("no-apps");click("取消");settle();
             stage="invalid manual input";test.runOnMainSync(()->{try{origin.setText("invalid package!");choose();if(origin.getError()==null)throw new IllegalStateException("Field error absent");}catch(Exception e){throw new RuntimeException(e);}});settle();
-            if(!beforeAllowed.equals(settings.getAllowed())||!beforeExcluded.equals(settings.getExclusions())||settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent())throw new IllegalStateException("Picker persisted settings/consent");
+            if(!beforeAllowed.equals(settings.getAllowed())||!beforeExcluded.equals(settings.getExclusions())||settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled())throw new IllegalStateException("Picker persisted settings/consent");
         }catch(Throwable e){throw new IllegalStateException("App picker "+stage+": "+e.getClass().getSimpleName(),e);}
         finally {if(activity!=null)test.runOnMainSync(()->activity.finish());}
     }

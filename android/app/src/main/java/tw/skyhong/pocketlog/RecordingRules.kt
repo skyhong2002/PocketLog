@@ -6,9 +6,21 @@ import java.security.MessageDigest
 object RecordingRules {
     const val MAX_TEXT = 2000
     const val RAW_TTL = 24 * 60 * 60 * 1000L
-    const val MAX_QUEUE_BYTES = 32 * 1024 * 1024L
+    // About one day of per-minute captures with thumbnails while offline.
+    const val MAX_QUEUE_BYTES = 256 * 1024 * 1024L
+    const val MAX_QUEUE_RECORDS = 16_384
     const val MAX_SESSION = 20 * 60 * 1000L
-    const val CONTEXT_GAP = 5 * 60 * 1000L
+    // infovore cadence: one capture per minute while an allowed app stays in front,
+    // plus app switches no closer than five seconds apart.
+    const val CONTEXT_INTERVAL = 60 * 1000L
+    const val CONTEXT_MIN_GAP = 5 * 1000L
+    // Android rejects takeScreenshot calls closer than about one second apart.
+    const val SCREENSHOT_GAP = 1_100L
+    const val MAX_IMAGE_EDGE = 720
+    // 300,000 bytes encode to exactly the server's 400,000 base64 characters.
+    const val MAX_IMAGE_BYTES = 300_000
+    const val MAX_IMAGE_BASE64 = 400_000
+    const val MAX_UPLOAD_BODY = 480 * 1024
     val sensitive = setOf("com.x8bit.bitwarden", "com.onepassword.android", "com.agilebits.onepassword",
         "com.lastpass.lpandroid", "com.dashlane", "keepass2android.keepass2android", "com.kunzisoft.keepass.free",
         "com.google.android.apps.authenticator2", "com.azure.authenticator", "com.authy.authy", "com.android.systemui")
@@ -19,6 +31,11 @@ object RecordingRules {
         Regex("(?i)(bank|wallet|payment|authenticator|password|keyguard)").containsMatchIn(pkg)
     fun contextAllowed(pkg: String, allowed: Set<String>, excluded: Set<String>, own: String): Boolean =
         pkg in allowed && !excluded(pkg, excluded, own)
+    /** Delay before the next capture attempt: app switches wait [CONTEXT_MIN_GAP], otherwise [CONTEXT_INTERVAL]. */
+    fun nextCaptureDelay(now: Long, last: Long, appSwitch: Boolean): Long {
+        if (last <= 0 || now < last) return 0
+        return maxOf(0, last + (if (appSwitch) CONTEXT_MIN_GAP else CONTEXT_INTERVAL) - now)
+    }
     fun cap(text: String, max: Int = MAX_TEXT): String {
         val end = minOf(text.length, max)
         return text.substring(0, if (end > 0 && Character.isHighSurrogate(text[end - 1])) end - 1 else end)

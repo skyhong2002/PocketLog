@@ -31,7 +31,7 @@ final class RuleAppPickerChecks {
         if(new CredentialStore(test.getTargetContext()).load()!=null) throw new IllegalStateException("Connected installation refused");
         RecordingSettings settings=new RecordingSettings(test.getTargetContext());
         var beforeAllowed=settings.getAllowed(); var beforeExcluded=settings.getExclusions();
-        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent()) throw new IllegalStateException("Consent must start off");
+        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()) throw new IllegalStateException("Consent must start off");
         try {
             activity=test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             settle();
@@ -60,7 +60,7 @@ final class RuleAppPickerChecks {
             if(!dialogText().contains("沒有可顯示的 app"))throw new IllegalStateException("Empty list guidance absent");capture("no-apps");click("取消");settle();
             stage="stale page callback";test.runOnMainSync(()->{try{choose();invoke("appListsPage");}catch(Exception e){throw new RuntimeException(e);}});settle();
             test.runOnMainSync(()->{for(View root:WindowInspector.getGlobalWindowViews())if(root!=activity.getWindow().getDecorView()&&root.isShown())throw new IllegalStateException("Stale page opened picker");});
-            if(!beforeAllowed.equals(settings.getAllowed())||!beforeExcluded.equals(settings.getExclusions())||settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent())throw new IllegalStateException("Picker persisted settings/consent");
+            if(!beforeAllowed.equals(settings.getAllowed())||!beforeExcluded.equals(settings.getExclusions())||settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled())throw new IllegalStateException("Picker persisted settings/consent");
         }catch(Throwable e){throw new IllegalStateException("App picker "+stage+": "+e.getClass().getSimpleName(),e);}
         finally {if(activity!=null)test.runOnMainSync(()->activity.finish());}
     }
