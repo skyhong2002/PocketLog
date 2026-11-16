@@ -120,3 +120,18 @@ Three steps at most, skippable:
 - Phone queue retention for observations is 72 h; the server accepts context up to 72 h
   old and still analyses it.
 - No new periodic wakeups on battery.
+
+## Fewer restrictions (owner, 2026-11-17)
+
+- **PocketLog's own screen protection** (`FLAG_SECURE`) becomes a setting,
+  `防止截圖這個 app`, **off by default**, in 設定 › 資料. When on, the activity and its
+  dialogs are protected as before.
+- **Protected / DRM screens of other apps** (Netflix, banking apps, any window with
+  `FLAG_SECURE`): Android returns no pixels for them and PocketLog never tries to bypass
+  that. Instead of discarding the whole capture, record the app and its visible screen
+  text **without a screenshot**, and mark the observation so the card can say
+  `受保護畫面（無截圖）`. A black or blank frame is never stored or uploaded. The AI
+  still summarises from app name + text.
+- Capture is no longer rejected just because a window is secure. What stays:
+  user exclusions/allowlist, password and editable-field windows (credentials), the
+  lock screen, and the suspected-secret text shield (on by default, can be turned off).
