@@ -52,8 +52,10 @@ report suspected vulnerabilities privately through the repository owner.
 - Deletion uses SQL secure_delete and a WAL checkpoint; backups, snapshots,
   flash wear leveling and copied exports may still retain data. Retention is
   enforced while the service runs, not while a host is powered off.
-- Automatic collection defaults off. App usage consent, context consent, image
-  consent and model consent are separate. Context requires an explicit app
+- Automatic collection defaults off. App usage consent and context consent are
+  separate on the phone; granting context also turns on screenshots by default
+  (Dayflow-style, disclosed in the same dialog) and screenshots can be turned off
+  separately; model use is an owner server switch. Context requires an explicit app
   allowlist; exclusions override it. Built-in sensitive-app exclusions cover known
   packages and package-name patterns, not every sensitive app; explicitly exclude
   your financial, authentication and other private apps. Structural password/editable-field checks run
@@ -65,11 +67,15 @@ report suspected vulnerabilities privately through the repository owner.
   entirely while the app is not executing is not detectable from the later
   current AppOps grant; do not treat this as continuous permission-history proof.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
-  filename AAD. Queue max 24 h / 32 MiB / 4,096 entries, including quarantine;
+  filename AAD. Queue max 24 h / 1 GiB / 32,768 entries, including quarantine;
+  screenshot entries are stored separately so reflection/edit reads never decrypt them;
   timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
   app/workers execute, not while powered off. Key loss can make local records
   unrecoverable; corrupt files are discarded with a visible drop count.
-- Analysis-only raw context is private, max 24 hours, never readable/exportable by API.
+- Analysis-only raw context is private and retained on the server (text
+  permanently; screenshots until the owner storage budget evicts the oldest), never
+  readable/exportable by API. Context is sampled every 10 seconds and on app switches;
+  screenshots are at most 720 px / 300,000 bytes.
   Independent per-image `replay_consent` can additionally create a separate private
   archive (256 images / 24 hours). Only worker-decoded, resized/re-encoded JPEGs
   (480 px, 24 KiB, stripped metadata) become readable. No implicit archive of old
@@ -78,27 +84,28 @@ report suspected vulnerabilities privately through the repository owner.
   masking. Default-on local suspected-secret text checks reject the whole window
   before pixels, with false positives and no guarantee for secrets rendered only
   as pixels. Receipts
-  retain only payload hashes/IDs for 30-day deduplication. Consumed raw records are
-  deleted after derived notes commit. Cleanup occurs per request/worker pass and
-  hourly; stopped workers/hosts can delay physical cleanup. The API never decodes
+  retain payload hashes/IDs permanently for deduplication. Analyzed raw records are
+  marked processed, not deleted. Budget enforcement runs each worker pass; a stopped
+  worker delays screenshot eviction, and freed SQLite pages are reused rather than
+  returned to the filesystem. The API never decodes
   JPEGs. Worker JPEG decoding bounds dimensions, encoded bytes and allocation.
-- Optional model requests require server configuration and per-observation consent.
+- Optional model requests require server configuration and the owner's
+  provider-bound automatic switch (legacy per-observation consent bound to the
+  current provider is still honored). Cleaned card titles are also sent for topic
+  labels while the switch is on.
   Text/images are untrusted evidence; no tools, browsing, shell or API owner token
   are provided to a model. Output schema/length/categories are validated; user
   corrections win. No emotions are inferred. The worker has DB access and any
   explicitly mounted provider key; process separation is not a sandbox against a
-  compromised host or decoder. Provider-bound consent prevents old queued captures from being sent to a new
-  configuration. Saving any model setting rotates its identity and requires renewed
-  capture consent. Android reconciles existing future-capture grants on its normal
-  sync cadence and in capture/AI settings; a confirmed identity change or disabled
-  provider invalidates that grant. Failed checks show unverified readiness and keep
-  only the previously approved identity. Pending payloads are never rebound to a
-  new provider. No provider-side deletion is implemented.
+  compromised host or decoder. Saving any model setting rotates its identity and
+  turns the automatic switch off until the owner re-enables it; turning it off
+  invalidates jobs and discards in-flight results. No provider-side deletion is implemented.
 - Pausing/removing allowlists or revoking consent clears pending local context,
   not already transmitted server/provider copies. Owner deletion invalidates jobs
   and in-flight results, but cannot retract requests already sent to a model. The
   Android delete action first disables capture and clears local queue/cache.
-  Shared server pause rejects new captures and clears pending server context;
+  Shared server pause rejects new captures and clears unanalyzed server context
+  (analyzed journal history is retained);
   phones apply it on the existing sync cadence and clear queued capture data.
   Offline phones, including a failed private-server connection, use their last known state until reconnection, not instant remote
   control. Known invalid/revoked device credentials stop local capture after sync.

@@ -55,6 +55,15 @@ local-only mode; reminders; independent security review; owner-approved infovore
 publishing connector. Earlier milestones are product sequencing, not a claim that
 all of these remaining requirements shipped in this port.
 
+## infovore capture parity (2026-11-16)
+
+By owner decision PocketLog now matches infovore's phone capture: context every
+minute and on app switches, 720 px / ≤300 KB screenshots, owner-enabled automatic
+summaries (replacing per-capture consent), model-labeled topic keywords, a permanent
+server journal and a 10 GiB default storage budget that removes the oldest
+screenshots first. Battery, Doze and physical-device acceptance of this cadence are
+not yet measured. See [INFOVORE_PORT.md](INFOVORE_PORT.md).
+
 ## Website and official Dayflow alignment (2026-11-14)
 
 Shared onboarding, native/web day/week timelines, custom categories and ordered

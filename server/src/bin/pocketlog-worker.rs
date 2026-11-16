@@ -27,6 +27,9 @@ fn main() -> Result<(), &'static str> {
         if pocketlog_server::process_with_provider(&mut db, provider.as_ref()).is_err() {
             eprintln!("context processing failed");
         }
+        if pocketlog_server::process_topics(&mut db, provider.as_ref()).is_err() {
+            eprintln!("topic labeling failed");
+        }
         if pocketlog_server::process_briefs(&mut db, provider.as_ref()).is_err() {
             eprintln!("brief processing failed");
         }

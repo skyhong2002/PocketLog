@@ -8,7 +8,10 @@ import java.time.ZonedDateTime
 /** Pure timeline arithmetic shared by native views; no Android types so it stays unit-testable. */
 object TimelineMath {
     const val DAY_START_HOUR = 4
-    const val HISTORY_DAYS = 28L
+    // The server keeps the journal permanently; navigation is bounded only to keep pickers sane.
+    const val HISTORY_DAYS = 3650L
+    // The overview endpoint accepts at most 30 days per request.
+    const val OVERVIEW_DAYS = 28L
 
     data class Interval(val start: Long, val end: Long)
     /** Lane placement for one interval: [lane] within a cluster of [lanes] mutually overlapping columns. */

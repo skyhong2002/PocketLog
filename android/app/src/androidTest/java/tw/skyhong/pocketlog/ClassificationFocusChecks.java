@@ -32,7 +32,7 @@ final class ClassificationFocusChecks {
         if(!java.util.Set.of("ranchu","goldfish").contains(android.os.Build.HARDWARE)) throw new IllegalStateException("Disposable emulator required");
         if(new CredentialStore(test.getTargetContext()).load()!=null) throw new IllegalStateException("Connected installation refused");
         RecordingSettings settings=new RecordingSettings(test.getTargetContext());
-        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent()) throw new IllegalStateException("Consent must start off");
+        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()) throw new IllegalStateException("Consent must start off");
         test.setInTouchMode(true);
         try {
             activity=test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));settle();
@@ -80,7 +80,7 @@ final class ClassificationFocusChecks {
             row=category("custom_edge");reveal(action(row,"移除此分類"));click(action(row,"移除此分類"));settle();assertVisibleFocused(null);
             test.runOnMainSync(()->{if(!(activity.getCurrentFocus() instanceof EditText e)||!"專注測試".equals(e.getText().toString()))throw new IllegalStateException("Final custom category fallback missing");});
             capture("builtin-category-fallback");
-            if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent())throw new IllegalStateException("Consent changed");
+            if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled())throw new IllegalStateException("Consent changed");
         } catch(Exception e) { throw new IllegalStateException("Classification focus: "+e.getMessage(),e); } finally {if(activity!=null)test.runOnMainSync(()->{activity.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(activity.getWindow().getDecorView().getWindowToken(),0);activity.finish();});}
     }
     private void render(){test.runOnMainSync(()->{try{Method m=MainActivity.class.getDeclaredMethod("categoryRulesEditor",JSONObject.class);m.setAccessible(true);m.invoke(activity,draft);}catch(Exception e){throw new RuntimeException(e);}});}

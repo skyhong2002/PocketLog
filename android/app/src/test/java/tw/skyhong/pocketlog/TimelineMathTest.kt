@@ -24,12 +24,13 @@ class TimelineMathTest {
         assertEquals(86_400_000L, full.second - full.first)
     }
 
-    @Test fun weekStartsMondayAndHistoryIsTwentyNineDays() {
+    @Test fun weekStartsMondayAndHistoryCoversThePermanentJournal() {
         assertEquals(LocalDate.of(2026, 11, 9), TimelineMath.weekStart(LocalDate.of(2026, 11, 15)))
         assertEquals(LocalDate.of(2026, 11, 9), TimelineMath.weekStart(LocalDate.of(2026, 11, 9)))
         val today = LocalDate.of(2026, 11, 15)
-        assertTrue(TimelineMath.inHistory(today.minusDays(28), today))
-        assertFalse(TimelineMath.inHistory(today.minusDays(29), today))
+        assertTrue(TimelineMath.inHistory(today.minusDays(29), today))
+        assertTrue(TimelineMath.inHistory(today.minusDays(TimelineMath.HISTORY_DAYS), today))
+        assertFalse(TimelineMath.inHistory(today.minusDays(TimelineMath.HISTORY_DAYS + 1), today))
         assertFalse(TimelineMath.inHistory(today.plusDays(1), today))
     }
 

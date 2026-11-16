@@ -155,7 +155,7 @@ async fn list(
     State(state): State<AppState>,
     Query(w): Query<Window>,
 ) -> Result<Json<serde_json::Value>> {
-    if w.from_ms < now_ms() - RETENTION
+    if w.from_ms < 0
         || w.to_ms > w.from_ms + RETENTION
         || w.to_ms <= w.from_ms
         || w.to_ms > now_ms() + 60_000
@@ -176,7 +176,7 @@ async fn generate(
     let now = now_ms();
     if !q.consent
         || !valid_id(&q.id)
-        || q.from_ms < now - RETENTION
+        || q.from_ms < 0
         || q.to_ms > now + 60_000
         || q.to_ms <= q.from_ms
         || q.to_ms - q.from_ms

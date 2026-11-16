@@ -12,12 +12,12 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | --- | --- |
 | Onboarding: explain capture/privacy/provider | Website and native Android onboarding share server completion, goals and category settings; OS permissions and capture/model consent remain device-specific |
 | Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank; desktop web selection opens a read-only side inspector, with explicit editing; web activity corrections retain newer unsaved edits and ignore closed-editor responses; visible current-day native and web views check activity changes at most once every two minutes and offer an explicit update without silently rebuilding the reader |
-| Week timeline | Website seven-column grid or readable list; native compact seven-column overview with per-day rows; 29 selectable journal dates |
+| Week timeline | Website seven-column grid or readable list; native compact seven-column overview with per-day rows; any past journal date (the journal is retained permanently) |
 | Category filtering and editing | Both clients filter categories and edit ten built-ins plus up to 30 custom categories; up to 32 ordered app/title rules, with manual corrections taking priority; both clients test unsaved rules through the private server classifier; Android can search local launcher apps for a rule, while web offers up to 20 recorded packages from the last 29 days. Selection fills an unsaved draft only |
 | Targets, distraction budget, longest focus | Website selected-day sidebar and Android daily review; user-defined focus/distraction roles; intervals are merged for longest-focus metric |
 | Daily | Activity totals, top activities, editable reflection and focus review; manual mood/energy entry removed at the owner’s request (legacy records/API retained); both clients generate, save and delete AI briefs with per-request consent |
-| Weekly | Website seven-day activity summaries/reflections, totals, AI recap; Android week timeline and existing category/app/keyword overview; separate opt-in daily/weekly schedules with IANA timezone/DST support; no generated artwork |
-| BYO AI | Both clients configure OpenAI-compatible, Anthropic Messages or Gemini generateContent URL, model, key and image capability; no CLI execution |
+| Weekly | Website seven-day activity summaries/reflections, totals, AI recap; Android week timeline and category/app overview; both show model-labeled topic keywords (local fallback); separate opt-in daily/weekly schedules with IANA timezone/DST support; no generated artwork |
+| BYO AI | Both clients configure OpenAI-compatible, Anthropic Messages or Gemini generateContent URL, model, key and image capability, plus an owner automatic-summary switch per provider; no CLI execution |
 | Chat | Both clients can explicitly send up to 100 derived cards to selected provider; both clients support day/week scope, saved multi-turn conversations, same-provider bounded history, deletion and deterministic category charts; no tools or desktop CLI |
 | Flow | Private user-started focus sessions and results, with a server-persisted cross-device timer and browser countdown; **not** the official authenticated remote Flow web app, distraction agent or cloud account service |
 | Agents | Native Codex/Claude JSONL is parsed locally after file selection; preview/edit and explicitly choose text turns, then group by project, update status and replay approved text on both clients. Summary JSON/manual import remains supported; no background filesystem scanning, Fable, or opening desktop tools |
@@ -25,14 +25,15 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | Pause | Local pause plus shared server stop switch, immediate rejection/clearing of pending context, phone propagation on existing sync cadence; offline phones cannot receive an immediate stop; saved local capture grants stay visible and revocable while paused, and upstream resume discloses retained downstream choices without granting OS permissions |
 | Copy/export | Website clipboard + JSON; Android clipboard + daily JSON document picker; raw observations never exported |
 | Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; local diagnostics and documentation links; no automatic support messages or telemetry |
-| Recording and replay | Opt-in bounded Android app-switch metadata/text/thumbnails; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription or high-frequency sampling |
+| Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription |
+| Storage limit | Owner-set server budget (1 GiB–1 TiB) in both clients; over the limit the oldest screenshots are removed and text is kept |
 
 ## Shared setup
 
 `GET/PUT /v1/workspace` stores onboarding version, category presentation/roles and
 daily goals. `revision` provides optimistic concurrency: an older editor gets
 409 rather than silently replacing another device's changes. Completing setup
-never grants collection, image or external AI consent. A newly paired phone can
+never grants collection or image consent or turns on automatic AI summaries. A newly paired phone can
 skip already completed product setup but must still grant its own OS permissions.
 An offline launch can open the existing encrypted timeline without granting consent.
 

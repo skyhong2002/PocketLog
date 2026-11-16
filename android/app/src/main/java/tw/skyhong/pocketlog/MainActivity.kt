@@ -131,6 +131,8 @@ class MainActivity : Activity() {
             exportBytes = it.export
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        // Upgrade path: existing screen-context grants include screenshots by default.
+        runCatching { synchronized(SyncEngine.lock) { RecordingSettings(this).applyScreenshotDefault() } }
         window.setDecorFitsSystemWindows(false)
         ui = Ui(this)
         listMode = getSystemService(AccessibilityManager::class.java)?.isTouchExplorationEnabled == true
@@ -474,7 +476,7 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Previous/next and a date picker bounded to the readable 29-day window. */
+    /** Previous/next and a date picker over the permanent journal (bounded to ten years). */
     private fun dateNav(parent: ViewGroup, step: Long = 1, label: String = dateTitle(day), onChange: (LocalDate) -> Unit) {
         val today = journalDay(); val earliest = today.minusDays(TimelineMath.HISTORY_DAYS)
         fun target(delta: Long) = day.plusDays(delta).coerceIn(earliest, today)
@@ -486,7 +488,7 @@ class MainActivity : Activity() {
         ui.button(row, label, Tone.OUTLINE, 1f) {
             DatePickerDialog(this@MainActivity, { _, y, m, d ->
                 val picked = LocalDate.of(y, m + 1, d)
-                if (TimelineMath.inHistory(picked, today)) onChange(picked) else notice("只能查看最近 29 天", Kind.WARN)
+                if (TimelineMath.inHistory(picked, today)) onChange(picked) else notice("只能查看最近 10 年", Kind.WARN)
             }, day.year, day.monthValue - 1, day.dayOfMonth).apply {
                 datePicker.minDate = earliest.atStartOfDay(zone).toInstant().toEpochMilli()
                 datePicker.maxDate = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
@@ -909,15 +911,15 @@ class MainActivity : Activity() {
         ui.groupLabel(parent, "這一天")
         val card = ui.card(parent, padding = 8)
         ui.row(card, "每日回顧與目標", "專注、分心、你的回顧與 AI 摘要") { go(Tab.DAILY) }
-        ui.row(card, "活動概覽", "本週或最近 29 天的分類、常用 app 與關鍵字") { overview() }
+        ui.row(card, "活動概覽", "本週或最近 29 天的分類、常用 app 與主題關鍵字") { overview() }
         ui.row(card, "短期縮圖回放", "只顯示另行同意保存的縮圖") { replayPage() }
         ui.row(card, "匯出這一天", "私人 JSON，含活動、感受與反思") { export() }
     }
 
     private fun overview() {
         dialog().setTitle("活動概覽").setItems(arrayOf("所選日期的本週", "最近 29 天")) { _, choice ->
-            val earliest = journalDay().minusDays(TimelineMath.HISTORY_DAYS)
-            val start = if (choice == 0) maxOf(earliest, TimelineMath.weekStart(day)) else earliest
+            val earliest = journalDay().minusDays(TimelineMath.OVERVIEW_DAYS)
+            val start = if (choice == 0) TimelineMath.weekStart(day) else earliest
             val end = if (choice == 0) TimelineMath.weekStart(day).plusDays(7) else journalDay().plusDays(1)
             val from = TimelineMath.dayStart(start, zone); val to = minOf(TimelineMath.dayStart(end, zone), System.currentTimeMillis())
             task("讀取概覽…", { readJournal("/v1/overview?from_ms=$from&to_ms=$to") }) { data ->
@@ -930,9 +932,9 @@ class MainActivity : Activity() {
                 ui.heading(panel, "常用 app", top = 12)
                 for (i in 0 until apps.length()) { val a = apps.getJSONObject(i); ui.body(panel, "${appNames.name(a.getString("app"))} · ${TimelineMath.duration(a.getLong("duration_ms"))}") }
                 val keywords = data.getJSONArray("title_keywords")
-                ui.heading(panel, "標題關鍵字", top = 12)
+                ui.heading(panel, "主題關鍵字", top = 12)
                 ui.body(panel, (0 until keywords.length()).joinToString("、") { keywords.getJSONArray(it).getString(0) }.ifBlank { "—" })
-                ui.meta(panel, "取自最近 1000 張活動卡片。", top = 8)
+                ui.meta(panel, if (data.optString("keyword_mode") == "model") "由自動摘要的模型從最近 1000 張活動卡片整理主題；尚未標記的卡片以標題文字補足。" else "取自最近 1000 張活動卡片的標題文字。", top = 8)
                 if (data.optBoolean("offline")) ui.banner(panel, "離線快取，尚未包含最新資料。", Kind.WARN, 0)
                 dialog().setTitle("${md(start)} 起的活動概覽").setView(ScrollView(this@MainActivity).apply { addView(panel) }).setPositiveButton("關閉", null).showSecure()
                 notice("概覽已更新", Kind.INFO)
@@ -1106,7 +1108,7 @@ class MainActivity : Activity() {
                     val top = totals(list).firstOrNull()
                     val detail = when {
                         w.date > today -> "尚未到來"
-                        !TimelineMath.inHistory(w.date, today) -> "超出 29 天可讀範圍"
+                        !TimelineMath.inHistory(w.date, today) -> "超出可讀範圍"
                         !w.available -> "無法讀取（離線且沒有快取）"
                         data?.optBoolean("truncated") == true -> "${TimelineMath.duration(TimelineMath.covered(intervals(list)))}（部分資料）" + (top?.let { " · 最多：${label(it.first)}" } ?: "")
                         list.isEmpty() -> "沒有活動"
@@ -1541,7 +1543,7 @@ class MainActivity : Activity() {
         }
         ui.groupLabel(body, "沒有活動時")
         ui.card(body).apply {
-            ui.body(this, "1. 確認「設定 → 手機紀錄」已開啟，並授予 Android 使用情況存取權。\n2. 確認伺服器沒有暫停收集，該 app 沒有被排除。\n3. 背景整理最短約 15 分鐘，由 Android 決定；可在時間軸按同步。\n4. 預設只用不限量網路上傳；行動數據下請在設定切換。\n5. 畫面文字與縮圖還需允許清單與各自同意。AI 設定改變後要重新同意。")
+            ui.body(this, "1. 確認「設定 → 手機紀錄」已開啟，並授予 Android 使用情況存取權。\n2. 確認伺服器沒有暫停收集，該 app 沒有被排除。\n3. 背景整理最短約 15 分鐘，由 Android 決定；可在時間軸按同步。\n4. 預設只用不限量網路上傳；行動數據下請在設定切換。\n5. 畫面文字與縮圖還需允許清單與各自同意。更換 AI 設定後要重新開啟自動摘要。")
         }
         ui.groupLabel(body, "目前限制")
         ui.card(body).apply {
@@ -1623,9 +1625,9 @@ class MainActivity : Activity() {
         captureAllowlistWarning(body, s, eligible)
         ui.card(body, padding = 8).apply {
             ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
-            val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；切換時最多每 5 分鐘讀取一次，仍需系統權限" }
+            val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；前景時每 10 秒及切換時擷取，仍需系統權限" }
             ui.row(this, "畫面文字", contextDetail, (if (s.hasContextGrant && !s.contextEnabled) "已保存" else if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
-            ui.row(this, "畫面縮圖", if (s.hasImagesGrant && !s.imagesEnabled) "同意已保存；目前暫停，點此撤回" else if (s.contextEnabled) "最長邊 480 px，可能含無法從文字判斷的私人資訊" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else if (s.hasImagesGrant) "已保存" else "關閉") to s.imagesEnabled) { toggleImages(s) }
+            ui.row(this, "畫面縮圖", if (s.hasImagesGrant && !s.imagesEnabled) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "隨畫面文字預設開啟；最長邊 720 px，點此可關閉" else if (s.contextEnabled) "已關閉，只擷取文字；點此重新開啟" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else if (s.hasImagesGrant) "已保存" else "關閉") to s.imagesEnabled) { toggleImages(s) }
             ui.row(this, "短期縮圖回放", if (s.hasReplayGrant && !s.replayConsent) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else if (s.hasReplayGrant) "已保存" else "關閉") to s.replayConsent) { toggleReplay(s) }
             ui.row(this, "文字隱私防護", "疑似金鑰、token 或長數字時跳過整個視窗", (if (s.privacyShield) "開啟" else "關閉") to s.privacyShield) { privacyShieldDialog(s) }
             ui.row(this, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
@@ -1635,30 +1637,14 @@ class MainActivity : Activity() {
         ui.groupLabel(body, "AI")
         ui.card(body, padding = 8).apply {
             ui.row(this, "Bring your own AI", "端點、模型與金鑰保存在你的伺服器") { aiSettings { settings() } }
-            val consent = ui.column(this)
-            load(consent, "核對未來情境的模型同意…", { CaptureAiConsent.refresh(this@MainActivity) { api().request("/v1/ai") } }) { state ->
-                val label = when (state) {
-                    CaptureAiConsent.State.CURRENT -> if (s.contextEnabled) "已同意" else "已保存"
-                    CaptureAiConsent.State.UNVERIFIED -> "尚未核對"
-                    CaptureAiConsent.State.RENEWAL -> "需重新同意"
-                    CaptureAiConsent.State.OFF -> "未同意"
-                }
-                val detail = when (state) {
-                    CaptureAiConsent.State.CURRENT -> "最近核對的模型與同意相符；點此撤回"
-                    CaptureAiConsent.State.UNVERIFIED -> "尚未確認伺服器目前的模型。舊同意不會授權新模型；點此重新核對。"
-                    CaptureAiConsent.State.RENEWAL -> "模型設定已變更或停用。只有重新同意後，未來情境才可使用目前模型。"
-                    CaptureAiConsent.State.OFF -> if (s.contextEnabled) "每次更換模型都要重新同意" else "需先開啟畫面文字"
-                }
-                ui.row(consent, "模型處理未來情境", null, label to (state == CaptureAiConsent.State.CURRENT)) {
-                    if (state == CaptureAiConsent.State.CURRENT) task("撤回同意…", { synchronized(SyncEngine.lock) { s.externalAiConsent = false; s.aiProviderId = null; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已撤回模型處理同意；待傳情境已清除。") }
-                    else approveAi { settings() }
-                }
-                // Give recovery guidance the full width, especially at 2× font size.
-                ui.meta(consent, detail, top = 4, bottom = 8)
-                if (state == CaptureAiConsent.State.UNVERIFIED && s.hasExternalAiGrant) ui.button(consent, "撤回已保存的模型同意", Tone.TEXT) {
-                    task("撤回同意…", { synchronized(SyncEngine.lock) { s.externalAiConsent = false; s.aiProviderId = null; JournalQueue(this@MainActivity).clearContexts() } }) { settings() }
-                }
-            }
+            val auto = ui.column(this)
+            load(auto, "讀取自動摘要狀態…", { api().request("/v1/ai") }) { config -> autoSummaryRow(auto, config) { settings() } }
+        }
+
+        ui.groupLabel(body, "伺服器儲存空間")
+        ui.card(body, padding = 8).apply {
+            val storage = ui.column(this)
+            load(storage, "讀取伺服器儲存空間…", { api().request("/v1/storage") }) { info -> storageRows(storage, info) }
         }
 
         ui.groupLabel(body, "共用設定")
@@ -1712,16 +1698,15 @@ class MainActivity : Activity() {
     }
 
     /** Disclose retained independent choices before releasing an upstream capture gate. */
-    private fun savedCaptureDisclosure(s: RecordingSettings, text: Boolean, images: Boolean, model: Boolean): String {
+    private fun savedCaptureDisclosure(s: RecordingSettings, text: Boolean, images: Boolean): String {
         val saved = buildList {
             if (text && s.hasContextGrant) add("畫面文字")
             if (images && s.hasImagesGrant) add("畫面縮圖")
             if (s.hasReplayGrant) add("短期縮圖回放")
-            if (model && s.hasExternalAiGrant) add("模型處理未來情境（原先同意的供應商）")
         }
         if (saved.isEmpty()) return ""
         return "\n\n已保存的獨立同意：\n" + saved.joinToString("\n") { "• $it" } +
-            "\n\n恢復後，符合前置同意、允許清單與系統權限的項目會繼續。若不希望沿用，請取消並在設定逐項撤回。模型設定變更後仍須重新同意。"
+            "\n\n恢復後，符合前置同意、允許清單與系統權限的項目會繼續。若不希望沿用，請取消並在設定逐項撤回。"
     }
 
     private fun toggleUsage(s: RecordingSettings) {
@@ -1733,9 +1718,9 @@ class MainActivity : Activity() {
         }
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (s.remotePaused) { notice("伺服器已暫停所有裝置的收集，請先恢復。", Kind.WARN); return }
-        val saved = savedCaptureDisclosure(s, text = true, images = true, model = true)
+        val saved = savedCaptureDisclosure(s, text = true, images = true)
         dialog().setTitle("開啟 app 使用紀錄？")
-            .setMessage((if (saved.isEmpty()) "" else saved.trimStart() + "\n\n") + "App 使用紀錄會記錄同意之後的 app 套件名稱及前景時段。畫面文字、縮圖、回放與模型處理各有獨立同意。背景整理最短每 15 分鐘，由 Android 決定實際時間；多視窗與系統遺漏事件可能影響精準度。\n\n若尚未授予使用情況存取權，下一步會開啟 Android 設定。")
+            .setMessage((if (saved.isEmpty()) "" else saved.trimStart() + "\n\n") + "App 使用紀錄會記錄同意之後的 app 套件名稱及前景時段。畫面文字、縮圖與回放各有獨立同意；模型摘要由伺服器的自動摘要開關決定。背景整理最短每 15 分鐘，由 Android 決定實際時間；多視窗與系統遺漏事件可能影響精準度。\n\n若尚未授予使用情況存取權，下一步會開啟 Android 設定。")
             .setNegativeButton("取消", null).setPositiveButton(if (saved.isEmpty()) "同意並開啟" else "同意並恢復") { _, _ ->
                 task("開啟紀錄…", { synchronized(SyncEngine.lock) { require(!s.remotePaused && !s.isAuthRejected(credentials)); UsageCollector(this@MainActivity).reset(); s.enabled = true; JournalQueue(this@MainActivity).clearContexts() } }) {
                     SyncEngine.schedule(this@MainActivity)
@@ -1749,7 +1734,7 @@ class MainActivity : Activity() {
         task("讀取收集狀態…", { api().request("/v1/collection") }) { control ->
             val paused = !control.getBoolean("paused")
             dialog().setTitle(if (paused) "暫停所有裝置收集？" else "恢復伺服器收集？")
-                .setMessage("暫停會拒絕新的活動與情境並刪除待分析原始資料。離線手機須等待同步；恢復會沿用各裝置已保存的本機同意。" + if (!paused) savedCaptureDisclosure(s, text = true, images = true, model = true) else "")
+                .setMessage("暫停會拒絕新的活動與情境並刪除待分析原始資料。離線手機須等待同步；恢復會沿用各裝置已保存的本機同意。" + if (!paused) savedCaptureDisclosure(s, text = true, images = true) else "")
                 .setNegativeButton("取消", null).setPositiveButton(if (paused) "暫停" else "恢復") { _, _ ->
                     task("更新收集狀態…", {
                         synchronized(SyncEngine.lock) {
@@ -1769,11 +1754,12 @@ class MainActivity : Activity() {
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.enabled) { notice("請先開啟 App 使用紀錄", Kind.WARN); return }
         if (s.allowed.isEmpty()) { notice("請先在「排除與允許清單」加入允許的 app", Kind.WARN); appListsPage(); return }
-        dialog().setTitle("允許選定 app 的畫面文字？")
-            .setMessage("切換 app 時最多每五分鐘一次；Android 安全視窗、鎖定畫面、密碼與輸入欄位會跳過。文字透過 HTTPS 傳送到你設定的私人伺服器，形成可見文字摘錄；原始佇列最長 24 小時，摘錄可保留 30 天。縮圖與模型處理各有獨立同意。" + savedCaptureDisclosure(s, text = false, images = true, model = true) + "\n\n下一步會開啟 Android 輔助使用設定，請開啟 PocketLog 服務；可隨時暫停。")
-            .setNegativeButton("取消", null).setPositiveButton("同意私人文字處理") { _, _ ->
-                task("開啟畫面文字…", { synchronized(SyncEngine.lock) { require(s.enabled && s.allowed.isNotEmpty()); s.contextEnabled = true; s.analysisConsent = true } }) {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); settings(); notice("已同意畫面文字；請在系統設定開啟服務", Kind.INFO)
+        // Like Dayflow, screen context includes screenshots by default; they can be turned off separately.
+        dialog().setTitle("允許選定 app 的畫面文字與截圖？")
+            .setMessage("允許的 app 在前景時每 10 秒擷取一次，切換 app 時也會擷取（至少間隔 5 秒）：畫面文字加上一張截圖（最長邊 720 像素、JPEG 最多約 300 KB）。Android 安全視窗、鎖定畫面、密碼與輸入欄位會跳過。截圖可能含無法從文字判斷的私人資訊，請只允許你願意記錄的 app；之後可在設定單獨關閉截圖。內容透過 HTTPS 傳送到你設定的私人伺服器並永久保存，超過伺服器儲存上限時最舊的截圖會先刪除、只留文字；手機離線佇列最長 24 小時。伺服器開啟自動摘要時，文字與截圖會送到伺服器設定的模型。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false) + "\n\n下一步會開啟 Android 輔助使用設定，請開啟 PocketLog 服務；可隨時暫停。")
+            .setNegativeButton("取消", null).setPositiveButton("同意文字與截圖") { _, _ ->
+                task("開啟畫面情境…", { synchronized(SyncEngine.lock) { require(s.enabled && s.allowed.isNotEmpty()); s.contextEnabled = true; s.analysisConsent = true; s.imagesEnabled = true } }) {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); settings(); notice("已同意畫面文字與截圖；請在系統設定開啟服務", Kind.INFO)
                 }
             }.showSecure()
     }
@@ -1786,7 +1772,7 @@ class MainActivity : Activity() {
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.contextEnabled) { notice("請先開啟畫面文字", Kind.WARN); return }
         dialog().setTitle("允許選定 app 的畫面縮圖？")
-            .setMessage("只在 app 切換時最多每五分鐘一次，縮圖最長邊 480 像素、JPEG 最多 24 KiB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器，原始資料最長 24 小時。只有另外同意模型處理時才可能送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false, model = true))
+            .setMessage("與畫面文字同時擷取（每 10 秒一次及切換 app 時），縮圖最長邊 720 像素、JPEG 最多約 300 KB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器保存；超過伺服器儲存上限時，最舊的縮圖會先刪除、只留文字。伺服器開啟自動摘要且模型支援圖片時會送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false))
             .setNegativeButton("取消", null).setPositiveButton("同意選定 app 的縮圖") { _, _ ->
                 task("開啟縮圖…", { synchronized(SyncEngine.lock) { require(s.contextEnabled); s.imagesEnabled = true } }) { settings(); notice("已開啟畫面縮圖") }
             }.showSecure()
@@ -1800,7 +1786,7 @@ class MainActivity : Activity() {
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.imagesEnabled) { notice("請先開啟畫面縮圖", Kind.WARN); return }
         dialog().setTitle("保存畫面供私人回放？")
-            .setMessage("這是與分析分開的同意：未來縮圖可從網站與手機讀回，最多 24 小時、256 張，最長邊 480 px。可能包含私人資訊；沒有 OCR 自動遮罩。只允許你願意保存的 app。關閉不刪除已傳送的縮圖，可另行刪除或等待到期；不代表同意傳給模型。")
+            .setMessage("這是與分析分開的同意：未來縮圖可從網站與手機讀回，最多 24 小時、256 張。可能包含私人資訊；沒有 OCR 自動遮罩。只允許你願意保存的 app。關閉不刪除已傳送的縮圖，可另行刪除或等待到期；不代表同意傳給模型。")
             .setNegativeButton("取消", null).setPositiveButton("同意短期回放") { _, _ ->
                 task("更新同意…", { synchronized(SyncEngine.lock) { require(s.imagesEnabled); s.replayConsent = true; JournalQueue(this@MainActivity).clearContexts() } }) { settings(); notice("已同意短期回放") }
             }.showSecure()
@@ -1864,26 +1850,6 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- AI settings
 
-    private fun approveAi(after: () -> Unit) {
-        if (!RecordingSettings(this@MainActivity).contextEnabled) { notice("模型處理只適用於畫面情境，請先開啟畫面文字", Kind.WARN); return }
-        task("讀取模型設定…", { readCaptureAiConfig() }) { config ->
-            if (!config.optBoolean("enabled")) { notice("請先設定你的 AI 端點與模型", Kind.WARN); return@task }
-            val id = config.getString("provider_id")
-            dialog().setTitle("同意這個模型處理未來情境？")
-                .setMessage("${config.getString("endpoint")}\n模型：${config.getString("model")}\n\n未來擷取的允許清單文字，以及另有同意且模型支援的縮圖，將經過你的私人 PocketLog 伺服器送到此端點。請確認供應商與保存政策；API 使用費由你負擔。模型可能犯錯，沒有操作工具。更換設定後需重新同意；歷史未授權內容不會補送。已送出的請求無法撤回。")
-                .setNegativeButton("取消", null).setPositiveButton("同意目前模型") { _, _ ->
-                    task("記錄同意…", {
-                        synchronized(SyncEngine.lock) {
-                            require(RecordingSettings(this@MainActivity).contextEnabled)
-                            val current = readCaptureAiConfig()
-                            require(current.optBoolean("enabled") && current.getString("provider_id") == id)
-                            RecordingSettings(this@MainActivity).apply { aiProviderId = id; externalAiConsent = true; recordCaptureAiState(CaptureAiConsent.State.CURRENT) }
-                        }
-                    }) { after(); notice("已同意目前模型處理未來情境") }
-                }.showSecure()
-        }
-    }
-
     private fun aiSettings(back: () -> Unit) {
         val body = screen("Bring your own AI", "模型設定保存在私人伺服器", tab = null, back = back)
         ui.card(body).apply {
@@ -1891,22 +1857,13 @@ class MainActivity : Activity() {
             ui.meta(this, "沒有預設供應商，也不會自動使用 infovore 的 AI。本機模型同樣由 PocketLog 伺服器連線，請填伺服器連得到的網址。", top = 6)
         }
         val slot = ui.column(body)
-        load(slot, "讀取私人伺服器的 AI 設定…", { readCaptureAiConfig() }) { config -> renderAiForm(slot, config, back) }
-    }
-
-    private fun readCaptureAiConfig(): JSONObject = synchronized(SyncEngine.lock) {
-        val config = try { api().request("/v1/ai") } catch (failure: Exception) {
-            RecordingSettings(this@MainActivity).apply { if (hasExternalAiGrant) recordCaptureAiState(CaptureAiConsent.State.UNVERIFIED) }
-            throw failure
-        }
-        CaptureAiConsent.refresh(this@MainActivity) { config }
-        config
+        load(slot, "讀取私人伺服器的 AI 設定…", { api().request("/v1/ai") }) { config -> renderAiForm(slot, config, back) }
     }
 
     private fun renderAiForm(slot: LinearLayout, config: JSONObject, back: () -> Unit) {
         if (!config.optBoolean("available")) { ui.empty(slot, "伺服器尚未開放 app 內 AI 設定", "請先更新 PocketLog 伺服器。活動卡仍可正常使用。"); return }
         val enabled = config.optBoolean("enabled")
-        ui.banner(slot, if (enabled) "已設定。${if (config.optBoolean("has_key")) "伺服器已保存金鑰，不會讀回。" else "目前沒有 API key。"} 是否可送日誌取決於每台裝置的同意。" else "尚未啟用 AI，活動卡仍可使用。", if (enabled) Kind.SUCCESS else Kind.INFO)
+        ui.banner(slot, if (enabled) "已設定。${if (config.optBoolean("has_key")) "伺服器已保存金鑰，不會讀回。" else "目前沒有 API key。"} ${if (config.optBoolean("auto_summarize")) "自動摘要已開啟。" else "自動摘要尚未開啟。"}" else "尚未啟用 AI，活動卡仍可使用。", if (enabled) Kind.SUCCESS else Kind.INFO)
         val protocols = listOf("openai", "anthropic", "gemini")
         val form = ui.card(slot)
         ui.heading(form, "模型連線")
@@ -1919,8 +1876,8 @@ class MainActivity : Activity() {
         val key = ui.field(form, "API key（可留白）", "相同端點及協定留白會保留金鑰", Field.SECRET, help = "變更端點或協定時不會沿用舊金鑰。不需要金鑰的本機服務也支援。")
         val forget = ui.checkbox(form, "這次儲存時清除現有 API key")
         val format = ui.spinner(form, "結構化輸出格式", listOf("JSON Schema（建議）", "JSON mode（相容模式）"), if (config.optString("response_format") == "json_object") 1 else 0)
-        val images = ui.checkbox(form, "模型支援圖片輸入（擷取縮圖仍需另外同意）", config.optBoolean("image_support"))
-        ui.meta(form, "金鑰只透過 HTTPS 傳到你的 PocketLog 伺服器，保存在受限制的設定檔，不會讀回手機或放入日誌。伺服器管理者可讀取金鑰。儲存只設定模型，不代表同意傳送日誌。", top = 8)
+        val images = ui.checkbox(form, "模型支援圖片輸入（自動摘要會附上縮圖）", config.optBoolean("image_support"))
+        ui.meta(form, "金鑰只透過 HTTPS 傳到你的 PocketLog 伺服器，保存在受限制的設定檔，不會讀回手機或放入日誌。伺服器管理者可讀取金鑰。儲存只設定模型；需另外開啟自動摘要才會傳送日誌。", top = 8)
         ui.button(form, "儲存 AI 設定") {
             val request = runCatching {
                 JSONObject().put("protocol", protocols[protocol.selectedItemPosition]).put("endpoint", AiEndpoint.normalize(endpoint.text.toString(), protocol.selectedItemPosition == 0))
@@ -1930,17 +1887,15 @@ class MainActivity : Activity() {
             }.getOrNull()
             if (request == null) { notice("請檢查端點與模型。網址需為 HTTPS，不能含金鑰、帳密或查詢參數。", Kind.WARN); return@button }
             dialog().setTitle("儲存到私人伺服器？")
-                .setMessage("會更新所有連接此伺服器的裝置所使用的模型；各裝置必須重新同意，舊佇列不會轉送到新設定。金鑰將經 HTTPS 傳送並存於伺服器。")
+                .setMessage("會更新所有連接此伺服器的裝置所使用的模型，並關閉自動摘要；確認新設定後要重新開啟。金鑰將經 HTTPS 傳送並存於伺服器。")
                 .setNegativeButton("取消", null).setPositiveButton("儲存") { _, _ ->
                     // Do not retain the editor contents across a network operation or Activity destruction.
                     key.text.clear()
                     task("儲存 AI 設定…", {
                         synchronized(SyncEngine.lock) {
                             try { api().request("/v1/ai", request, "PUT") } finally { request.remove("api_key") }
-                            RecordingSettings(this@MainActivity).apply { externalAiConsent = false; aiProviderId = null }
-                            JournalQueue(this@MainActivity).clearContexts()
                         }
-                    }) { aiSettings(back); notice("已儲存。每台裝置需重新同意模型處理。") }
+                    }) { aiSettings(back); notice("已儲存。確認測試成功後，請重新開啟自動摘要。") }
                 }.showSecure()
         }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
         ui.card(slot, padding = 8).apply {
@@ -1957,7 +1912,8 @@ class MainActivity : Activity() {
                         }) { notice("連線與摘要格式驗證成功；沒有傳送日誌。") }
                     }.showSecure()
             }
-            ui.row(this, "同意這個模型處理未來情境", "需先開啟畫面文字；更換設定後要重新同意") { approveAi { aiSettings(back) } }
+            val auto = ui.column(this)
+            autoSummaryRow(auto, config) { aiSettings(back) }
         }
         if (enabled) ui.button(slot, "停用並刪除伺服器 AI 金鑰", Tone.DANGER) {
             dialog().setTitle("停用所有裝置的 AI？").setMessage("刪除伺服器現有設定與金鑰，活動卡仍可使用。已送出的模型請求無法撤回；供應商副本、主機備份與已產生的摘要不會因此刪除。")
@@ -1965,12 +1921,73 @@ class MainActivity : Activity() {
                     task("停用 AI…", {
                         synchronized(SyncEngine.lock) {
                             api().request("/v1/ai", method = "DELETE")
-                            RecordingSettings(this@MainActivity).apply { externalAiConsent = false; aiProviderId = null }
-                            JournalQueue(this@MainActivity).clearContexts()
                         }
                     }) { aiSettings(back); notice("已停用 AI 並刪除伺服器上的金鑰") }
                 }.showSecure()
         }
+    }
+
+    /** Server-wide automatic summaries: one owner decision per saved provider, not a per-capture grant. */
+    private fun autoSummaryRow(parent: LinearLayout, config: JSONObject, after: () -> Unit) {
+        val configured = config.optBoolean("available") && config.optBoolean("enabled")
+        val on = configured && config.optBoolean("auto_summarize")
+        val detail = when {
+            !config.optBoolean("available") -> "伺服器尚未開放 AI 設定"
+            !configured -> "請先在 Bring your own AI 設定模型"
+            on -> "所有裝置的新擷取會自動送到 ${config.optString("model")} 產生摘要與主題；點此關閉"
+            else -> "開啟後，所有裝置的畫面文字${if (config.optBoolean("image_support")) "與縮圖" else ""}會自動送到目前模型"
+        }
+        ui.row(parent, "自動摘要", detail, (if (on) "開啟" else if (configured) "關閉" else "未設定") to on) {
+            if (!configured) { notice("請先設定你的 AI 端點與模型", Kind.WARN); return@row }
+            val enable = !on
+            dialog().setTitle(if (enable) "開啟自動摘要？" else "關閉自動摘要？")
+                .setMessage(if (enable) "${config.optString("endpoint")}\n模型：${config.optString("model")}\n\n所有裝置之後擷取的允許清單文字${if (config.optBoolean("image_support")) "與縮圖" else ""}，以及尚未摘要的內容，會經過你的私人 PocketLog 伺服器自動送到此端點，產生活動卡片與主題關鍵字。請確認供應商與保存政策；API 使用費由你負擔。模型可能犯錯，沒有操作工具。更換模型設定後會自動關閉，需要重新開啟。已送出的請求無法撤回。"
+                    else "之後的新內容只會產生 app 名稱與文字摘錄卡片。已送出的模型請求與已產生的摘要不會刪除。")
+                .setNegativeButton("取消", null).setPositiveButton(if (enable) "開啟" else "關閉") { _, _ ->
+                    task(if (enable) "開啟自動摘要…" else "關閉自動摘要…", {
+                        api().request("/v1/ai/auto", JSONObject().put("provider_id", config.getString("provider_id")).put("enabled", enable), "PUT")
+                    }, failed = { error ->
+                        when ((error as? ApiFailure)?.status) {
+                            401, 403 -> notice("這把裝置金鑰只能讀取 AI 狀態；請在網站或使用日誌金鑰變更。", Kind.WARN)
+                            409 -> { notice("伺服器的模型設定已變更，已重新載入。", Kind.WARN); after() }
+                        }
+                    }) { after(); notice(if (enable) "已開啟自動摘要" else "已關閉自動摘要") }
+                }.showSecure()
+        }
+    }
+
+    /** Server raw-capture budget: oldest thumbnails are removed first; text is kept. */
+    private fun storageRows(parent: LinearLayout, info: JSONObject) {
+        val gib = 1024.0 * 1024 * 1024
+        fun size(bytes: Long) = if (bytes >= gib) "%.1f GB".format(bytes / gib) else "%.0f MB".format(bytes / (1024.0 * 1024))
+        val used = info.optLong("used_bytes"); val limit = info.optLong("limit_bytes")
+        val textOnly = if (info.isNull("text_only_before_ms")) null else info.optLong("text_only_before_ms")
+        ui.row(parent, "已使用", "${size(used)} / ${size(limit)} · 縮圖 ${info.optLong("image_count")} 張（${size(info.optLong("image_bytes"))}）", onClick = null)
+        if (textOnly != null) ui.meta(parent, "${Instant.ofEpochMilli(textOnly).atZone(ZoneId.systemDefault()).toLocalDate()} 以前的縮圖已因空間上限刪除，只保留文字。", top = 4, bottom = 4)
+        ui.row(parent, "儲存上限", "超過時從最舊的縮圖開始刪除，文字與日誌永久保留") { storageLimitDialog(info) }
+    }
+
+    private fun storageLimitDialog(info: JSONObject) {
+        val gib = 1024L * 1024 * 1024
+        val min = info.optLong("min_limit_bytes", gib); val max = info.optLong("max_limit_bytes", 1024 * gib)
+        val field = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText((info.optLong("limit_bytes", 10 * gib) / gib).toString())
+            hint = "GB"
+        }
+        dialog().setTitle("伺服器儲存上限（GB）").setMessage("可設定 ${min / gib}–${max / gib} GB。降低上限後，伺服器會刪除最舊的縮圖直到低於上限，無法復原。").setView(field)
+            .setNegativeButton("取消", null).setPositiveButton("儲存") { _, _ ->
+                val value = field.text.toString().toLongOrNull()?.times(gib)
+                if (value == null || value < min || value > max) { notice("請輸入 ${min / gib}–${max / gib} 之間的整數", Kind.WARN); return@setPositiveButton }
+                task("更新儲存上限…", {
+                    api().request("/v1/storage", JSONObject().put("revision", info.getLong("revision")).put("limit_bytes", value), "PUT")
+                }, failed = { error ->
+                    when ((error as? ApiFailure)?.status) {
+                        409 -> { notice("儲存設定已在其他裝置變更，已重新載入。", Kind.WARN); settings() }
+                        401, 403 -> notice("這把裝置金鑰無法變更儲存設定。", Kind.WARN)
+                    }
+                }) { settings(); notice("已更新儲存上限") }
+            }.showSecure()
     }
 
     // ---------------------------------------------------------------- shared goals, categories and rules

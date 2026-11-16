@@ -76,7 +76,6 @@ final class SavedCaptureConsentChecks {
                 toggle(method);await(()->!prefs.getBoolean(grant,true)&&!busy());
                 check(!prefs.getBoolean("enabled",true)&&settings.getRemotePaused()==remote,"Revocation released a pause");
                 for(String other:new String[]{"context","images","replay"})if(!other.equals(grant))check(prefs.getBoolean(other,false),"Revoked unrelated grant: "+other);
-                check(prefs.getBoolean("external_ai",false)&&"synthetic-provider".equals(settings.getAiProviderId()),"Provider consent rebound or lost");
                 check(new JournalQueue(test.getTargetContext()).counts().getFirst()==0,"Pending context survived revocation");
             }
         }
@@ -105,7 +104,7 @@ final class SavedCaptureConsentChecks {
         check(windowText().contains("• 短期縮圖回放")&&windowText().contains("原先同意的供應商"),"Incomplete image resume disclosure");clickWindow("取消");
         check(!prefs.getBoolean("images",true),"Image cancel granted capture");
         fixture(true,false);check(settings.getEnabled()&&settings.getContextEnabled()&&settings.getImagesEnabled()&&settings.getReplayConsent(),"Existing effective gates broken");
-        settings.setRemotePaused(true);check(!settings.getEnabled()&&!settings.getContextEnabled()&&!settings.getImagesEnabled()&&!settings.getReplayConsent()&&!settings.getExternalAiConsent(),"Remote pause capture gate bypassed");
+        settings.setRemotePaused(true);check(!settings.getEnabled()&&!settings.getContextEnabled()&&!settings.getImagesEnabled()&&!settings.getReplayConsent(),"Remote pause capture gate bypassed");
     }
     private void queueContext() throws Exception { synchronized(SyncEngine.INSTANCE.getLock()){new JournalQueue(test.getTargetContext()).enqueue(new Credentials("https://example.invalid","synthetic-consent-fixture"),"/v1/observations",new JSONObject().put("synthetic",true),System.currentTimeMillis());} }
     private boolean busy(){boolean[] value={true};test.runOnMainSync(()->{try{var field=MainActivity.class.getDeclaredField("busy");field.setAccessible(true);value[0]=field.getBoolean(activity);}catch(Exception e){throw new RuntimeException(e);}});return value[0];}

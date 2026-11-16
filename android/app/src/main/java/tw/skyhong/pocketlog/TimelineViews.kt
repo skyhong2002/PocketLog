@@ -135,7 +135,7 @@ class DayTimelineView(context: Context, day: LocalDate, private val zone: ZoneId
     }
 }
 
-/** One week day in the overview grid. [available] is false outside the readable 29-day window. */
+/** One week day in the overview grid. [available] is false outside the readable history window. */
 data class WeekDay(val date: LocalDate, val available: Boolean, val offline: Boolean, val items: List<TimelineItem>)
 
 /** Compact seven-column week; tap a column to open that day. Per-day rows below carry the text equivalent. */

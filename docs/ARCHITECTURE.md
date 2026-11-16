@@ -26,8 +26,8 @@ diagnose mental health or equate entertainment with unhealthy behavior.
 The API must remain responsive without an AI model. A worker may read only the
 jobs it needs; it will not have administrator credentials or arbitrary tools.
 A local model can run on the user's computer/NAS/GPU server as a separate process.
-External AI is an independent opt-in, naming the provider and exactly what leaves
-the private server. Provider keys stay server-side. No default provider exists.
+External AI is an owner opt-in: a configured provider plus its automatic-summary
+switch, naming the provider and exactly what leaves the private server. Provider keys stay server-side. No default provider exists.
 
 ## Deployment choices
 
@@ -56,21 +56,23 @@ model, independent device identities, account recovery, abuse limits and audits.
 2. Additional context capture is explicit opt-in. Exclude password, payment,
    authentication and selected private apps before reading/storing the content.
    Respect secure windows; no bypass. Screen-off/locked states stop capture.
-3. Event-based sampling, debouncing, low-resolution context and adaptive budgets
-   replace fixed high-frequency screenshots. Image encoding, radio wakeups and
-   accessibility traversal also cost battery, even with no on-phone AI.
+3. By owner decision (2026-11-16) context is sampled every 10 seconds while an
+   allowed app is in front of an unlocked, interactive screen, plus on app switches
+   (at least 5 s apart); the timer stops on screen-off, lock or disable. Image
+   encoding, radio wakeups and accessibility traversal cost battery even with no
+   on-phone AI; this cadence's battery budget is not yet measured.
 4. Phone queues are bounded and encrypted with a Keystore-protected key. Initial
-   target for context is max 24 h / 32 MiB, whichever comes first, with visible
+   limit for context is max 24 h / 1 GiB / 32,768 records, with visible
    drop/backlog status. Acknowledged uploads are removed. This queue is implemented; physical-device recovery is not yet validated.
 5. Upload in batches with stable IDs, exponential backoff and explicit Wi-Fi /
    metered / charging preferences. WorkManager timing is inexact; review freshness
    and battery cost need a measured tradeoff. Do not promise five-minute delivery.
-6. Server raw context has a short TTL (24 h) and is removed after derived
-   cards commit. Summaries and optional user notes have independent retention.
-   Implemented raw TTL is 24 hours; derived cards and legacy check-ins retain 30 days.
+6. Server raw context is retained after derived cards commit (marked processed).
+   Activities, cards, reflections, check-ins and raw text are permanent; screenshots
+   are bounded by the owner storage budget (default 10 GiB), oldest removed first.
 7. Phone caches derived records with a size/time budget and supports offline
    reading. Small structured summaries need not consume excessive phone storage;
-   screenshots and indefinite retention are the main avoidable growth sources.
+   screenshots are the main growth source and stay on the server, not the phone cache.
 8. Deletion must cover source events, derived cards, embeddings, jobs, caches and
    integrations. Backup expiration is a separate documented boundary.
 

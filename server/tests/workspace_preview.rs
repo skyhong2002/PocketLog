@@ -433,7 +433,7 @@ async fn preview_neither_changes_persisted_data_nor_prunes_expired_journal_recor
     db.execute_batch("INSERT INTO activities VALUES('synthetic-expired',1,2,'org.example.reader','\"custom_reading\"');
         INSERT INTO notes VALUES('synthetic-expired','Synthetic title','Synthetic summary','\"custom_reading\"',1);
         INSERT INTO reflections VALUES('synthetic-reflection',1,'Synthetic reflection');
-        INSERT INTO observations VALUES('synthetic-observation',1,'org.example.reader','Synthetic context',0,NULL,NULL);
+        INSERT INTO observations(id,at_ms,app,text,consent) VALUES('synthetic-observation',1,'org.example.reader','Synthetic context',0);
         INSERT INTO receipts VALUES('synthetic-receipt',1,'synthetic-hash');").unwrap();
     let before = snapshot(&db);
     let mut unsaved = saved.clone();

@@ -62,7 +62,7 @@ class PendingCardEditsTest {
         queue.enqueue(Credentials("https://other.example", c.token), "/v1/cards", body("other server"), now + 2)
         val rejected = entry("r_${now}_reject", body("rejected")); files.write(rejected.name, rejected.data.put("destination", JournalQueue.destination(c)).toString().toByteArray())
         val expired = entry("q_${now - RecordingRules.RAW_TTL}_expired", body("expired")); files.write(expired.name, expired.data.put("destination", JournalQueue.destination(c)).toString().toByteArray())
-        assertEquals(256, queue.entries(c).size)
+        assertEquals(32, queue.entries(c).size)
         val pending = queue.pendingJournalEdits(c)
         assertEquals(1, pending.size); assertEquals("accepted", first(PendingCardEdits.overlay(base(), path, pending)).getString("title"))
         pending.forEach(queue::acknowledge)

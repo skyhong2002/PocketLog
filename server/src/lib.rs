@@ -10,6 +10,8 @@ mod devices;
 mod focus;
 mod journal;
 mod replay;
+mod storage;
+mod topics;
 mod web;
 mod workspace;
 
@@ -29,7 +31,8 @@ use subtle::ConstantTimeEq;
 
 const DAY: i64 = 86_400_000;
 const RETENTION: i64 = 30 * DAY;
-const MAX_EVENTS: i64 = 100_000;
+// Journal records are retained permanently; this bounds only a runaway client.
+const MAX_EVENTS: i64 = 2_000_000;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -105,6 +108,8 @@ impl AppState {
             db.execute("ALTER TABLE observations ADD COLUMN provider_id TEXT", [])
                 .map_err(|_| "database setup failed")?;
         }
+        storage::migrate(&db).map_err(|_| "database setup failed")?;
+        topics::migrate(&db).map_err(|_| "database setup failed")?;
         Ok(Self {
             db: Arc::new(Mutex::new(db)),
             token_hash: Sha256::digest(token.as_bytes()).into(),
@@ -148,14 +153,9 @@ impl AppState {
         .map_err(|_| "retention cleanup failed")
     }
 }
+// Activities, checkins, notes, reflections and raw observation text are kept
+// permanently; screenshots are bounded by the owner's storage budget instead.
 fn prune(db: &Connection, now: i64) -> Result<()> {
-    db.execute(
-        "DELETE FROM activities WHERE end_ms <= ?",
-        [now - RETENTION],
-    )
-    .map_err(storage_error)?;
-    db.execute("DELETE FROM checkins WHERE at_ms <= ?", [now - RETENTION])
-        .map_err(storage_error)?;
     journal::prune(db, now)?;
     Ok(())
 }
@@ -237,6 +237,7 @@ pub fn router(state: AppState) -> Router {
         .merge(agents::routes())
         .merge(collection::routes())
         .merge(replay::routes())
+        .merge(storage::routes())
         .merge(devices::routes())
         .route("/v1/activities", post(ingest))
         .route("/v1/checkins", post(checkin))
@@ -433,7 +434,7 @@ async fn timeline(
     Query(w): Query<Window>,
 ) -> Result<Json<Timeline>> {
     let now = now_ms();
-    if w.from_ms < now - RETENTION
+    if w.from_ms < 0
         || w.to_ms > now + 60_000
         || w.to_ms <= w.from_ms
         || w.to_ms - w.from_ms > 26 * 3_600_000
@@ -488,6 +489,14 @@ pub fn process_pending(db: &mut Connection) -> std::result::Result<usize, &'stat
 }
 
 pub use analysis::{Provider, process_with_provider};
+
+/// Labels card-title keyword topics while the owner's automatic switch is on.
+pub fn process_topics(
+    db: &mut Connection,
+    provider: Option<&Provider>,
+) -> std::result::Result<usize, &'static str> {
+    topics::process(db, provider).map_err(|_| "topic labeling failed")
+}
 
 /// Runs explicitly opted-in derived-card brief schedules; no raw capture input.
 pub fn process_briefs(

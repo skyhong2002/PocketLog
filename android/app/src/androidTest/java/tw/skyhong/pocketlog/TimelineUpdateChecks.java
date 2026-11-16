@@ -40,7 +40,7 @@ final class TimelineUpdateChecks {
         if(!java.util.Set.of("ranchu","goldfish").contains(android.os.Build.HARDWARE))throw new IllegalStateException("Disposable emulator required");
         if(new CredentialStore(test.getTargetContext()).load()!=null)throw new IllegalStateException("Connected installation refused");
         var settings=new RecordingSettings(test.getTargetContext());
-        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled()||settings.getExternalAiConsent())throw new IllegalStateException("Capture consent must be off");
+        if(settings.getEnabled()||settings.getContextEnabled()||settings.getImagesEnabled())throw new IllegalStateException("Capture consent must be off");
         try {
             activity=test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));settle();
             if("yes".equals(args.getString("expectLegacy"))) {

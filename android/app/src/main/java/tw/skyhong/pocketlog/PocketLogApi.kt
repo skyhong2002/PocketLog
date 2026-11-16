@@ -21,7 +21,7 @@ class PocketLogApi(private val credentials: Credentials) {
             connection.setRequestProperty("Accept", "application/json")
             connection.requestMethod = method
             if (body != null) {
-                require(body.toString().toByteArray().size <= 60 * 1024)
+                require(body.toString().toByteArray().size <= RecordingRules.MAX_UPLOAD_BODY)
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }

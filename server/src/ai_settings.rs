@@ -23,6 +23,10 @@ pub(crate) struct StoredSettings {
     pub provider_id: String,
     pub image_support: bool,
     pub response_format: OutputFormat,
+    /// Owner switch bound to this provider_id: summarize every capture and label
+    /// card topics without per-capture phone consent. A new provider starts off.
+    #[serde(default)]
+    pub auto_summarize: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -116,14 +120,20 @@ impl AiSettingsStore {
             .flatten()
             .is_some_and(|s| s.enabled && s.provider_id == id)
     }
+    pub(crate) fn automatic(&self, id: &str) -> bool {
+        self.load()
+            .ok()
+            .flatten()
+            .is_some_and(|s| s.enabled && s.auto_summarize && s.provider_id == id)
+    }
 }
 fn redacted(value: Option<&StoredSettings>) -> serde_json::Value {
     match value {
         Some(s) => {
-            serde_json::json!({"available":true,"probe_provider_binding":true,"protocol":s.protocol,"enabled":s.enabled,"endpoint":s.endpoint,"model":s.model,"provider_id":s.provider_id,"has_key":!s.key.is_empty(),"image_support":s.image_support,"response_format":s.response_format})
+            serde_json::json!({"available":true,"probe_provider_binding":true,"protocol":s.protocol,"enabled":s.enabled,"endpoint":s.endpoint,"model":s.model,"provider_id":s.provider_id,"has_key":!s.key.is_empty(),"image_support":s.image_support,"response_format":s.response_format,"auto_summarize":s.enabled && s.auto_summarize})
         }
         None => {
-            serde_json::json!({"available":true,"probe_provider_binding":true,"enabled":false,"has_key":false})
+            serde_json::json!({"available":true,"probe_provider_binding":true,"enabled":false,"has_key":false,"auto_summarize":false})
         }
     }
 }
@@ -131,6 +141,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/ai", get(read).put(update).delete(clear))
         .route("/v1/ai/test", post(probe))
+        .route("/v1/ai/auto", axum::routing::put(automatic))
 }
 async fn read(State(state): State<AppState>) -> Result<Json<serde_json::Value>> {
     let Some(store) = state.ai_settings.clone() else {
@@ -181,6 +192,7 @@ async fn update(
                 provider_id: id,
                 image_support: change.image_support,
                 response_format: change.response_format,
+                auto_summarize: false,
             };
             let tx = db.transaction().map_err(storage_error)?;
             tx.execute("UPDATE journal_meta SET epoch=epoch+1", [])
@@ -209,6 +221,7 @@ async fn clear(State(state): State<AppState>) -> Result<StatusCode> {
                 provider_id: String::new(),
                 image_support: false,
                 response_format: OutputFormat::JsonSchema,
+                auto_summarize: false,
             };
             let tx = db.transaction().map_err(storage_error)?;
             tx.execute("UPDATE journal_meta SET epoch=epoch+1", [])
@@ -221,6 +234,46 @@ async fn clear(State(state): State<AppState>) -> Result<StatusCode> {
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AutoChange {
+    provider_id: String,
+    enabled: bool,
+}
+async fn automatic(
+    State(state): State<AppState>,
+    Json(change): Json<AutoChange>,
+) -> Result<Json<serde_json::Value>> {
+    if change.provider_id.len() != 64 || !change.provider_id.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(invalid());
+    }
+    let store = state.ai_settings.clone().ok_or(ApiError(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "AI settings unavailable",
+    ))?;
+    state
+        .database(move |db| {
+            let mut settings = store
+                .load()
+                .map_err(storage_error)?
+                .filter(|s| s.enabled && s.provider_id == change.provider_id)
+                .ok_or(ApiError(StatusCode::CONFLICT, "provider changed"))?;
+            settings.auto_summarize = change.enabled;
+            let tx = db.transaction().map_err(storage_error)?;
+            if !change.enabled {
+                // Stop in-flight automatic work from being committed.
+                tx.execute("UPDATE journal_meta SET epoch=epoch+1", [])
+                    .map_err(storage_error)?;
+                tx.execute("DELETE FROM analysis_jobs", [])
+                    .map_err(storage_error)?;
+            }
+            store.save(&settings)?;
+            tx.commit().map_err(storage_error)?;
+            Ok(Json(redacted(Some(&settings))))
+        })
+        .await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
