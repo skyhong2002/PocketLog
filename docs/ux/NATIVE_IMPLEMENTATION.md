@@ -37,6 +37,16 @@ Server APIs and stored data for those features are unchanged.
 - **FLAG_SECURE**: a persisted setting, off by default; when on it applies to the
   activity and every dialog/picker as before.
 - **Onboarding**: three skippable steps (promise → AI → start recording).
+- **UX round 1 (2026-11-17)**: follows SIMPLIFIED_IA "Cross-platform consistency":
+  shared status vocabulary and order (`StatusLine`), app names never shown as package IDs
+  (device label → the website's known-name map → readable last segment, `LocalAppNames`),
+  `不到 1 分`, a `隔天凌晨` divider, zh-TW dates (`11月16日（週一）`, `11月16日 – 22日`),
+  exception-only source badges on one wrapping meta line, card detail as a bottom sheet
+  with wrapping category chips (current first), single-line category bars sized by share,
+  a `這週每天` card, period-matched 問 AI examples, a single master 自動記錄 switch with one
+  next-step row and an 進階 page, `上次同步 HH:mm`, the AI page with a visible provider
+  list, saved-key hint, `取得 API 金鑰` links, a visible test result and AI switches only
+  there. Secondary text colour was darkened for ≥ 4.5:1 contrast.
 - **Instrumentation**: checks for removed pages were deleted; `UiSnapshotInstrumentation`
   renders 設定, a synthetic 時間軸 and a synthetic 回顧. No device or emulator run was
   made for this change; the new UI has unit-tested logic only.

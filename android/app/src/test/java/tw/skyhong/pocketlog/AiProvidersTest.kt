@@ -41,4 +41,13 @@ class AiProvidersTest {
         assertEquals("api.anthropic.com", AiProviders.host("https://api.anthropic.com/v1/messages"))
         assertEquals("", AiProviders.host("not a url"))
     }
+    @Test fun everyHostedProviderLinksToAnHttpsKeyPage() {
+        for (preset in Preset.entries.filter { it != Preset.CUSTOM }) {
+            val url = requireNotNull(preset.keyUrl)
+            assertTrue(url, url.startsWith("https://") && AiProviders.host(url).isNotEmpty())
+        }
+        assertNull(Preset.CUSTOM.keyUrl)
+        assertEquals("自訂", Preset.CUSTOM.short)
+        assertEquals("OpenAI", Preset.OPENAI.short)
+    }
 }

@@ -136,8 +136,10 @@ object SyncEngine {
             }
         }
         settings.nextAttempt = 0
+        settings.lastSync = System.currentTimeMillis()
         val waiting = if (captures) 0 else queue.observationBacklog().first
-        settings.status(if (waiting > 0) "已上傳 $count 筆；$waiting 張截圖等充電時上傳" else "已上傳 $count 筆")
+        val sent = if (count > 0) "已上傳 $count 筆" else "沒有需要上傳的資料"
+        settings.status(if (waiting > 0) "$sent；$waiting 張截圖等充電時上傳" else sent)
         // Captures waiting for a charger are not a failure: retrying on battery would only wake the phone.
         queue.pending(includeObservations = captures) == 0
     }

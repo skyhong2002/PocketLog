@@ -7,13 +7,17 @@ import java.net.URI
  * the suggested model; the endpoint is derived here and only typed by hand for [Preset.CUSTOM].
  */
 object AiProviders {
-    enum class Preset(val label: String, val protocol: String, val suggestedModel: String, val vision: Boolean, private val template: String?) {
-        OPENAI("OpenAI", "openai", "gpt-4.1-mini", true, "https://api.openai.com/v1/chat/completions"),
-        ANTHROPIC("Anthropic", "anthropic", "claude-sonnet-4-5", true, "https://api.anthropic.com/v1/messages"),
-        GEMINI("Google Gemini", "gemini", "gemini-2.5-flash", true, "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"),
-        OPENROUTER("OpenRouter", "openai", "openai/gpt-4.1-mini", true, "https://openrouter.ai/api/v1/chat/completions"),
-        DEEPSEEK("DeepSeek", "openai", "deepseek-chat", false, "https://api.deepseek.com/chat/completions"),
-        CUSTOM("自訂（OpenAI 相容，例如 Ollama）", "openai", "", true, null);
+    // Suggested models match the website's presets (server/web/app.js AI_PROVIDERS).
+    enum class Preset(val label: String, val protocol: String, val suggestedModel: String, val vision: Boolean, private val template: String?, val keyUrl: String?) {
+        OPENAI("OpenAI", "openai", "gpt-5-mini", true, "https://api.openai.com/v1/chat/completions", "https://platform.openai.com/api-keys"),
+        ANTHROPIC("Anthropic", "anthropic", "claude-haiku-4-5", true, "https://api.anthropic.com/v1/messages", "https://console.anthropic.com/settings/keys"),
+        GEMINI("Google Gemini", "gemini", "gemini-2.5-flash", true, "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", "https://aistudio.google.com/apikey"),
+        OPENROUTER("OpenRouter", "openai", "openai/gpt-5-mini", true, "https://openrouter.ai/api/v1/chat/completions", "https://openrouter.ai/keys"),
+        DEEPSEEK("DeepSeek", "openai", "deepseek-chat", false, "https://api.deepseek.com/chat/completions", "https://platform.deepseek.com/api_keys"),
+        CUSTOM("自訂（OpenAI 相容，例如 Ollama）", "openai", "", true, null, null);
+
+        /** Short name for the provider grid. */
+        val short: String get() = if (this == CUSTOM) "自訂" else label
 
         val needsEndpoint: Boolean get() = template == null
 
