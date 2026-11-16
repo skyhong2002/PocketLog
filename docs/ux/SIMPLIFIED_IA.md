@@ -135,3 +135,28 @@ Three steps at most, skippable:
 - Capture is no longer rejected just because a window is secure. What stays:
   user exclusions/allowlist, password and editable-field windows (credentials), the
   lock screen, and the suspected-secret text shield (on by default, can be turned off).
+
+## Cross-platform consistency (UX round 1, 2026-11-17)
+
+Both clients must use exactly these rules:
+
+- **Status line vocabulary** (first matching wins): `已暫停` · `金鑰失效，請重新連線` ·
+  `尚未開始記錄` · `需要權限：使用情況存取` · `需要權限：輔助使用` (phone; web: `手機需要開啟輔助使用`
+  when the device reports it is unknown, otherwise skip) · `手機超過一天沒有連線` (web) ·
+  `AI 未設定，只顯示 app 名稱` · `AI 自動整理已關閉` · `等待充電時上傳截圖（N 張）` (phone) ·
+  `AI 整理中（N 張）` · `記錄中`. Each maps to the one place that fixes it.
+- **Units**: `1 小時 4 分`, `56 分`, `不到 1 分`; never `分鐘` in compact rows.
+- **Category bars**: width = share of the total recorded time (percent), same on both.
+- **App names**: never show a package ID. Use the device label (Android) or the shared known-name
+  map, then a humanised last package segment (e.g. `Pocketlogfixture`).
+- **Times**: a zero-length range shows `01:26 · 不到 1 分`; cards after midnight in a 04:00 day get a
+  `隔天凌晨` divider.
+- **Card source label**: show only exceptions (`只有 app`, `你改過`, `畫面文字`, `AI 整理中`,
+  `受保護畫面`), never the normal `AI 整理`.
+- **Dates**: zh-TW everywhere (`11月16日（週一）`, week `11月16日 – 22日`), never `11/16/2026`.
+- **Toggles are switches** (no checkboxes); navigation rows have a chevron; destructive actions are
+  low-emphasis text with a confirmation, never a large filled button.
+- **AI setup**: provider choice is a visible list/grid on both clients, a saved key shows
+  `已儲存金鑰 ••••，貼上新的會取代`, the Ollama hint only appears for 自訂, each provider has a
+  `取得 API 金鑰` link to its official key page, and the two AI switches live only on the AI page
+  (設定 shows a one-line summary).
