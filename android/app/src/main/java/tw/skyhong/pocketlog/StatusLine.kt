@@ -41,13 +41,13 @@ object StatusLine {
         State.NOT_STARTED -> "尚未開始記錄"
         State.NEEDS_USAGE_ACCESS -> "需要權限：使用情況存取"
         State.NEEDS_ACCESSIBILITY -> "需要權限：輔助使用"
-        State.AI_MISSING -> "AI 未設定，只顯示 app 名稱"
+        State.AI_MISSING -> "AI 未設定，只顯示應用程式名稱"
         State.AI_OFF -> "AI 自動整理已關閉"
         State.WAITING_FOR_CHARGER -> "等待充電時上傳截圖（${inputs.waitingCaptures} 張）"
         State.AI_PENDING -> "AI 整理中（${inputs.pendingCards} 張）"
         State.RECORDING -> "記錄中"
     }
 
-    /** Amber only for real problems (paused, rejected key, missing permission); first use and AI setup stay neutral. */
-    fun needsAction(state: State): Boolean = state in setOf(State.PAUSED, State.KEY_REJECTED, State.NEEDS_USAGE_ACCESS, State.NEEDS_ACCESSIBILITY)
+    /** A not-yet-started recorder is actionable too; healthy recording stays green. */
+    fun needsAction(state: State): Boolean = state in setOf(State.PAUSED, State.KEY_REJECTED, State.NOT_STARTED, State.NEEDS_USAGE_ACCESS, State.NEEDS_ACCESSIBILITY)
 }

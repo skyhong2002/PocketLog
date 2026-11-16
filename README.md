@@ -48,7 +48,7 @@ to your own tools. Manual mood entry is no longer part of the app.
 | Feature | Status |
 | --- | --- |
 | Onboarding | Three skippable steps on both clients: what is and is never captured, connect your AI, then start recording (phone) or connect the Android app (web) |
-| Timeline and review | Exactly three destinations on Android and the website: 時間軸 (one status line, recorded time with a stacked category bar, AI-understood cards, 04:00 day boundary; the web keeps an hourly grid on desktop) / 回顧 (day/week AI recap, time split, top apps, topics, 問 AI) / 設定 |
+| Timeline and review | Exactly three destinations on Android and the website: 時間軸 (one status line, bounded activity-card search, recorded time with a stacked category bar, AI-understood cards, 04:00 day boundary; the web keeps an hourly grid on desktop) / 回顧 (day/week AI recap, time split, top apps, topics, 問 AI) / 設定 |
 | Manual journaling | Removed from both clients on 2026-11-17 (reflections, mood, daily rating, Flow, Agents); APIs and stored data kept |
 | Private Android connection | HTTPS anywhere, or plain http only to a VPN／private-network host (with a warning); no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |

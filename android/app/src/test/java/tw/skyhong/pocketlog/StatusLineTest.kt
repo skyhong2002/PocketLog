@@ -15,7 +15,7 @@ class StatusLineTest {
     @Test fun firstMatchingStateWinsInTheSharedOrder() {
         var i = good.copy(paused = true, keyRejected = true, recordingOn = false, usageAccess = false, accessibilityOn = false,
             aiConfigured = false, waitingCaptures = 3, pendingCards = 2)
-        val expected = listOf("已暫停", "金鑰失效，請重新連線", "尚未開始記錄", "需要權限：使用情況存取", "需要權限：輔助使用", "AI 未設定，只顯示 app 名稱")
+        val expected = listOf("已暫停", "金鑰失效，請重新連線", "尚未開始記錄", "需要權限：使用情況存取", "需要權限：輔助使用", "AI 未設定，只顯示應用程式名稱")
         val fixes = listOf<(StatusLine.Inputs) -> StatusLine.Inputs>({ it.copy(paused = false) }, { it.copy(keyRejected = false) }, { it.copy(recordingOn = true) },
             { it.copy(usageAccess = true) }, { it.copy(accessibilityOn = true) }, { it.copy(aiConfigured = true, aiAutomatic = false) })
         expected.forEachIndexed { n, want -> assertEquals(want, text(i)); i = fixes[n](i) }
@@ -38,8 +38,8 @@ class StatusLineTest {
         assertTrue(StatusLine.needsAction(StatusLine.State.NEEDS_USAGE_ACCESS))
         assertTrue(StatusLine.needsAction(StatusLine.State.KEY_REJECTED))
         assertTrue(StatusLine.needsAction(StatusLine.State.PAUSED))
-        // First use and AI setup are calm, not warnings.
-        assertFalse(StatusLine.needsAction(StatusLine.State.NOT_STARTED))
+        // First use is actionable; AI setup remains calm because the app still works without it.
+        assertTrue(StatusLine.needsAction(StatusLine.State.NOT_STARTED))
         assertFalse(StatusLine.needsAction(StatusLine.State.AI_MISSING))
     }
 }

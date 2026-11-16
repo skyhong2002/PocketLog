@@ -2258,5 +2258,8 @@ matching cards (and not a Chinese-only title), focus moved to the results with a
 `role=status` summary, an unmatched keyword showed "這段期間沒有符合的活動。",
 the 390px page had no horizontal overflow, and editing a result's title updated
 the open result list. Node checks cover the paging loop, request budget and
-cursor/epoch hand-off. Not yet checked: Android native search, TalkBack/
-VoiceOver announcement, 200% zoom and reduced-motion; Android has no search entry.
+cursor/epoch hand-off. Android now has the same bounded search entry on the
+native timeline: keyword, 1/7/30-day range, optional category and exact-cursor
+continuation. The native implementation has unit coverage for query bounds and
+encoding; physical TalkBack/VoiceOver, 200% zoom and reduced-motion acceptance
+remain outstanding.

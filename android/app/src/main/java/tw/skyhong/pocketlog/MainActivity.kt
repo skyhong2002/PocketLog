@@ -445,7 +445,7 @@ class MainActivity : Activity() {
         else -> sourceException(card)
     })
     private fun cardSummary(card: JSONObject): String =
-        card.optString("summary").ifBlank { if (card.optBoolean("pending_context")) "正在整理這段活動…" else if (card.optString("source") == "app_only") "只知道使用了這個 app" else "" }
+        card.optString("summary").ifBlank { if (card.optBoolean("pending_context")) "正在整理這段活動…" else if (card.optString("source") == "app_only") "只知道使用了這個應用程式" else "" }
     /** `01:26–01:40 · 14 分`, or `01:26 · 不到 1 分` for a zero-length range. */
     private fun timeRange(start: Long, end: Long): String = TimelineMath.rangeLabel(clock(start), clock(end), end - start)
     private fun lastSyncText(ms: Long): String = when {
@@ -761,6 +761,9 @@ class MainActivity : Activity() {
             action = Triple(R.drawable.ic_sync, "重新整理") { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { home() } })
         stickyPeriod = dateTitle(day)
         dateNav(body) { day = it; home() }
+        ui.button(body, "搜尋活動", Tone.OUTLINE) { openSearchDialog() }.apply {
+            layoutParams = wrap(); setPadding(ui.dp(16), 0, ui.dp(16), 0)
+        }
         val status = ui.column(body)
         val slot = ui.column(body)
         refreshOnResume = { statusLine(status) }
@@ -774,6 +777,95 @@ class MainActivity : Activity() {
             statusLine(status)
         }
         statusLine(status)
+    }
+
+    private data class SearchResult(
+        val cards: List<JSONObject>,
+        val scanned: Int,
+        val cursor: TimelineSearch.Cursor?,
+    )
+
+    /** Opens a bounded search form; raw observations and screenshots are never queried. */
+    private fun openSearchDialog() {
+        val form = ui.column(null, 20)
+        val query = ui.field(form, "關鍵字", "應用程式、標題或摘要")
+        val ranges = listOf("最近 1 天", "最近 7 天", "最近 30 天")
+        val range = ui.spinner(form, "搜尋範圍", ranges)
+        val categoryIds = listOf<String?>(null) + categories
+        val category = ui.spinner(form, "分類（可選）", categoryIds.map { it?.let(::label) ?: "全部分類" })
+        val dialog = dialog().setTitle("搜尋活動").setView(ScrollView(this).apply { addView(form) })
+            .setNegativeButton("取消", null).setPositiveButton("搜尋", null).showSecure()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val normalized = runCatching { TimelineSearch.normalizeQuery(query.text.toString()) }.getOrElse {
+                query.error = "關鍵字最多 ${TimelineSearch.MAX_QUERY_CHARS} 字。"; query.requestFocus(); return@setOnClickListener
+            }
+            if (normalized == null) { query.error = "請輸入關鍵字。"; query.requestFocus(); return@setOnClickListener }
+            dialog.dismiss()
+            val days = listOf(1L, 7L, 30L)[range.selectedItemPosition.coerceIn(0, 2)]
+            val selectedCategory = categoryIds[category.selectedItemPosition.coerceIn(0, categoryIds.lastIndex)]
+            startSearch(normalized, days, selectedCategory)
+        }
+        query.requestFocus()
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+    }
+
+    private fun startSearch(query: String, days: Long, category: String?, existing: List<JSONObject> = emptyList(), cursor: TimelineSearch.Cursor? = null, scanned: Int = 0) {
+        val today = journalDay()
+        val from = TimelineMath.dayStart(today.minusDays(days - 1), zone)
+        val to = minOf(TimelineMath.dayStart(today.plusDays(1), zone), System.currentTimeMillis())
+        val body = screen("搜尋活動", query, Tab.TIMELINE, back = { home() })
+        val slot = ui.column(body)
+        load(slot, if (existing.isEmpty()) "搜尋中…" else "繼續搜尋…", {
+            fetchSearch(from, to, TimelineSearch.Request(query, category, cursor), existing, scanned)
+        }) { result -> renderSearch(slot, result, query, days, category) }
+    }
+
+    private fun fetchSearch(from: Long, to: Long, request: TimelineSearch.Request, existing: List<JSONObject>, scannedBefore: Int): SearchResult {
+        val cards = existing.toMutableList()
+        var cursor = request.cursor
+        var scanned = scannedBefore
+        var requests = 0
+        while (cursor != null || requests == 0) {
+            if (requests >= TimelineSearch.MAX_REQUESTS || cards.size >= TimelineSearch.MAX_RESULTS) break
+            val data = api().request(TimelineSearch.path(from, to, request.copy(cursor = cursor)))
+            requests++
+            scanned += data.optInt("scanned")
+            cards += cardsOf(data)
+            val next = data.optJSONObject("next_cursor")
+            cursor = next?.let { TimelineSearch.Cursor(it.getLong("after_start_ms"), it.getString("after_id"), data.getLong("journal_epoch")) }
+        }
+        return SearchResult(cards.take(TimelineSearch.MAX_RESULTS), scanned, cursor)
+    }
+
+    private fun renderSearch(slot: LinearLayout, result: SearchResult, query: String, days: Long, category: String?) {
+        val apps = result.cards.asSequence().map { it.optString("app") }.filter { it.isNotBlank() }
+        appNames.prepare(apps) { app ->
+            packageManager.getApplicationInfo(app, android.content.pm.PackageManager.ApplicationInfoFlags.of(0))
+                .let(packageManager::getApplicationLabel).toString()
+        }
+        val rangeLabel = when (days) { 1L -> "最近 1 天"; 7L -> "最近 7 天"; else -> "最近 30 天" }
+        ui.meta(slot, "$rangeLabel · ${category?.let(::label) ?: "全部分類"}", bottom = 4)
+        if (result.cards.isEmpty() && result.cursor == null) {
+            ui.empty(slot, "沒有找到符合的活動", "只搜尋應用程式名稱、標題和摘要；原始畫面文字與截圖不會被搜尋。")
+            return
+        }
+        val status = if (result.cursor == null) "找到 ${result.cards.size} 張活動卡，已搜尋完整期間。"
+        else "已找到 ${result.cards.size} 張活動卡；還有記錄尚未檢查。"
+        ui.banner(slot, "$status（已檢查 ${result.scanned} 筆）", Kind.INFO)
+        var currentDay: LocalDate? = null
+        result.cards.forEach { card ->
+            val cardDay = Instant.ofEpochMilli(card.getLong("start_ms")).atZone(zone).let { if (it.hour < TimelineMath.DAY_START_HOUR) it.toLocalDate().minusDays(1) else it.toLocalDate() }
+            if (cardDay != currentDay) {
+                currentDay = cardDay
+                ui.text(slot, TimelineMath.dayLabel(cardDay), 15f, Palette.ACCENT_DARK, bold = true, top = 8, bottom = 6).isAccessibilityHeading = true
+            }
+            cardRow(slot, card)
+        }
+        result.cursor?.let { next ->
+            ui.button(slot, "繼續搜尋", Tone.OUTLINE) { startSearch(query, days, category, result.cards, next, result.scanned) }.apply {
+                layoutParams = wrap(); setPadding(ui.dp(18), 0, ui.dp(18), 0)
+            }
+        }
     }
 
     private fun accessibilityServiceOn(): Boolean {
@@ -1005,7 +1097,7 @@ class MainActivity : Activity() {
         val badges = badges(c)
         badges.forEach { ui.badge(meta, it, badgeKind(it)) }
         // App-only titles are just the app's name: regular weight, not the bold AI-title weight.
-        ui.text(column, title, 17f, Palette.INK, bold = c.optString("source") != "app_only").apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+            ui.text(column, title, 17f, Palette.INK, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         val summary = cardSummary(c)
         if (summary.isNotBlank()) ui.text(column, summary, 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         row.contentDescription = (listOf(title, time, label(c.getString("category"))) + badges + summary).filter { it.isNotBlank() }.joinToString("，")
@@ -1029,7 +1121,7 @@ class MainActivity : Activity() {
         ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         categoryChip(meta, first.getString("category"))
         ui.badge(meta, "只有應用程式")
-        ui.text(column, title, 17f, Palette.INK).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+        ui.text(column, title, 17f, Palette.INK, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         ui.text(column, "只知道使用了這個應用程式", 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         row.contentDescription = "$title，$time，${label(first.getString("category"))}，只有應用程式，點開看每一次"
         parent.addView(row, ui.lp(bottom = 12))
@@ -1069,9 +1161,6 @@ class MainActivity : Activity() {
         val summary = card.optString("summary")
         cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
         lateinit var detail: android.app.Dialog
-        quietAction(content, "修改文字", Palette.ACCENT_DARK) { detail.dismiss(); editCardText(card) }.apply {
-            setCompoundDrawablesRelative(scaled(R.drawable.ic_edit, 18, Palette.ACCENT_DARK), null, null, null); compoundDrawablePadding = ui.dp(6)
-        }
         val note = when {
             card.optBoolean("pending_context") -> "AI 整理中：還有新的截圖或文字等 AI 整理，稍後再看。"
             card.optBoolean("protected_screen") -> "受保護畫面：沒有截圖，只依 app 名稱與畫面文字整理。"
@@ -1080,28 +1169,26 @@ class MainActivity : Activity() {
         }
         note?.let { ui.text(content, it, 13f, Palette.MUTED, top = 4) }
         ui.text(content, "分類", 15f, Palette.INK, bold = true, top = 12).isAccessibilityHeading = true
-        ui.text(content, "點一下就會儲存，你選的分類會優先。", 13f, Palette.MUTED, bottom = 4)
+        ui.text(content, "你選的分類會優先於自動分類。點一下就會儲存。", 13f, Palette.MUTED, bottom = 4)
         val current = card.getString("category")
-        // An even three-column grid in workspace order.
+        // Compact wrapping chips keep the detail sheet short on phones and desktop widths.
         val ids = (categories + current).distinct()
-        ids.chunked(3).forEach { rowIds ->
-          val gridRow = ui.horizontal(content, 6)
-          (rowIds + List(3 - rowIds.size) { null }).forEach { id ->
-            if (id == null) { gridRow.addView(View(this), ui.lp(0, 1, weight = 1f)); return@forEach }
+        val chips = ui.flow(content, 6)
+        ids.forEach { id ->
             val on = id == current
-            ui.button(gridRow, (if (on) "✓ " else "") + label(id), Tone.CHIP, 1f) {
+            ui.button(chips, (if (on) "✓ " else "") + label(id), Tone.CHIP) {
                 if (!on) saveCard(card, cardTitleForSave(card), summary, id) { detail.dismiss() }
             }.apply {
-                // Small visible chip (about 32 dp) inside a 48 dp touch target; dot inside the start padding.
-                textSize = 13f; setPadding(ui.dp(12), 0, ui.dp(8), 0); gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                textSize = 13f; setPadding(ui.dp(12), 0, ui.dp(12), 0); gravity = Gravity.CENTER
                 isSingleLine = true; ellipsize = TextUtils.TruncateAt.END
                 background = ui.ripple(android.graphics.drawable.InsetDrawable(ui.shape(if (on) Palette.ACCENT_SOFT else Palette.PAPER, 16f, if (on) null else Palette.BORDER), 0, ui.dp(8), 0, ui.dp(8)), 16f)
                 setTextColor(if (on) Palette.ACCENT_DARK else Palette.INK)
                 if (on) typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(8)
                 isSelected = on; contentDescription = "${label(id)}，${if (on) "目前分類" else "改成這個分類"}"
             }
-          }
+        }
+        quietAction(content, "修改文字", Palette.ACCENT_DARK) { detail.dismiss(); editCardText(card) }.apply {
+            setCompoundDrawablesRelative(scaled(R.drawable.ic_edit, 18, Palette.ACCENT_DARK), null, null, null); compoundDrawablePadding = ui.dp(6)
         }
         if (RecordingSettings(this).replayConsent) quietAction(content, "看截圖", Palette.ACCENT_DARK) { replayForCard(card) }
         detail = sheet(content)
@@ -1324,7 +1411,7 @@ class MainActivity : Activity() {
         // 常用 app and 主題
         val apps = data.overview.optJSONArray("apps") ?: JSONArray()
         if (apps.length() > 0) ui.card(slot).apply {
-            ui.heading(this, "常用 app")
+            ui.heading(this, "常用應用程式")
             for (i in 0 until minOf(5, apps.length())) {
                 val a = apps.getJSONObject(i)
                 val row = ui.horizontal(this, 8).apply { minimumHeight = ui.dp(36) }
@@ -1370,7 +1457,7 @@ class MainActivity : Activity() {
                 }
             }
             // Keep "（不含截圖）" together with a no-break joiner between its characters.
-            ui.text(this, "會把問題和這段時間的活動卡\n送到 $aiHost" + "（不含截圖）。".toList().joinToString("\u2060"), 13f, Palette.MUTED, top = 2)
+            ui.text(this, "會把問題和這段時間的活動卡送到 $aiHost" + "（不含截圖）。".toList().joinToString("\u2060"), 13f, Palette.MUTED, top = 2)
             if (turns.length() > 0) quietAction(this, "開始新的對話", Palette.ACCENT_DARK) { conversations.remove(key); review() }
         }
     }
@@ -1516,7 +1603,7 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply {
             val styles = workspace?.optJSONArray("categories")
             val rules = workspace?.optJSONArray("rules")
-            ui.row(this, "分類與自動規則", if (styles != null) "${styles.length()} 個分類 · ${rules?.length() ?: 0} 條自動規則" else "名稱、顏色與自動分類") { categoriesPage() }
+            ui.row(this, "分類與規則", if (styles != null) "${styles.length()} 個分類 · ${rules?.length() ?: 0} 條自動規則" else "名稱、顏色與自動分類") { categoriesPage() }
         }
 
         ui.groupLabel(body, "連線與裝置")
@@ -1566,7 +1653,7 @@ class MainActivity : Activity() {
             quietAction(deletes, "清除這支手機的資料", Palette.INK) {
                 confirmReset("清除這支手機的資料？", "會停止記錄並刪除這支手機還沒上傳的資料。伺服器上的記錄仍保留。無法復原。")
             }
-            quietAction(deletes, "永久刪除伺服器上的全部記錄", Palette.DANGER, bold = true) {
+            quietAction(deletes, "永久刪除伺服器上的全部記錄", Palette.DANGER) {
                 confirm("永久刪除全部記錄？", "會刪除伺服器上所有活動、截圖與文字，並停止記錄、清除這支手機的待上傳資料。無法復原。", "全部刪除") {
                     task("刪除中…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); api().request("/v1/journal", method = "DELETE") } }) { clearDrafts(); settings(); notice("已刪除伺服器上的全部記錄，記錄已停止。", Kind.INFO) }
                 }

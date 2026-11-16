@@ -71,7 +71,9 @@ not yet measured. See [INFOVORE_PORT.md](INFOVORE_PORT.md).
 capability flags, uniform JSON errors with `Retry-After` on 429/503, complete
 keyset-paged reads with bounded search (`GET /v1/activities`), a per-route
 credential scope matrix test and a standard-library example client exercised by
-the Docker smoke. Import/restore, local-only mode and reminders remain pending.
+the Docker smoke. Android's native timeline now exposes the same bounded card
+search with 1/7/30-day ranges, optional categories and cursor continuation.
+Import/restore, local-only mode and reminders remain pending.
 See [API.md](API.md).
 
 ## Website and official Dayflow alignment (2026-11-14)
