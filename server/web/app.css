@@ -1708,3 +1708,48 @@ main [data-key] { scroll-margin-block: 8px; }
 @media (max-width: 860px) {
   main [data-key] { scroll-margin-bottom: calc(80px + env(safe-area-inset-bottom)); }
 }
+/* Timeline search: one bounded query form above the timeline. */
+.search-panel {
+  padding: 16px 18px;
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  background: var(--panel);
+  margin-bottom: 14px;
+}
+.search-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.search-field {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.search-field.search-query {
+  flex: 2 1 240px;
+}
+.search-form label {
+  margin-top: 0;
+}
+.search-form button[type="submit"] {
+  min-height: 42px;
+}
+.search-panel > .hint {
+  margin: 8px 0 0;
+}
+.search-panel .error {
+  color: var(--danger);
+  margin: 10px 0 0;
+}
+.search-results {
+  margin-top: 12px;
+}
+.search-results:focus {
+  outline: none;
+}
+@media (max-width: 640px) {
+  .search-form button[type="submit"] {
+    width: 100%;
+  }
+}
