@@ -20,8 +20,10 @@ report suspected vulnerabilities privately through the repository owner.
   still finish; stable request IDs make activity retries safe.
 - Android requires HTTPS and system certificate verification, refuses redirects,
   stores endpoint+token together using Android Keystore AES-GCM, excludes app
-  data from backups/device transfer, and blocks normal app screenshots. Screen
-  security flags do not protect against a rooted device or a camera.
+  data from backups/device transfer. Blocking screenshots of PocketLog itself
+  (`FLAG_SECURE` on the activity and every dialog) is an explicit setting,
+  「防止截圖這個 app」 in 設定 › 資料, **off by default** (owner decision 2026-11-17).
+  Screen security flags do not protect against a rooted device or a camera.
 - Container runs as UID/GID 10001, drops all capabilities, has a read-only root
   filesystem and bounded resources. The journal and dedicated AI settings volumes are writable/persistent for the API;
   the worker mounts AI settings read-only.
@@ -60,15 +62,25 @@ report suspected vulnerabilities privately through the repository owner.
   packages and package-name patterns, not every sensitive app; explicitly exclude
   your financial, authentication and other private apps. Structural password/editable-field checks run
   before any screenshot/text capture; incomplete traversal fails closed. Locked
-  screens and secure-window screenshot failures reject capture. OS/AppOps behavior
+  screens are never captured. A window that Android refuses to screenshot because it
+  is secure/DRM-protected (`ERROR_TAKE_SCREENSHOT_SECURE_WINDOW`) is no longer
+  rejected outright: PocketLog never tries to bypass the protection, sends the app and
+  its visible text with `protected_screen:true` and no image, and the card says
+  受保護畫面（無截圖）. Mostly-black frames are never stored or uploaded. Captures
+  whose app, normalised text and small downscaled image hash match the previous
+  stored capture (refreshed every five minutes) are skipped before encoding. OS/AppOps behavior
   and permission revocation still require physical-device validation. UsageStats
   checkpoints retain observed permission state and restart their scan boundary
   when that state changes, including on app resume. A revoke-and-restore sequence
   entirely while the app is not executing is not detectable from the later
   current AppOps grant; do not treat this as continuous permission-history proof.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
-  filename AAD. Queue max 24 h / 1 GiB / 32,768 entries, including quarantine;
-  screenshot entries are stored separately so reflection/edit reads never decrypt them;
+  filename AAD. Queue max 1 GiB / 32,768 entries including quarantine; screen
+  captures (`/v1/observations`) are kept up to 72 h because they upload only while
+  charging (or on an unmetered network once more than 256 MB are waiting), and the
+  server accepts context up to 72 h old; every other queued write keeps 24 h. Over
+  the byte/record cap the oldest captures are dropped before app sessions or edits.
+  Screenshot entries are stored separately so edit reads never decrypt them;
   timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
   app/workers execute, not while powered off. Key loss can make local records
   unrecoverable; corrupt files are discarded with a visible drop count.

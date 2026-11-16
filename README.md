@@ -46,17 +46,17 @@ to your own tools. Manual mood entry is no longer part of the app.
 
 | Feature | Status |
 | --- | --- |
-| Shared onboarding and website | Owner login, shared setup/goals/category presentation; separate phone permission/consent flow |
-| Daily timeline and overview | Native + web hourly day/week cards, 04:00 day boundary, daily/week/month totals, top apps and keywords |
-| Daily reflection | Optional editable reflection with encrypted offline queue; manual mood entry removed |
+| Shared onboarding and website | Owner login and shared category setup on the web; Android onboarding is three skippable steps (promise → AI → start recording) |
+| Daily timeline and overview | Android has exactly three tabs (時間軸 / 回顧 / 設定): a day card list with one status line and a stacked category bar, and day/week 回顧 with AI recap, time split, top apps, topics and 問 AI. Web: hourly day/week cards, 04:00 day boundary, top apps and keywords |
+| Daily reflection | Removed from the Android app (2026-11-17); API and stored reflections kept; manual mood entry removed |
 | Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
-| Text and optional image context | Opt-in with explicit app allowlist; screenshots on by default with text (can be turned off); capture every 10 s and on app switch, 720 px screenshots, secure-window gate |
-| Activity cards and summaries | App-only/excerpt fallback; editable categories; OpenAI-compatible, Anthropic or Gemini BYO model with a provider-bound owner automatic-summary switch and model-labeled topic keywords |
-| Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
-| Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |
-| Export | Private JSON + timeline clipboard; Android document picker |
+| Text and optional image context | Opt-in with explicit app allowlist through one guided 自動記錄 flow; screenshots on by default with text (can be turned off); capture every 10 s and on app switch, 720 px screenshots; unchanged screens skipped; protected/DRM windows kept as text only (`protected_screen`) |
+| Activity cards and summaries | App-only/excerpt fallback; one-tap category edits; BYO model presets on Android (OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, custom OpenAI-compatible/Ollama) with test-and-save and a provider-bound automatic-summary switch; model-labeled topic keywords |
+| Encrypted offline queue and review | AES-GCM queue/cache, retries and quarantine; screen captures upload while charging (or over unmetered networks above 256 MB) and are kept up to 72 h, other writes 24 h |
+| Chat, Flow, Agents | Android: asking AI lives in 回顧; Flow and Agents were removed from the Android app (APIs kept). Web: persistent conversations, saved briefs/schedules, focus timers and approved Codex/Claude turns; see parity boundaries below |
+| Export | Private JSON; Android exports a day from 設定 › 資料 |
 | Device credentials | Owner-issued journal/collector keys, expiry and individual revocation; phone Keystore storage |
 | Short-term image replay | Independent opt-in; worker-sanitized 480 px thumbnails, 24 hours / 256 images |
 | infovore publishing | Not enabled; PocketLog operates independently |
