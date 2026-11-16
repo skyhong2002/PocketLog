@@ -331,7 +331,7 @@ async fn records(
     Query(w): Query<Window>,
 ) -> Result<Json<serde_json::Value>> {
     let now = now_ms();
-    if w.from_ms < now - RETENTION
+    if w.from_ms < 0
         || w.to_ms > now + 60_000
         || w.to_ms <= w.from_ms
         || w.to_ms - w.from_ms > RETENTION
@@ -370,7 +370,7 @@ async fn ask(State(state): State<AppState>, Json(q): Json<Ask>) -> Result<Json<s
         || q.question
             .chars()
             .any(|c| c.is_control() && c != '\n' && c != '\t')
-        || q.from_ms < now - RETENTION
+        || q.from_ms < 0
         || q.to_ms > now + 60_000
         || q.to_ms <= q.from_ms
         || q.to_ms - q.from_ms > 7 * DAY + 3_600_000

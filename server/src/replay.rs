@@ -33,7 +33,7 @@ async fn list(
     Query(w): Query<Window>,
 ) -> Result<Json<serde_json::Value>> {
     let now = now_ms();
-    if w.from_ms < now - RETENTION
+    if w.from_ms < 0
         || w.to_ms <= w.from_ms
         || w.to_ms > w.from_ms + RETENTION
         || w.to_ms > now + 60_000

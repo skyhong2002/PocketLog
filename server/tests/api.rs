@@ -207,7 +207,7 @@ async fn explicit_feelings_are_private_and_deletable() {
     );
 }
 #[tokio::test]
-async fn retention_removes_old_records_and_errors_do_not_echo_secrets() {
+async fn journal_is_retained_permanently_and_errors_do_not_echo_secrets() {
     let path = std::env::temp_dir().join(format!(
         "pocketlog-retention-{}-{}.sqlite",
         std::process::id(),
@@ -232,12 +232,22 @@ async fn retention_removes_old_records_and_errors_do_not_echo_secrets() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(remaining, 0);
+    assert_eq!(remaining, 2);
     let app = router(state);
+    let (status, old) = call(
+        &app,
+        "GET",
+        "/v1/timeline?from_ms=0&to_ms=2",
+        Value::Null,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(old["activities"].as_array().unwrap().len(), 1);
     let (status, error) = call(
         &app,
         "GET",
-        "/v1/timeline?from_ms=0&to_ms=1",
+        "/v1/timeline?from_ms=-1&to_ms=1",
         Value::Null,
         true,
     )
@@ -363,6 +373,9 @@ async fn new_routes_authenticate_before_parsing() {
         ("POST", "/v1/cards"),
         ("POST", "/v1/reflections"),
         ("GET", "/v1/status"),
+        ("GET", "/v1/storage"),
+        ("PUT", "/v1/storage"),
+        ("PUT", "/v1/ai/auto"),
     ] {
         assert_eq!(
             call(
@@ -398,7 +411,17 @@ async fn image_input_requires_independent_consent_and_size_bound() {
             .0,
         StatusCode::NO_CONTENT
     );
-    image["jpeg_base64"] = json!("A".repeat(32769));
+    // About 300 KiB of JPEG fits the dedicated observation body limit.
+    image["id"] = json!("image-2");
+    image["jpeg_base64"] = json!("A".repeat(400_000));
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", image.clone(), true)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    image["id"] = json!("image-3");
+    image["jpeg_base64"] = json!("A".repeat(400_001));
     assert_eq!(
         call(&app, "POST", "/v1/observations", image, true).await.0,
         StatusCode::BAD_REQUEST
@@ -565,6 +588,111 @@ async fn byo_settings_are_owner_only_redacted_persistent_and_can_be_deleted() {
         call(&app, "GET", "/v1/ai", Value::Null, true).await.1["enabled"],
         false
     );
+}
+#[tokio::test]
+async fn automatic_summaries_are_bound_to_the_current_provider() {
+    let (app, _directory) = configured_app();
+    let config = json!({"endpoint":"https://api.example.com/v1/chat/completions","model":"my-model","api_key":"dummy-private-provider-key"});
+    let first = call(&app, "PUT", "/v1/ai", config.clone(), true).await.1;
+    assert_eq!(first["auto_summarize"], false);
+    let id = first["provider_id"].as_str().unwrap().to_owned();
+    let (status, enabled) = call(
+        &app,
+        "PUT",
+        "/v1/ai/auto",
+        json!({"provider_id":id,"enabled":true}),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(enabled["auto_summarize"], true);
+    assert_eq!(
+        call(&app, "GET", "/v1/ai", Value::Null, true).await.1["auto_summarize"],
+        true
+    );
+    // Reconfiguring creates a new provider identity that starts without the switch.
+    let second = call(&app, "PUT", "/v1/ai", config, true).await.1;
+    assert_eq!(second["auto_summarize"], false);
+    assert_eq!(
+        call(
+            &app,
+            "PUT",
+            "/v1/ai/auto",
+            json!({"provider_id":id,"enabled":true}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "PUT",
+            "/v1/ai/auto",
+            json!({"provider_id":"not-hex","enabled":true}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+#[tokio::test]
+async fn storage_budget_is_versioned_bounded_and_reported() {
+    let app = app();
+    let (status, usage) = call(&app, "GET", "/v1/storage", Value::Null, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(usage["limit_bytes"], 10_i64 * 1024 * 1024 * 1024);
+    assert_eq!(usage["image_count"], 0);
+    let revision = usage["revision"].clone();
+    for limit in [0_i64, 1024, 2 * 1024 * 1024 * 1024 * 1024] {
+        assert_eq!(
+            call(
+                &app,
+                "PUT",
+                "/v1/storage",
+                json!({"revision":revision,"limit_bytes":limit}),
+                true
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let (status, saved) = call(
+        &app,
+        "PUT",
+        "/v1/storage",
+        json!({"revision":revision,"limit_bytes":20_i64 * 1024 * 1024 * 1024}),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["limit_bytes"], 20_i64 * 1024 * 1024 * 1024);
+    assert_eq!(
+        call(
+            &app,
+            "PUT",
+            "/v1/storage",
+            json!({"revision":revision,"limit_bytes":5_i64 * 1024 * 1024 * 1024}),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    let observation = json!({"id":"stored-image","at_ms":now-1000,"app":"org.example.reader","text":"","analysis_consent":true,"image_consent":true,"jpeg_base64":"AAAA"});
+    call(&app, "POST", "/v1/observations", observation, true).await;
+    let usage = call(&app, "GET", "/v1/storage", Value::Null, true).await.1;
+    assert_eq!(
+        (usage["image_count"].clone(), usage["image_bytes"].clone()),
+        (json!(1), json!(4))
+    );
+    let status = call(&app, "GET", "/v1/status", Value::Null, true).await.1;
+    assert_eq!(status["journal_retention"], "permanent");
+    assert_eq!(status["storage"]["image_count"], 1);
 }
 #[tokio::test]
 async fn byo_settings_refuse_credential_urls_insecure_hosts_and_header_injection() {

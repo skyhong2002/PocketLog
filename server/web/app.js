@@ -923,10 +923,10 @@ function onboard(step) {
       p,
       el(
         "p",
-        "完成這份設定不代表同意任何擷取。手機使用紀錄、畫面文字、圖片與外部 AI 都預設關閉，需要在手機上分別同意；瀏覽器不會擷取你的畫面。",
+        "完成這份設定不代表同意任何擷取。手機使用紀錄、畫面文字與圖片都預設關閉，需要在手機上分別同意；外部 AI 只有在你設定模型並開啟「自動摘要」後才會使用。瀏覽器不會擷取你的畫面。",
       ),
       listOf(false, [
-        "原始畫面／文字最多保留 24 小時；活動與反思保留 30 天。",
+        "活動、反思與畫面文字永久保存在你的伺服器；截圖超過容量上限時從最舊的開始刪除，只留文字。",
         "你可以設定排除的 app、暫停收集、匯出與刪除。",
         "伺服器管理者可以讀取日誌，請只使用你信任的私人伺服器。",
       ]),
@@ -1227,6 +1227,8 @@ function emptyState(title, text, ...actions) {
   return box;
 }
 const dated = ["timeline", "daily", "weekly", "agents", "chat"];
+// The journal is retained permanently; this only bounds the date picker.
+const JOURNAL_START = "2020-01-01";
 function setDay(next) {
   day = next;
   return shell();
@@ -1263,7 +1265,7 @@ async function shell() {
   const heading = el("div", null, "top-title");
   add(heading, el("h1", titles[page]));
   const today = journalDate(),
-    oldest = shift(today, -28);
+    oldest = JOURNAL_START;
   const weekly =
     page === "weekly" ||
     (page === "timeline" && mode === "week") ||
@@ -1299,7 +1301,7 @@ async function shell() {
     date.value = day;
     date.min = oldest;
     date.max = today;
-    date.setAttribute("aria-label", "日誌日期（保留最近 28 天）");
+    date.setAttribute("aria-label", "日誌日期");
     date.onchange = () =>
       safe(async () => {
         if (date.value >= date.min && date.value <= date.max) {
@@ -1386,7 +1388,7 @@ function truncatedNote(parent, days, reviewsTruncated = false) {
     );
 }
 function visibleDates() {
-  return weekDates().filter((d) => d >= shift(journalDate(), -28));
+  return weekDates().filter((d) => d >= JOURNAL_START);
 }
 
 /* ---------- timeline ---------- */
@@ -2113,6 +2115,27 @@ async function reviewPage(parent, seq, kind) {
     el("p", "直接由活動時間計算，不需要 AI。情緒與生產力由你自己判斷。", "muted"),
   );
   categoryBars(rhythm, m);
+  const overview = await soft(`/v1/overview?from_ms=${briefFrom}&to_ms=${briefTo}`);
+  live(seq);
+  const words = overview?.title_keywords || [];
+  if (words.length) {
+    const chips = el("div", null, "chips");
+    words.forEach(([word, count]) => add(chips, el("span", `${word} · ${count}`, "chip")));
+    add(
+      rhythm,
+      el("h3", "主題關鍵字"),
+      chips,
+      el(
+        "p",
+        overview.keyword_mode === "local"
+          ? "由活動卡標題在伺服器本機擷取。"
+          : overview.keyword_mode === "mixed"
+            ? "大部分由 AI 依活動卡標題標記；尚未標記的標題以本機擷取補上。"
+            : "由 AI 依活動卡標題標記主題（不含 app 工具名稱）。",
+        "muted",
+      ),
+    );
+  }
   add(columns, rhythm);
   if (kind === "weekly") {
     const week = panel("七天概覽");
@@ -2464,7 +2487,7 @@ async function briefScheduleDialog() {
 function chatDates() {
   return chatScope === "week"
     ? weekDates().filter(
-        (d) => d <= journalDate() && d >= shift(journalDate(), -28),
+        (d) => d <= journalDate() && d >= JOURNAL_START,
       )
     : [day];
 }
@@ -3718,7 +3741,7 @@ async function settingsPage(parent, seq) {
               control.paused ? "恢復接收手機紀錄？" : "暫停所有裝置的收集？",
               control.paused
                 ? "只有仍在手機上保有同意與權限的裝置會繼續上傳；恢復不會開啟任何手機權限。"
-                : "伺服器會立即拒絕新的活動／情境，並刪除尚待分析的原始資料。手機要到下次同步才會停止擷取；離線中的手機無法立即收到。",
+                : "伺服器會立即拒絕新的活動／情境，並刪除尚待分析的原始資料（已分析的紀錄保留）。手機要到下次同步才會停止擷取；離線中的手機無法立即收到。",
               control.paused ? "恢復收集" : "暫停收集",
               !control.paused,
             ))
@@ -3738,7 +3761,7 @@ async function settingsPage(parent, seq) {
     record,
     el(
       "p",
-      "擷取權限在 Android app 的「設定 → 手機紀錄／畫面情境」管理：使用紀錄、文字、圖片與 AI 同意彼此獨立，排除清單與密碼欄位檢查會在擷取前執行。這個網站不會更改手機的系統權限。",
+      "擷取權限在 Android app 的「設定 → 手機紀錄／畫面情境」管理：使用紀錄、文字與圖片彼此獨立，每分鐘與切換 app 時擷取一次；排除清單與密碼欄位檢查會在擷取前執行。這個網站不會更改手機的系統權限。",
       "muted",
     ),
     el(
@@ -3754,7 +3777,7 @@ async function settingsPage(parent, seq) {
     el(
       "p",
       ai.enabled
-        ? `已設定：${ai.model} · ${providerHost()}。每次摘要或提問前都會先顯示傳送範圍。`
+        ? `已設定：${ai.model} · ${providerHost()}。自動摘要${ai.auto_summarize ? "已開啟：新的畫面擷取會自動整理成活動卡並標記主題" : "未開啟：畫面擷取只產生本機摘錄"}。Chat 與回顧在每次傳送前都會先顯示範圍。`
         : ai.available === false
           ? "這個伺服器沒有啟用 AI 設定儲存空間；請依安裝文件掛載設定目錄。"
           : "尚未設定，沒有任何內容傳送到外部模型。時間軸與反思不需要 AI。",
@@ -3783,12 +3806,21 @@ async function settingsPage(parent, seq) {
     add(
       data,
       facts([
-        ["活動、感受與反思", `保留 ${status.retention_days} 天`],
-        ["原始畫面／文字", `最多 ${status.raw_retention_hours} 小時，僅供分析`],
+        ["活動、反思與畫面文字", status.journal_retention === "permanent" ? "永久保存" : "請更新伺服器"],
+        ...(status.storage
+          ? [
+              ["已使用空間", `${gib(status.storage.used_bytes)} / ${gib(status.storage.limit_bytes)}`],
+              ["保存中的截圖", `${status.storage.image_count.toLocaleString()} 張（${gib(status.storage.image_bytes)}）`],
+              ...(status.storage.text_only_before_ms
+                ? [["只剩文字", `${new Date(status.storage.text_only_before_ms).toLocaleString()} 之前的截圖已刪除`]]
+                : []),
+            ]
+          : []),
         ["等待分析的情境", `${status.pending_context} 筆`],
-        ["外部 AI", status.external_ai_requires_consent ? "每次都需要同意" : "請查看安裝文件"],
       ]),
     );
+    if (status.storage)
+      add(data, row(keyed(btn("調整容量上限…", () => storageDialog(status.storage)), "settings-storage")));
     const tech = el("details");
     add(tech, el("summary", "技術診斷"), el("pre", JSON.stringify(status, null, 2)));
     add(data, tech);
@@ -4364,7 +4396,7 @@ function providerDialog(done) {
       ),
       images = check(
         p,
-        "模型支援圖片（不會因此啟用手機截圖或 AI 同意）",
+        "模型支援圖片（自動摘要時會一併送出截圖；不會因此啟用手機截圖）",
         ai.image_support,
       );
     model.spellcheck = false;
@@ -4373,7 +4405,7 @@ function providerDialog(done) {
       p,
       el(
         "p",
-        "端點從伺服器連線。HTTP 僅接受 literal loopback（127.0.0.1／[::1]）；Docker 的 localhost 是容器本身。儲存或更換設定會要求手機重新同意，儲存本身不會呼叫模型。",
+        "端點從伺服器連線。HTTP 僅接受 literal loopback（127.0.0.1／[::1]）；Docker 的 localhost 是容器本身。儲存或更換設定會關閉自動摘要，儲存本身不會呼叫模型。",
         "muted",
       ),
     );
@@ -4398,7 +4430,7 @@ function providerDialog(done) {
               if (!current()) return;
               ai = saved;
               if (await complete())
-                notice("AI 設定已儲存；手機需重新同意才能傳送擷取內容");
+                notice("AI 設定已儲存；要自動摘要畫面擷取，請在下方重新開啟");
             });
           },
           "primary",
@@ -4468,6 +4500,100 @@ function providerDialog(done) {
           : null,
       ),
     );
+    if (ai.enabled) {
+      const auto = el("div", null, "callout");
+      add(
+        auto,
+        el("h3", "自動摘要"),
+        el(
+          "p",
+          ai.auto_summarize
+            ? "已開啟：每次畫面擷取的文字（與模型支援時的截圖）會自動送到這個模型整理成活動卡，活動卡標題也會用來標記主題關鍵字。"
+            : "未開啟：畫面擷取只產生本機摘錄，不會送到模型。",
+        ),
+        row(
+          btn(
+            ai.auto_summarize ? "關閉自動摘要" : "開啟自動摘要…",
+            async () => {
+              const enable = !ai.auto_summarize;
+              if (
+                enable &&
+                !(await ask(
+                  "自動把畫面擷取送到這個模型？",
+                  [
+                    `目的地：${providerHost(ai)} · ${ai.protocol} · 模型 ${ai.model}`,
+                    "之後每段 app 使用的畫面文字" + (ai.image_support ? "與截圖" : "") + "都會自動送出，不再逐筆詢問；活動卡標題會另外送出以標記主題。會持續產生 API 費用。",
+                    "更換模型設定後會自動關閉，需要重新開啟。",
+                  ],
+                  "開啟自動摘要",
+                ))
+              )
+                return;
+              if (!current()) return;
+              await changeProvider(async () => {
+                const saved = await api("/v1/ai/auto", { provider_id: ai.provider_id, enabled: enable }, "PUT", current);
+                if (!current()) return;
+                ai = saved;
+                if (await complete(true)) notice(enable ? "已開啟自動摘要" : "已關閉自動摘要");
+              });
+            },
+            ai.auto_summarize ? "" : "primary",
+          ),
+        ),
+      );
+      add(p, auto);
+    }
+  });
+}
+function gib(bytes) {
+  return `${(bytes / 1024 ** 3).toFixed(bytes < 10 * 1024 ** 3 ? 2 : 1)} GB`;
+}
+function storageDialog(storage) {
+  const seq = renderSeq;
+  modal("容量上限", (p) => {
+    const current = () => p.isConnected && seq === renderSeq;
+    add(
+      p,
+      el(
+        "p",
+        "活動、活動卡、反思與畫面文字永久保存。伺服器使用空間超過上限時，會從最舊、已分析的截圖開始刪除，只保留文字。",
+      ),
+      facts([
+        ["目前使用", gib(storage.used_bytes)],
+        ["截圖", `${storage.image_count.toLocaleString()} 張（${gib(storage.image_bytes)}）`],
+      ]),
+    );
+    const min = storage.min_limit_bytes / 1024 ** 3, max = storage.max_limit_bytes / 1024 ** 3;
+    const size = field(p, `上限（GB，${min}–${max}）`, String(Math.round(storage.limit_bytes / 1024 ** 3)), "number");
+    size.min = String(min);
+    size.max = String(max);
+    size.step = "1";
+    add(
+      p,
+      row(
+        btn(
+          "儲存",
+          async () => {
+            const gb = Number(size.value);
+            if (!Number.isInteger(gb) || gb < min || gb > max) throw Error(`請輸入 ${min}–${max} 之間的整數`);
+            if (gb * 1024 ** 3 < storage.used_bytes && !(await ask("立即刪除較舊的截圖？", "新的上限低於目前使用量，背景工作會刪除最舊的截圖直到低於上限；文字會保留。", "儲存上限", true)))
+              return;
+            if (!current()) return;
+            try {
+              await api("/v1/storage", { revision: storage.revision, limit_bytes: gb * 1024 ** 3 }, "PUT", current);
+            } catch (error) {
+              if (error.status === 409) throw Error("容量設定已在其他裝置變更；請關閉後重新開啟");
+              throw error;
+            }
+            if (!current()) return;
+            close();
+            notice("容量上限已儲存");
+            await shell();
+          },
+          "primary",
+        ),
+      ),
+    );
   });
 }
 function topic(parent, title, items, ...actions) {
@@ -4527,7 +4653,7 @@ async function supportPage(parent, seq) {
     [
       "沒有 AI 時，活動卡仍會顯示 app 與本機摘錄，時間軸與反思照常運作。",
       "在 AI 設定按「測試已儲存的設定」：只會送出固定測試文字。",
-      "更換端點或模型後，手機需要重新同意新的提供者；舊對話也不會轉送。",
+      "更換端點或模型後，自動摘要會關閉，需要在 AI 設定重新開啟；舊對話也不會轉送。",
       "伺服器一次只處理一個模型請求；看到忙碌訊息時稍候再試，同一個問題不會重複計費。",
     ],
     btn("開啟 AI 設定", () =>
@@ -4535,7 +4661,7 @@ async function supportPage(parent, seq) {
     ),
   );
   topic(help, "資料保留、匯出與刪除", [
-    "活動、感受、反思、對話與摘要保留 30 天；原始畫面／文字最多 24 小時。",
+    "活動、反思、活動卡與畫面文字永久保存；截圖受「設定 → 資料」的容量上限管理（預設 10 GB），超過時刪除最舊截圖、保留文字。對話、AI 回顧與專注紀錄保留 30 天。",
     "匯出檔含私人內容，離開 PocketLog 後不受保留與刪除保護，請存放在信任的位置。",
     "「設定 → 資料」可以永久刪除伺服器上的全部日誌；備份、已匯出的檔案與已送到模型的內容不會一併刪除。",
     "回報問題時請勿附上 Owner 金鑰、裝置金鑰、API key、真實日誌或畫面。",

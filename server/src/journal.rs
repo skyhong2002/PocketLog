@@ -3,7 +3,11 @@ use super::*;
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/v1/observations", post(observe))
+        // Observations carry one bounded screenshot; every other route keeps the global 64 KiB limit.
+        .route(
+            "/v1/observations",
+            post(observe).layer(DefaultBodyLimit::max(512 * 1024)),
+        )
         .route("/v1/cards", post(edit))
         .route("/v1/reflections", post(reflect))
         .route("/v1/status", get(status))
@@ -38,13 +42,13 @@ pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
         [now - RETENTION],
     )
     .map_err(storage_error)?;
-    db.execute("DELETE FROM observations WHERE at_ms <= ?", [now - DAY])
-        .map_err(storage_error)?;
-    db.execute("DELETE FROM receipts WHERE at_ms <= ?", [now - RETENTION])
-        .map_err(storage_error)?;
+    // Observations, receipts and reflections are journal records and are kept
+    // permanently. Screenshots are bounded by storage::enforce.
+    // Evidence that never matched an app session within a day stops being pending
+    // (the phone uploads sessions well within that window) but its text is kept.
     db.execute(
-        "DELETE FROM reflections WHERE at_ms <= ?",
-        [now - RETENTION],
+        "UPDATE observations SET processed=1 WHERE processed=0 AND at_ms<=?",
+        [now - DAY],
     )
     .map_err(storage_error)?;
     db.execute(
@@ -66,7 +70,7 @@ pub(super) fn erase(db: &Connection) -> Result<()> {
     .map_err(storage_error)?;
     db.execute("DELETE FROM review_records", [])
         .map_err(storage_error)?;
-    db.execute_batch("UPDATE journal_meta SET epoch=epoch+1; DELETE FROM analysis_jobs; DELETE FROM observations; DELETE FROM receipts; DELETE FROM notes; DELETE FROM reflections;").map_err(storage_error)
+    db.execute_batch("UPDATE journal_meta SET epoch=epoch+1; DELETE FROM analysis_jobs; DELETE FROM observations; DELETE FROM receipts; DELETE FROM notes; DELETE FROM reflections; DELETE FROM title_topics; UPDATE storage_settings SET text_only_before_ms=NULL;").map_err(storage_error)
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +91,10 @@ struct Observation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider_id: Option<String>,
 }
+/// About 300 KiB of JPEG, matching infovore's per-capture screenshot bound.
+pub(crate) const MAX_JPEG_BASE64: usize = 400_000;
+/// Bounds the analysis backlog, not retained history.
+const MAX_PENDING_OBSERVATIONS: i64 = 20_000;
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -107,7 +115,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
         || o.jpeg_base64.as_ref().is_some_and(|s| {
             !o.image_consent
                 || s.is_empty()
-                || s.len() > 32768
+                || s.len() > MAX_JPEG_BASE64
                 || !s
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
@@ -144,12 +152,13 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                 }
             } else {
                 let count: i64 = tx
-                    .query_row("SELECT COUNT(*) FROM observations", [], |r| r.get(0))
+                    .query_row(
+                        "SELECT COUNT(*) FROM observations WHERE processed=0",
+                        [],
+                        |r| r.get(0),
+                    )
                     .map_err(storage_error)?;
-                let receipts: i64 = tx
-                    .query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get(0))
-                    .map_err(storage_error)?;
-                if count >= 2000 || receipts >= 60_000 {
+                if count >= MAX_PENDING_OBSERVATIONS {
                     return Err(ApiError(
                         StatusCode::INSUFFICIENT_STORAGE,
                         "context capacity reached",
@@ -170,7 +179,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                 )
                 .map_err(storage_error)?;
                 tx.execute(
-                    "INSERT INTO observations VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes) VALUES (?,?,?,?,?,?,?,0,?)",
                     params![
                         o.id,
                         o.at_ms,
@@ -178,7 +187,8 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                         o.text,
                         if o.external_ai_consent { 2 } else { 1 },
                         o.jpeg_base64,
-                        o.provider_id
+                        o.provider_id,
+                        o.jpeg_base64.as_ref().map(|j| j.len() as i64)
                     ],
                 )
                 .map_err(storage_error)?;
@@ -213,7 +223,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
             // pending raw evidence against the stored activity's full interval.
             let pending_context = db
                 .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms WHERE a.id=?)",
+                    "SELECT EXISTS(SELECT 1 FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms WHERE a.id=? AND o.processed=0)",
                     [&a.id],
                     |r| r.get(0),
                 )
@@ -292,7 +302,7 @@ pub(super) struct Reflection {
 async fn reflect(State(state): State<AppState>, Json(r): Json<Reflection>) -> Result<StatusCode> {
     let now = now_ms();
     if !valid_id(&r.id)
-        || r.at_ms <= now - RETENTION
+        || r.at_ms <= 0
         || r.at_ms > now + 60_000
         || r.text.chars().count() > 2000
         || r.text.contains('\0')
@@ -304,7 +314,7 @@ async fn reflect(State(state): State<AppState>, Json(r): Json<Reflection>) -> Re
         super::prune(&tx,now)?;
         let count: i64=tx.query_row("SELECT COUNT(*) FROM reflections",[],|r|r.get(0)).map_err(storage_error)?;
         let exists: bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM reflections WHERE id=?)",[&r.id],|row|row.get(0)).map_err(storage_error)?;
-        if count>=1000 && !exists { return Err(ApiError(StatusCode::INSUFFICIENT_STORAGE,"reflection capacity reached")); }
+        if count>=100_000 && !exists { return Err(ApiError(StatusCode::INSUFFICIENT_STORAGE,"reflection capacity reached")); }
         if r.text.trim().is_empty() { tx.execute("DELETE FROM reflections WHERE id=?",[&r.id]).map_err(storage_error)?; }
         else { tx.execute("INSERT INTO reflections VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET at_ms=excluded.at_ms,text=excluded.text",params![r.id,r.at_ms,r.text]).map_err(storage_error)?; }
         tx.commit().map_err(storage_error)?;
@@ -320,8 +330,9 @@ pub(super) fn reflections(db: &Connection, from: i64, to: i64) -> Result<Vec<Ref
 async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Value>> {
     state.database(|db| {
         super::prune(db,now_ms())?;
-        let pending:i64=db.query_row("SELECT COUNT(*) FROM observations",[],|r|r.get(0)).map_err(storage_error)?;
-        Ok(Json(serde_json::json!({"schema_version":1,"analysis":"local_excerpt_or_opt_in_model","external_ai_requires_consent":true,"raw_retention_hours":24,"retention_days":30,"pending_context":pending})))
+        let pending:i64=db.query_row("SELECT COUNT(*) FROM observations WHERE processed=0",[],|r|r.get(0)).map_err(storage_error)?;
+        let storage=crate::storage::usage(db)?;
+        Ok(Json(serde_json::json!({"schema_version":2,"analysis":"local_excerpt_or_owner_enabled_model","raw_retention":"storage_budget","journal_retention":"permanent","pending_context":pending,"storage":storage})))
     }).await
 }
 
@@ -340,7 +351,7 @@ async fn overview(
     Query(w): Query<Window>,
 ) -> Result<Json<serde_json::Value>> {
     let now = now_ms();
-    if w.from_ms < now - RETENTION
+    if w.from_ms < 0
         || w.to_ms > now + 60_000
         || w.to_ms <= w.from_ms
         || w.to_ms - w.from_ms > RETENTION
@@ -365,14 +376,8 @@ async fn overview(
         let (checkins,mood,energy):(i64,Option<f64>,Option<f64>)=db.query_row("SELECT COUNT(*),AVG(mood),AVG(energy) FROM checkins WHERE at_ms>=? AND at_ms<?",[w.from_ms,w.to_ms],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(storage_error)?;
         let titles:Vec<String>=db.prepare("SELECT n.title FROM notes n JOIN activities a ON a.id=n.id WHERE a.end_ms>? AND a.start_ms<? ORDER BY a.start_ms DESC LIMIT 1000").map_err(storage_error)?
             .query_map([w.from_ms,w.to_ms],|r|r.get(0)).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
-        let mut words=std::collections::BTreeMap::<String,usize>::new();
-        for title in titles {
-            let unique:std::collections::BTreeSet<String>=title.split(|c:char|!c.is_alphabetic()).filter(|w|(2..=12).contains(&w.chars().count())).map(str::to_lowercase).collect();
-            for word in unique { *words.entry(word).or_default()+=1; }
-        }
-        let mut ranked:Vec<_>=words.into_iter().collect();
-        ranked.sort_by(|a,b|b.1.cmp(&a.1).then(a.0.cmp(&b.0))); ranked.truncate(10);
-        Ok(Json(serde_json::json!({"from_ms":w.from_ms,"to_ms":w.to_ms,"categories":categories,"apps":apps,"checkin_count":checkins,"mood_average":mood,"energy_average":energy,"title_keywords":ranked,"keywords_sample_limit":1000})))
+        let (ranked,keyword_mode)=crate::topics::keywords(db,&titles)?;
+        Ok(Json(serde_json::json!({"from_ms":w.from_ms,"to_ms":w.to_ms,"categories":categories,"apps":apps,"checkin_count":checkins,"mood_average":mood,"energy_average":energy,"title_keywords":ranked,"keyword_mode":keyword_mode,"keywords_sample_limit":1000})))
     }).await
 }
 
@@ -413,7 +418,7 @@ mod pending_context_tests {
 
     fn observe(db: &Connection, id: &str, at: i64, app: &str) {
         db.execute(
-            "INSERT INTO observations VALUES (?,?,?,'synthetic private evidence',1,NULL,NULL)",
+            "INSERT INTO observations(id,at_ms,app,text,consent) VALUES (?,?,?,'synthetic private evidence',1)",
             params![id, at, app],
         )
         .unwrap();
@@ -482,12 +487,13 @@ mod pending_context_tests {
             assert!(result[0].pending_context);
             assert_eq!(result[0].source, source);
             assert_eq!(result[0].title, "Synthetic title");
-            // A worker batch consumes at most twelve observations. Remaining
-            // evidence must keep the flag set even after a note was committed.
-            db.execute("DELETE FROM observations WHERE at_ms<122", [])
+            // Unprocessed evidence keeps the flag set even after a note was committed.
+            db.execute("UPDATE observations SET processed=1 WHERE at_ms<122", [])
                 .unwrap();
             assert!(cards(&db, std::slice::from_ref(&activity)).unwrap()[0].pending_context);
-            db.execute("DELETE FROM observations", []).unwrap();
+            // Analyzed observations are retained but no longer pending.
+            db.execute("UPDATE observations SET processed=1", [])
+                .unwrap();
             let result = cards(&db, &[activity]).unwrap();
             assert!(!result[0].pending_context);
             assert_eq!(result[0].source, source);

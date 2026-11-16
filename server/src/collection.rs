@@ -1,4 +1,5 @@
 //! Shared stop switch. Resuming never grants any phone permission or collection consent.
+//! Pausing discards unanalyzed context; already analyzed journal history is retained.
 use super::*;
 pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS collection_control(slot INTEGER PRIMARY KEY CHECK(slot=1),revision INTEGER NOT NULL,paused INTEGER NOT NULL,changed_ms INTEGER NOT NULL);INSERT OR IGNORE INTO collection_control VALUES(1,0,0,0);")
@@ -42,7 +43,7 @@ async fn save(State(state): State<AppState>, Json(next): Json<Control>) -> Resul
         if old.revision!=next.revision {return Err(ApiError(StatusCode::CONFLICT,"collection state changed; reload"));}
         let next=Control{revision:old.revision.checked_add(1).ok_or_else(invalid)?,paused:next.paused,changed_ms:now_ms()};
         tx.execute("UPDATE collection_control SET revision=?,paused=?,changed_ms=? WHERE slot=1",params![next.revision,next.paused,next.changed_ms]).map_err(storage_error)?;
-        if next.paused {tx.execute_batch("UPDATE journal_meta SET epoch=epoch+1;DELETE FROM observations;DELETE FROM analysis_jobs;DELETE FROM image_replay WHERE validated=0;").map_err(storage_error)?;}
+        if next.paused {tx.execute_batch("UPDATE journal_meta SET epoch=epoch+1;DELETE FROM observations WHERE processed=0;DELETE FROM analysis_jobs;DELETE FROM image_replay WHERE validated=0;").map_err(storage_error)?;}
         tx.commit().map_err(storage_error)?;Ok(Json(next))
     }).await
 }
