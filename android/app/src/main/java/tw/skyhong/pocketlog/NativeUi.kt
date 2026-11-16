@@ -191,7 +191,7 @@ class Ui(val context: Context) {
         if (state != null) pill(row, state.first, state.second).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(8) }
         if (onClick != null && chevron) row.addView(icon(R.drawable.ic_chevron, Palette.MUTED, 20).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(6) })
         row.contentDescription = listOfNotNull(title, state?.first, detail).joinToString("，")
-        if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag == ROW_TAG) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
+        if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag in setOf(ROW_TAG, SWITCH_TAG)) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
         row.tag = ROW_TAG
         parent.addView(row, lp())
         return row
@@ -263,6 +263,8 @@ class Ui(val context: Context) {
             addState(intArrayOf(), knob(Palette.SWITCH_THUMB_OFF, 16))
         }
         setOnCheckedChangeListener { _, value -> onChange(value) }
+        if (parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag in setOf(ROW_TAG, SWITCH_TAG)) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
+        tag = SWITCH_TAG
         parent.addView(this, lp())
     }
 
@@ -351,7 +353,7 @@ class Ui(val context: Context) {
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
     }
 
-    companion object { private const val ROW_TAG = "pocketlog-row" }
+    companion object { private const val ROW_TAG = "pocketlog-row"; private const val SWITCH_TAG = "pocketlog-switch" }
 }
 
 /** Lays children out left to right and wraps to a new line when the width runs out; lines are vertically centred. */
