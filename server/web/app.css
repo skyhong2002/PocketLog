@@ -25,7 +25,7 @@
   --wash: #eaf0e6;
   --edge: #dde8da;
   --line: #728a70;
-  --muted: #5a675c;
+  --muted: #4f5b51;
   --accent: #52765f;
   --accent-deep: #40604c;
   --danger: #a23131;
@@ -352,7 +352,8 @@ main:focus {
 }
 .icon-btn {
   padding: 8px;
-  width: 42px;
+  width: 44px;
+  min-height: 44px;
   display: inline-grid;
   place-items: center;
 }
@@ -988,13 +989,14 @@ summary:focus-visible,
   nav button {
     flex: 1 0 46px;
     min-width: 46px;
-    font-size: 11px;
+    font-size: 13px;
     padding: 6px 0 5px;
     gap: 2px;
-    min-height: 54px;
+    min-height: 56px;
   }
   main {
-    padding: 16px 14px 96px;
+    /* The fixed bottom navigation (56 px + safe area) never covers content. */
+    padding: 16px 14px calc(104px + env(safe-area-inset-bottom));
   }
   h1 {
     font-size: 24px;
@@ -1192,9 +1194,10 @@ summary:focus-visible,
   justify-content: flex-end;
   background: var(--panel);
 }
-.activity-inspector h2:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+/* Headings receive programmatic focus for screen readers; they are not inputs. */
+.activity-inspector h2:focus,
+.settings-section h2:focus {
+  outline: none;
 }
 
 .rule-preview { margin-top: 20px; border: 1px solid var(--accent); }
@@ -1734,5 +1737,322 @@ button.switch.on i {
   }
   button.switch {
     min-height: 30px;
+  }
+}
+
+/* ---- UX round 1 ---- */
+.main-review,
+.main-settings {
+  max-width: 960px;
+}
+.page-review,
+.page-settings {
+  max-width: none;
+}
+.date-picker {
+  position: relative;
+  display: inline-flex;
+}
+.date-picker input[type="date"] {
+  position: absolute;
+  inset: auto 0 0 0;
+  width: 100%;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.date-button {
+  min-width: 10em;
+  white-space: nowrap;
+}
+.category-filter {
+  width: auto;
+  min-width: 9em;
+  max-width: 100%;
+}
+.timeline-tools {
+  justify-content: space-between;
+}
+.event small {
+  margin-left: auto;
+}
+.list-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.list-divider::before,
+.list-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--edge);
+}
+.icon-btn.quiet-icon {
+  background: transparent;
+  border-color: transparent;
+}
+.detail-title {
+  margin-bottom: 10px;
+}
+.picker-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 4px 0 6px;
+}
+.text-btn {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 8px 10px;
+}
+.text-btn:hover {
+  background: var(--wash);
+}
+.text-btn.danger-text {
+  color: var(--danger);
+}
+.week-column.empty {
+  background: transparent;
+  border-bottom: 2px solid var(--line);
+  border-radius: 0;
+}
+.week-day-bar.future {
+  border: 1px solid transparent;
+}
+.week-day-bar.future strong,
+.week-day-bar.future small {
+  color: var(--muted);
+}
+.app-list li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.app-list li small {
+  flex: none;
+  white-space: nowrap;
+}
+.review-grid > *,
+.review-side > * {
+  min-width: 0;
+}
+.settings-section h2 {
+  font-size: 21px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.settings-section .state-line {
+  font-weight: 400;
+  color: var(--muted);
+}
+.settings-section .state-line.ok {
+  color: var(--accent-deep);
+}
+.settings-section .state-line.warn {
+  color: #6c4a0e;
+}
+.section-jump {
+  position: static;
+  inset: auto;
+  width: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 16px;
+  overflow: visible;
+  z-index: auto;
+}
+.section-jump button {
+  flex: none;
+  min-width: 0;
+  font-size: 14px;
+  color: inherit;
+  flex-direction: row;
+  min-height: 36px;
+  padding: 5px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  background: var(--panel);
+}
+.nav-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  margin-top: 6px;
+  text-align: left;
+  background: var(--panel);
+}
+.nav-row.primary .chevron {
+  color: #ffffff;
+}
+.chevron {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+}
+.summary-line {
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.field-label {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.copy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.server-url {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.provider {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+}
+.provider small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.provider.active small {
+  color: #ffffff;
+}
+.key-link {
+  font-size: 14px;
+  margin: 6px 0 0;
+}
+button.large {
+  min-height: 50px;
+  padding: 10px 26px;
+  font-size: 16px;
+  font-weight: 500;
+}
+.ai-form .disclosure {
+  font-size: 12px;
+}
+/* Switches: every toggle, including form checkboxes, is drawn as a switch. */
+button.switch {
+  width: 60px;
+  height: 44px;
+  min-height: 44px;
+  background: transparent;
+  display: inline-grid;
+  place-items: center;
+}
+button.switch:hover {
+  background: transparent;
+}
+button.switch .track {
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 30px;
+  border-radius: 30px;
+  background: #b7c3b4;
+}
+button.switch.on .track {
+  background: var(--accent);
+}
+button.switch i {
+  top: 3px;
+  left: 3px;
+}
+button.switch.on i {
+  transform: translateX(22px);
+}
+input.switch-input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 46px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: 26px;
+  border: 0;
+  background: #b7c3b4;
+  margin-top: 0;
+  cursor: pointer;
+}
+input.switch-input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px #1c241e40;
+}
+input.switch-input:checked {
+  background: var(--accent);
+}
+input.switch-input:checked::after {
+  transform: translateX(20px);
+}
+.check {
+  align-items: center;
+  justify-content: space-between;
+  flex-direction: row-reverse;
+  min-height: 44px;
+}
+@media (max-width: 860px) {
+  .refresh-btn {
+    display: none;
+  }
+  .top-controls .date-nav {
+    flex: 1 1 auto;
+  }
+  .date-picker {
+    flex: 1;
+  }
+  .date-button {
+    width: 100%;
+    min-width: 0;
+  }
+  .topic-chips,
+  .ask-ideas {
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+  .topic-chips .chip,
+  .ask-ideas .chip {
+    flex: 0 1 auto;
+    white-space: normal;
+  }
+  .brief-card .generate {
+    width: 100%;
+    min-height: 50px;
+  }
+  .timeline-tools .category-filter {
+    flex: 1 1 auto;
+  }
+  .timeline-tools .tool-buttons {
+    margin-left: 0;
+  }
+  .section-jump button {
+    min-height: 44px;
   }
 }

@@ -14,9 +14,8 @@ let prefs,
   day = journalDate(),
   // 回顧 shows the selected day or the Monday–Sunday week that contains it.
   reviewMode = "day",
-  // Phone readers start with full-size cards; desktop opens the hourly grid.
-  // Only choose at initial load so resizing never overrides an explicit switch.
-  view = inBrowser && matchMedia("(max-width: 860px)").matches ? "list" : "grid",
+  // null until the owner picks 時間表/清單; then that choice holds for the tab.
+  view = null,
   filter = null,
   // Open timeline search: {q, days, category, fromMs, toMs, cards, cursor, scanned, done, error, ran}.
   search = null,
@@ -29,11 +28,16 @@ let prefs,
 // reuses its request ID, so a completed paid answer is never requested twice.
 let askState = null, askEpoch = 0, activeAsk = null, refreshAsk = null;
 const inspectorMedia = inBrowser ? matchMedia("(min-width: 1100px)") : null;
+const narrowMedia = inBrowser ? matchMedia("(max-width: 860px)") : null;
+/* Narrow windows default to the chronological card list, wide ones to the hourly table. */
+function currentView() {
+  return view || (narrowMedia?.matches ? "list" : "grid");
+}
 let timelineInspector = null, inspectedCard = null;
 // One write per activity at a time, including a cancelled/reopened editor.
 const cardSaves = new Set();
 let providerChangePending = false, scheduleChangePending = false, deviceChangePending = false;
-let modalEpoch = 0;
+let modalEpoch = 0, switchFocus = null;
 const titles = {
   timeline: "時間軸",
   review: "回顧",
@@ -48,6 +52,8 @@ const icons = {
   prev: "M14.5 5.5L8 12l6.5 6.5",
   next: "M9.5 5.5L16 12l-6.5 6.5",
   done: "M5 12.5l4.5 4.5L19 7.5",
+  close: "M6.5 6.5l11 11M17.5 6.5l-11 11",
+  copy: "M8 8h11v12H8zM5 16V4h11",
 };
 function icon(name) {
   const ns = "http://www.w3.org/2000/svg";
@@ -143,6 +149,8 @@ function check(parent, label, value = false) {
   const l = el("label", null, "check"),
     n = el("input");
   n.type = "checkbox";
+  n.setAttribute("role", "switch");
+  n.className = "switch-input";
   n.checked = value;
   add(l, n, el("span", label));
   add(parent, l);
@@ -368,19 +376,25 @@ function time(ms) {
   });
 }
 function duration(ms) {
-  if (ms > 0 && ms < 30000) return "不到 1 分鐘";
+  if (ms > 0 && ms < 30000) return "不到 1 分";
   const m = Math.round(Math.max(0, ms) / 60000);
-  if (m < 60) return `${m} 分鐘`;
+  if (m < 60) return `${m} 分`;
   return m % 60
     ? `${Math.floor(m / 60)} 小時 ${m % 60} 分`
     : `${m / 60} 小時`;
 }
+const WEEKDAYS = "日一二三四五六";
+/* zh-TW dates without locale data differences: 11月16日（週一）. */
 function shortDate(date, weekday = true) {
-  return new Date(date + "T12:00:00").toLocaleDateString("zh-TW", {
-    month: "long",
-    day: "numeric",
-    ...(weekday ? { weekday: "short" } : {}),
-  });
+  const d = new Date(date + "T12:00:00");
+  return `${d.getMonth() + 1}月${d.getDate()}日${weekday ? `（週${WEEKDAYS[d.getDay()]}）` : ""}`;
+}
+/* 11月16日 – 22日, or 11月30日 – 12月6日 across months. */
+function weekRange(first, last) {
+  const a = new Date(first + "T12:00:00"), b = new Date(last + "T12:00:00");
+  return a.getMonth() === b.getMonth()
+    ? `${a.getMonth() + 1}月${a.getDate()}日 – ${b.getDate()}日`
+    : `${shortDate(first, false)} – ${shortDate(last, false)}`;
 }
 function dayTitle(date) {
   const today = journalDate();
@@ -390,13 +404,14 @@ function dayTitle(date) {
   return text;
 }
 function stamp(ms) {
-  return new Date(ms).toLocaleString("zh-TW", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return `${shortDate(dateKey(new Date(ms)), false)} ${time(ms)}`;
+}
+/* A zero-length card reads 01:26 · 不到 1 分. */
+function cardLength(c) {
+  return c.end_ms > c.start_ms ? duration(c.end_ms - c.start_ms) : "不到 1 分";
+}
+function cardTimes(c) {
+  return c.end_ms > c.start_ms ? `${time(c.start_ms)}–${time(c.end_ms)}` : time(c.start_ms);
 }
 function styleFor(id) {
   return prefs.categories.find((c) => c.id === id) || prefs.categories.at(-1);
@@ -970,17 +985,17 @@ function captureStatus({ paused, devices, ai: config, pending = 0, now }) {
     if (!active.length) return { kind: "not-started", text: "尚未開始記錄", target: "start" };
     const state = deviceConnectionState({ devices }, now);
     if (state.authenticated === false)
-      return { kind: "not-started", text: "尚未開始記錄 · 手機還沒連線", target: "start" };
+      return { kind: "not-started", text: "尚未開始記錄", target: "start" };
     if (state.lastAuthenticatedMs && now - state.lastAuthenticatedMs > 86400000)
       return { kind: "stale", text: "手機超過一天沒有連線", target: "record" };
   }
   if (config && !config.enabled)
-    return { kind: "no-ai", text: "記錄中 · AI 未設定，只顯示 app 名稱", target: "ai" };
+    return { kind: "no-ai", text: "AI 未設定，只顯示 app 名稱", target: "ai" };
   if (config && !config.auto_summarize)
-    return { kind: "ai-off", text: "記錄中 · AI 自動整理已關閉", target: "ai" };
+    return { kind: "ai-off", text: "AI 自動整理已關閉", target: "ai" };
   if (pending > 0)
-    return { kind: "processing", text: `記錄中 · AI 整理中（${pending} 張）`, target: "record" };
-  return { kind: "ok", text: "記錄中 · AI 自動整理", target: "record" };
+    return { kind: "processing", text: `AI 整理中（${pending} 張）`, target: "record" };
+  return { kind: "ok", text: "記錄中", target: "record" };
 }
 function openStatusTarget(target) {
   if (target === "start") return onboard(2);
@@ -997,7 +1012,7 @@ function restoreFocus(key, complete = false) {
   if (!key) return;
   let n = root.querySelector(`[data-key="${CSS.escape(key)}"]`);
   // The next/previous/today control can become disabled at the date boundary.
-  if (n?.disabled && key.startsWith("day-"))
+  if ((!n || n.disabled) && key.startsWith("day-"))
     n = root.querySelector('[data-key="day-date"]');
   // Only choose a fallback after activity cards have finished loading. A saved
   // category can remove the originating card from the active filter.
@@ -1078,7 +1093,7 @@ async function shell() {
     if (page === id) b.setAttribute("aria-current", "page");
     add(nav, b);
   });
-  const main = el("main");
+  const main = el("main", null, `main-${page}`);
   main.id = "main";
   main.tabIndex = -1;
   add(root, nav, main);
@@ -1087,24 +1102,12 @@ async function shell() {
   add(heading, el("h1", titles[page]));
   const today = journalDate(),
     oldest = JOURNAL_START;
-  if (dated.includes(page)) {
-    const week = weekDates();
-    add(
-      heading,
-      el(
-        "p",
-        page === "review" && reviewMode === "week"
-          ? `${shortDate(week[0], false)} – ${shortDate(week[6], false)}`
-          : dayTitle(day),
-        "date-line",
-      ),
-    );
-  }
   add(head, heading);
   const controls = el("div", null, "row top-controls");
   if (dated.includes(page)) {
-    const step = page === "review" && reviewMode === "week" ? 7 : 1;
-    const unit = step === 7 ? "週" : "天";
+    const weekly = page === "review" && reviewMode === "week";
+    const step = weekly ? 7 : 1;
+    const unit = weekly ? "週" : "天";
     const prev = keyed(
       iconBtn("prev", `前一${unit}`, () => setDay(shift(day, -step) < oldest ? oldest : shift(day, -step))),
       "day-prev",
@@ -1114,38 +1117,52 @@ async function shell() {
       iconBtn("next", `後一${unit}`, () => setDay(shift(day, step) > today ? today : shift(day, step))),
       "day-next",
     );
-    next.disabled = step === 7 ? weekDates().at(-1) >= today : day >= today;
-    const date = keyed(el("input"), "day-date");
-    date.type = "date";
-    date.value = day;
-    date.min = oldest;
-    date.max = today;
-    date.setAttribute("aria-label", "選擇日期");
-    date.onchange = () =>
+    next.disabled = weekly ? weekDates().at(-1) >= today : day >= today;
+    // The native date input renders in the browser's locale (11/16/2026). Show a
+    // zh-TW label and open the picker of a visually hidden input instead.
+    const week = weekDates();
+    const label = weekly
+      ? weekRange(week[0], week[6])
+      : day === today ? `今天 · ${shortDate(day)}` : day === shift(today, -1) ? `昨天 · ${shortDate(day)}` : shortDate(day);
+    const picker = el("span", null, "date-picker");
+    const input = el("input");
+    input.type = "date";
+    input.value = day;
+    input.min = oldest;
+    input.max = today;
+    input.tabIndex = -1;
+    input.setAttribute("aria-hidden", "true");
+    const date = keyed(btn(label, () => {
+      try {
+        input.showPicker();
+      } catch {
+        input.focus();
+      }
+    }, "date-button"), "day-date");
+    date.setAttribute("aria-label", `${label}，選擇日期`);
+    input.onchange = () =>
       safe(async () => {
-        if (date.value >= date.min && date.value <= date.max) {
+        if (input.value >= input.min && input.value <= input.max) {
           focusKey = "day-date";
-          await setDay(date.value);
+          await setDay(input.value);
         }
       });
-    const now = keyed(
-      btn("今天", () => setDay(today)),
-      "day-today",
+    add(picker, date, input);
+    add(controls, add(el("div", null, "date-nav"), prev, picker, next));
+    if (day !== today && !(weekly && week.includes(today)))
+      add(controls, keyed(btn(weekly ? "本週" : "今天", () => setDay(today)), "day-today"));
+    add(
+      controls,
+      keyed(
+        iconBtn("refresh", "重新整理", async () => {
+          prefs = await api("/v1/workspace");
+          ai = await api("/v1/ai");
+          await shell();
+        }, "refresh-btn"),
+        "refresh",
+      ),
     );
-    now.disabled = day === today;
-    add(controls, add(el("div", null, "date-nav"), prev, date, next), now);
   }
-  add(
-    controls,
-    keyed(
-      iconBtn("refresh", "重新整理", async () => {
-        prefs = await api("/v1/workspace");
-        ai = await api("/v1/ai");
-        await shell();
-      }),
-      "refresh",
-    ),
-  );
   add(head, controls);
   const body = el("div", null, "page");
   body.setAttribute("aria-busy", "true");
@@ -1292,34 +1309,23 @@ async function timelinePage(parent, seq) {
   add(parent, statusLine(status));
   if (cards.length) add(parent, daySummary(cards));
   const tools = el("div", null, "timeline-tools");
-  const chips = el("div", null, "chips");
-  chips.setAttribute("role", "group");
-  chips.setAttribute("aria-label", "依分類篩選");
-  const chip = (text, id, color) => {
-    const b = keyed(
-      btn(
-        text,
-        async () => {
-          filter = id === null || filter === id ? null : id;
-          await shell();
-        },
-        filter === id ? "active chip" : "chip",
-      ),
-      `chip-${id}`,
-    );
-    b.setAttribute("aria-pressed", String(filter === id));
-    if (color) {
-      b.prepend(el("i", null, "dot"));
-      b.style.setProperty("--cat", color);
-    }
-    return b;
-  };
-  add(chips, chip("全部", null));
-  // Only categories present on this day; an active filter always stays reachable.
+  // One compact category filter; only categories present that day (plus an active one).
   const present = new Set(cards.map((c) => c.category));
-  prefs.categories
-    .filter((c) => present.has(c.id) || c.id === filter)
-    .forEach((c) => add(chips, chip(c.name, c.id, c.color)));
+  const filterSelect = keyed(el("select", null, "category-filter"), "category-filter");
+  filterSelect.setAttribute("aria-label", "依分類篩選");
+  [["", "全部分類"], ...prefs.categories.filter((c) => present.has(c.id) || c.id === filter).map((c) => [c.id, c.name])]
+    .forEach(([id, name]) => {
+      const o = el("option", name);
+      o.value = id;
+      add(filterSelect, o);
+    });
+  filterSelect.value = filter || "";
+  filterSelect.onchange = () =>
+    safe(async () => {
+      filter = filterSelect.value || null;
+      focusKey = "category-filter";
+      await shell();
+    });
   const searchToggle = keyed(
     iconBtn("search", search ? "關閉搜尋" : "搜尋活動", async () => {
       search = search ? null : { q: "", days: 7, category: "", cards: [], cursor: null, scanned: 0, done: false, error: "", ran: false };
@@ -1331,10 +1337,10 @@ async function timelinePage(parent, seq) {
   searchToggle.setAttribute("aria-pressed", String(!!search));
   add(
     tools,
-    chips,
+    filterSelect,
     add(
       el("div", null, "tool-buttons"),
-      segmented("呈現方式", [["grid", "時間格"], ["list", "清單"]], view, async (id) => {
+      segmented("呈現方式", [["grid", "時間表"], ["list", "清單"]], currentView(), async (id) => {
         view = id;
         await shell();
       }, "view"),
@@ -1386,14 +1392,14 @@ async function timelinePage(parent, seq) {
           "顯示全部分類",
           async () => {
             filter = null;
-            focusKey = "chip-null";
+            focusKey = "category-filter";
             await shell();
           },
           "primary",
         ),
       ),
     );
-  } else if (view === "list") {
+  } else if (currentView() === "list") {
     activityList(left, shown);
   } else {
     add(left, el("p", "一天從 04:00 開始。空白時段代表沒有紀錄。", "muted"));
@@ -1489,7 +1495,7 @@ function installTimelineInspector(aside, left, cards) {
     box.style.setProperty("--cat", styleFor(c.category).color);
     const current = () => seq === renderSeq && box.isConnected;
     add(box, add(el("div", null, "inspector-actions"),
-      keyed(btn("關閉", () => reset(true), "quiet"), "inspector-close")));
+      keyed(iconBtn("close", "關閉活動詳情", () => reset(true), "quiet-icon"), "inspector-close")));
     const title = cardDetail(box, c, {
       current,
       saved: async (key) => {
@@ -1522,23 +1528,17 @@ function contentSource(source) {
 }
 const PENDING_LABEL = "AI 整理中";
 const PENDING_HELP = "伺服器還有這段時間的截圖等著整理，通常在活動結束十幾分鐘後完成。";
-const PROTECTED_LABEL = "受保護畫面（無截圖）";
 const PROTECTED_HELP = "這個 app 不允許截圖，所以只用 app 名稱和畫面文字整理。";
-function cardBadges(c) {
+/* Only exceptions are labelled; the normal AI 整理 source has no label. */
+function cardBadges(c, compact = true) {
   return [
+    c.source && c.source !== "ai" ? contentSource(c.source).label : null,
     c.pending_context === true ? PENDING_LABEL : null,
-    c.protected_screen === true ? PROTECTED_LABEL : null,
+    c.protected_screen === true ? (compact ? "受保護畫面" : "受保護畫面（無截圖）") : null,
   ].filter(Boolean);
 }
 function eventLabel(c) {
-  return [
-    `${time(c.start_ms)}–${time(c.end_ms)}`,
-    cardTitle(c),
-    styleFor(c.category).name,
-    duration(c.end_ms - c.start_ms),
-    contentSource(c.source).label,
-    ...cardBadges(c),
-  ].join("，");
+  return [cardTimes(c), cardTitle(c), styleFor(c.category).name, cardLength(c), ...cardBadges(c)].join("，");
 }
 function track(data) {
   const lane = el("div", null, "timeline");
@@ -1548,7 +1548,10 @@ function track(data) {
   appendTimelineTicks(lane, data.date);
   const px = (ms) => (ms / length) * 1536;
   const visible = data.cards.filter((c) => !filter || c.category === filter);
-  for (const group of timelineGroups(visible, (24 / 1536) * length, 8)) {
+  // Columns split only for true overlaps (a one-minute floor keeps zero-length
+  // cards apart). The 24 px minimum height then shrinks to the gap before the
+  // next card in the same column, so adjacent activities never force a split.
+  for (const group of timelineGroups(visible, 60000, 8)) {
     if (group.collapsed) {
       const first = group.placed[0].card;
       const label = `${group.placed.length} 筆活動 · 改用清單`;
@@ -1567,9 +1570,15 @@ function track(data) {
       add(lane, b);
       continue;
     }
-    for (const { card: c, lane: index, lanes } of group.placed) {
+    const nextInLane = new Map();
+    for (const item of [...group.placed].reverse()) {
+      item.next = nextInLane.get(item.lane);
+      nextInLane.set(item.lane, item.card.start_ms);
+    }
+    for (const { card: c, lane: index, lanes, next: following } of group.placed) {
       const b = keyed(btn("", () => openCard(c), "event"), cardKey(c));
-      const height = Math.max(24, px(c.end_ms - c.start_ms));
+      const room = following === undefined ? Infinity : px(following - c.start_ms);
+      const height = Math.max(px(c.end_ms - c.start_ms), Math.max(10, Math.min(24, room)));
       const category = styleFor(c.category);
       b.style.setProperty("--top", `${px(c.start_ms - start)}px`);
       b.style.setProperty("--height", `${height}px`);
@@ -1579,9 +1588,9 @@ function track(data) {
       b.setAttribute("aria-label", eventLabel(c));
       b.title = eventLabel(c).replaceAll("，", " · ");
       add(b, el("strong", cardTitle(c)));
-      if (height >= 40) add(b, el("small", `${time(c.start_ms)}–${time(c.end_ms)}`));
+      if (height >= 20) add(b, el("small", cardTimes(c)));
       if (height >= 52)
-        add(b, el("span", [category.name, contentSource(c.source).label, ...cardBadges(c)].join(" · "), "event-meta"));
+        add(b, el("span", [category.name, ...cardBadges(c)].join(" · "), "event-meta"));
       if (height >= 84 && c.summary) add(b, el("span", c.summary, "event-summary"));
       add(lane, b);
     }
@@ -1730,7 +1739,15 @@ function cardTitle(c) {
 }
 function activityList(parent, cards) {
   const list = el("ol", null, "activity-list");
+  let divided = false;
   cards.forEach((c) => {
+    // A journal day runs 04:00–04:00; mark where the next calendar day begins.
+    if (!divided && dateKey(new Date(c.start_ms)) > day) {
+      divided = true;
+      const divider = el("li", null, "list-divider");
+      add(divider, el("span", "隔天凌晨"));
+      add(list, divider);
+    }
     const category = styleFor(c.category);
     const b = keyed(btn("", () => openCard(c), "activity"), cardKey(c));
     b.style.setProperty("--cat", category.color);
@@ -1739,19 +1756,18 @@ function activityList(parent, cards) {
     add(
       meta,
       add(el("span", null, "cat-chip"), el("i", null, "dot"), document.createTextNode(category.name)),
-      el("span", contentSource(c.source).label, "source"),
       ...cardBadges(c).map((x) => el("span", x, "badge note")),
     );
     add(
       b,
-      el("span", `${time(c.start_ms)}–${time(c.end_ms)}`, "activity-time"),
+      el("span", cardTimes(c), "activity-time"),
       add(
         el("span", null, "activity-main"),
         el("strong", cardTitle(c)),
         c.summary ? el("span", c.summary, "activity-summary") : null,
         meta,
       ),
-      el("span", duration(c.end_ms - c.start_ms), "activity-length"),
+      el("span", cardLength(c), "activity-length"),
     );
     add(list, add(el("li"), b));
   });
@@ -1779,32 +1795,18 @@ async function saveCard(c, changes, current) {
 /* Card detail shared by the desktop inspector and the card dialog. Returns the
    element that should receive focus when the detail opens. */
 function cardDetail(box, c, { current, saved, heading = true }) {
-  const style = styleFor(c.category);
   const source = contentSource(c.source);
-  add(box, el("p", `${time(c.start_ms)}–${time(c.end_ms)} · ${duration(c.end_ms - c.start_ms)}`, "eyebrow"));
+  add(box, el("p", `${cardTimes(c)} · ${cardLength(c)}`, "eyebrow"));
   let title = null;
   if (heading) {
-    title = el("h2", cardTitle(c));
+    // Read-only; text editing lives behind 修改文字.
+    title = el("h2", cardTitle(c), "detail-title");
     title.tabIndex = -1;
     add(box, title);
   }
-  add(
-    box,
-    add(
-      el("div", null, "badges"),
-      el("span", source.label, "badge"),
-      ...cardBadges(c).map((x) => el("span", x, "badge note")),
-    ),
-    el("p", c.summary || "這張卡片還沒有摘要。", c.summary ? "detail-summary" : "detail-summary muted"),
-    facts([
-      ["App", appName(c.app)],
-      ["時間", `${stamp(c.start_ms)} – ${time(c.end_ms)}`],
-      ["分類", style.name],
-    ]),
-  );
-  if (c.protected_screen === true) add(box, el("p", PROTECTED_HELP, "hint"));
-  if (c.pending_context === true) add(box, el("p", PENDING_HELP, "hint"));
-  add(box, el("p", source.detail, "muted"));
+  const badges = cardBadges(c, false);
+  if (badges.length) add(box, add(el("div", null, "badges"), ...badges.map((x) => el("span", x, "badge note"))));
+  // The category comes first so it is always visible without scrolling.
   const picker = el("div", null, "category-picker");
   picker.setAttribute("role", "group");
   picker.setAttribute("aria-label", "分類，點一下就會儲存");
@@ -1820,7 +1822,19 @@ function cardDetail(box, c, { current, saved, heading = true }) {
     b.style.setProperty("--cat", cat.color);
     add(picker, b);
   });
-  add(box, el("h3", "分類"), el("p", "點一下就會儲存。", "hint"), picker);
+  add(
+    box,
+    el("p", "分類 · 點一下就會儲存", "picker-label"),
+    picker,
+    el("p", c.summary || "這張卡片還沒有摘要。", c.summary ? "detail-summary" : "detail-summary muted"),
+    facts([
+      ["App", appName(c.app)],
+      ["時間", c.end_ms > c.start_ms ? `${stamp(c.start_ms)} – ${time(c.end_ms)}` : stamp(c.start_ms)],
+    ]),
+  );
+  if (c.protected_screen === true) add(box, el("p", PROTECTED_HELP, "hint"));
+  if (c.pending_context === true) add(box, el("p", PENDING_HELP, "hint"));
+  add(box, el("p", source.detail, "hint"));
   const editor = el("div", null, "text-editor");
   const toggle = keyed(btn("修改文字", () => {
     toggle.hidden = true;
@@ -1850,7 +1864,7 @@ function cardDetail(box, c, { current, saved, heading = true }) {
       ),
     );
     t.focus();
-  }, "quiet"), "edit-text");
+  }), "edit-text");
   add(box, toggle, editor);
   const thumbs = el("div", null, "thumbs");
   add(box, thumbs);
@@ -1873,7 +1887,7 @@ async function cardThumbs(holder, c, current) {
     img.loading = "lazy";
     add(grid, img);
   });
-  add(holder, el("h3", "截圖"), grid, el("p", "只有在手機另外同意保存回放縮圖時才會出現，保留 24 小時。", "muted"));
+  add(holder, el("h3", "截圖"), grid, el("p", "手機另外同意保存的回放縮圖，保留 24 小時。", "hint"));
 }
 function editCard(c) {
   modal(cardTitle(c), (p) => {
@@ -1920,6 +1934,7 @@ async function reviewPage(parent, seq) {
     }, "review-mode"),
   );
   briefCard(parent, saved, from, to);
+  if (week) weekBars(parent, week.days);
   const grid = el("div", null, "review-grid");
   add(parent, grid);
   timeSplit(grid, overview);
@@ -1927,7 +1942,6 @@ async function reviewPage(parent, seq) {
   add(grid, side);
   topApps(side, overview);
   topics(side, overview);
-  if (week) weekBars(parent, week.days);
   askPanel(parent, from, to);
 }
 function periodWord() {
@@ -1979,20 +1993,20 @@ function briefCard(parent, saved, from, to) {
       el("p", brief.text, "brief-text"),
       el("p", `AI 產生 · ${stamp(brief.from_ms)} – ${stamp(brief.to_ms)} · 可能有誤，請對照時間軸`, "muted"),
       row(
-        keyed(btn("重新產生", generate, "quiet"), "brief-generate"),
-        btn("刪除", async () => {
+        keyed(btn("重新產生", generate), "brief-generate"),
+        keyed(btn("刪除", async () => {
           if (!(await ask("刪除這份 AI 回顧？", "只會刪除這份回顧；活動卡不受影響。", "刪除", true))) return;
           await api(`/v1/briefs/${encodeURIComponent(brief.id)}`, null, "DELETE");
           focusKey = "brief-generate";
           await shell();
-        }, "quiet"),
+        }, "text-btn"), "brief-delete"),
       ),
     );
   } else {
     add(
       box,
       el("p", `還沒有${periodWord()}的回顧。`, "muted"),
-      row(keyed(btn("產生 AI 回顧", generate, "primary"), "brief-generate")),
+      row(keyed(btn("產生 AI 回顧", generate, "primary generate"), "brief-generate")),
     );
   }
   add(box, el("p", `會把這段時間的活動卡送到 ${providerHost()}`, "disclosure"));
@@ -2004,12 +2018,11 @@ function timeSplit(parent, overview) {
   const rows = overview.categories.filter((c) => c.duration_ms > 0).sort((a, b) => b.duration_ms - a.duration_ms);
   const total = rows.reduce((n, c) => n + c.duration_ms, 0);
   if (!rows.length) return add(box, el("p", "這段時間沒有活動卡；空白不會被猜測或填補。", "muted"));
-  const max = rows[0].duration_ms;
   const chart = el("ul", null, "bars");
   rows.forEach((c) => {
     const style = styleFor(c.category);
     const bar = add(el("div", null, "bar"), el("i"));
-    bar.style.setProperty("--progress", `${(c.duration_ms / max) * 100}%`);
+    bar.style.setProperty("--progress", `${(c.duration_ms / total) * 100}%`);
     bar.style.setProperty("--cat", style.color);
     add(chart, add(
       el("li", null, "chart-row"),
@@ -2049,7 +2062,7 @@ function weekBars(parent, days) {
   days.forEach((d, i) => {
     const future = d.date > today;
     const m = metrics(d.cards);
-    const column = el("span", null, "week-column");
+    const column = el("span", null, totals[i] ? "week-column" : "week-column empty");
     const fill = el("span", null, "week-fill");
     fill.style.setProperty("--fill", `${(totals[i] / max) * 100}%`);
     Object.entries(m.totals).sort((a, b) => b[1] - a[1]).forEach(([id, ms]) => {
@@ -2059,18 +2072,26 @@ function weekBars(parent, days) {
       add(fill, seg);
     });
     add(column, fill);
-    const label = new Date(d.date + "T12:00:00").toLocaleDateString("zh-TW", { weekday: "short" });
-    const b = keyed(btn("", async () => {
-      day = d.date;
-      reviewMode = "day";
-      focusKey = "review-mode-day";
-      await shell();
-    }, d.date === day ? "week-day-bar selected" : "week-day-bar"), `week-${d.date}`);
-    b.disabled = future;
-    b.setAttribute("aria-label", `${shortDate(d.date)}：${future ? "尚未到來" : totals[i] ? `記錄 ${duration(totals[i])}` : "沒有紀錄"}。開啟這一天的回顧`);
-    const short = totals[i] >= 3600000 ? `${(totals[i] / 3600000).toFixed(1)} 時` : `${Math.round(totals[i] / 60000)} 分`;
-    add(b, column, el("strong", label), el("small", future ? "—" : short));
-    add(list, add(el("li"), b));
+    const label = `週${WEEKDAYS[new Date(d.date + "T12:00:00").getDay()]}`;
+    const hours = future || !totals[i] ? "—" : totals[i] >= 3600000 ? `${(totals[i] / 3600000).toFixed(1)} 時` : `${Math.round(totals[i] / 60000)} 分`;
+    const item = el("li");
+    if (future) {
+      const b = el("div", null, "week-day-bar future");
+      b.setAttribute("aria-label", `${shortDate(d.date)}：尚未到來`);
+      add(b, column, el("strong", label), el("small", hours));
+      add(item, b);
+    } else {
+      const b = keyed(btn("", async () => {
+        day = d.date;
+        reviewMode = "day";
+        focusKey = "review-mode-day";
+        await shell();
+      }, d.date === day ? "week-day-bar selected" : "week-day-bar"), `week-${d.date}`);
+      b.setAttribute("aria-label", `${shortDate(d.date)}：${totals[i] ? `記錄 ${duration(totals[i])}` : "沒有紀錄"}。開啟這一天的回顧`);
+      add(b, column, el("strong", label), el("small", hours));
+      add(item, b);
+    }
+    add(list, item);
   });
   add(box, list);
 }
@@ -2095,13 +2116,13 @@ function askPanel(parent, from, to) {
   log.setAttribute("role", "log");
   log.setAttribute("aria-label", "問答");
   const form = el("form", null, "ask-form");
-  const label = el("label", `問問${periodWord()}…`, "sr");
+  const label = el("label", "問問這段時間", "sr");
   const input = keyed(el("input"), "ask-input");
   input.id = "ask-input";
   label.htmlFor = input.id;
   input.type = "text";
   input.maxLength = 1000;
-  input.placeholder = `問問${periodWord()}…`;
+  input.placeholder = "問問這段時間…";
   input.autocomplete = "off";
   input.value = state.draft;
   input.oninput = () => (state.draft = input.value);
@@ -2111,7 +2132,8 @@ function askPanel(parent, from, to) {
   const ideas = el("div", null, "chips ask-ideas");
   ideas.setAttribute("role", "group");
   ideas.setAttribute("aria-label", "範例問題（只會填入輸入框）");
-  ["我花最多時間在哪？", `${periodWord()}學了什麼？`, "有哪些分心的時段？"].forEach((text) =>
+  const when = periodWord();
+  [`${when}我花最多時間在哪？`, `${when}學了什麼？`, `${when}有哪些分心的時段？`].forEach((text) =>
     add(ideas, btn(text, () => {
       input.value = state.draft = text;
       input.focus();
@@ -2210,7 +2232,7 @@ function askPanel(parent, from, to) {
     log,
     form,
     ideas,
-    el("p", `送出後，這段時間最多 100 張活動卡（標題、摘要、app、時間）和你的問題會送到 ${providerHost()}；不含截圖。問答在你的伺服器保存 30 天。`, "disclosure"),
+    el("p", `送出時，這段時間的活動卡和問題會送到 ${providerHost()}（不含截圖）。`, "disclosure"),
   );
   // The page is built off-screen, so render the retained conversation directly.
   send.disabled = !!activeAsk;
@@ -2404,6 +2426,13 @@ function lastSeen(device) {
     ? `最後連線 ${stamp(device.last_authenticated_ms)}`
     : "還沒連線過";
 }
+/* A navigation row: one line of state, a chevron, opens a dialog. */
+function navRow(text, key, open, primary = false) {
+  const b = keyed(btn("", open, primary ? "nav-row primary" : "nav-row"), key);
+  add(b, el("span", text), el("span", "›", "chevron"));
+  return b;
+}
+const SETTINGS_SECTIONS = [["record", "記錄"], ["ai", "AI"], ["categories", "分類"], ["devices", "連線與裝置"], ["data", "資料"], ["help", "說明"]];
 async function settingsPage(parent, seq) {
   const [devices, control, status, schedule] = await Promise.all([
     soft("/v1/devices"),
@@ -2416,6 +2445,14 @@ async function settingsPage(parent, seq) {
   const phones = devices ? devices.devices.filter((d) => d.scope === "journal") : [];
   const activePhones = phones.filter((d) => d.expires_ms > now);
 
+  // Every section, including 說明, is one tap away.
+  const jump = el("div", null, "section-jump");
+  jump.setAttribute("role", "navigation");
+  jump.setAttribute("aria-label", "設定的段落");
+  SETTINGS_SECTIONS.forEach(([id, name]) =>
+    add(jump, keyed(btn(name, () => restoreFocus(`settings-${id}`), "chip"), `jump-${id}`)));
+  add(parent, jump);
+
   /* 1. 記錄 — the web shows each phone's last contact instead of capture switches. */
   const record = settingsSection(
     parent,
@@ -2426,19 +2463,15 @@ async function settingsPage(parent, seq) {
   );
   if (!devices) failed(record, "裝置");
   else if (!activePhones.length)
-    add(record, el("p", phones.length ? "手機金鑰都已過期，請建立新的金鑰並在手機重新連線。" : "還沒有連接手機。", "muted"));
+    add(record, el("p", phones.length ? "手機金鑰都已過期，請在「連線與裝置」建立新的。" : "還沒有連接手機。", "muted"));
   else {
     const list = el("ul", null, "device-list");
     activePhones.forEach((d) => add(list, add(el("li"), el("strong", d.label), el("small", lastSeen(d)))));
     add(record, list);
   }
-  add(
-    record,
-    el("p", "記錄開關、截圖和排除的 app 都在 Android app 的「設定 › 記錄」調整。截圖在充電時上傳，平常只記錄、不耗流量。", "muted"),
-  );
-  const recordActions = row();
+  add(record, el("p", "記錄開關、截圖和排除的 app 在 Android app 的設定裡調整。", "hint"));
   if (control)
-    add(recordActions, keyed(btn(control.paused ? "恢復記錄" : "暫停所有裝置", async () => {
+    add(record, row(keyed(btn(control.paused ? "恢復記錄" : "暫停所有裝置", async () => {
       if (
         !(await ask(
           control.paused ? "恢復接收手機紀錄？" : "暫停所有裝置？",
@@ -2453,11 +2486,9 @@ async function settingsPage(parent, seq) {
       await api("/v1/collection", { ...control, paused: !control.paused }, "PUT");
       focusKey = "settings-collection";
       await shell();
-    }, control.paused ? "primary" : ""), "settings-collection"));
-  add(recordActions, keyed(btn("管理裝置金鑰", devicesDialog, "quiet"), "settings-record-devices"));
-  add(record, recordActions);
+    }, control.paused ? "primary" : ""), "settings-collection")));
 
-  /* 2. AI */
+  /* 2. AI — one summary line; the switches live on the AI page (dialog). */
   const model = settingsSection(
     parent,
     "ai",
@@ -2466,20 +2497,14 @@ async function settingsPage(parent, seq) {
       ? `已連接：${aiLabel(ai)}`
       : ai.available === false
         ? "這台伺服器還沒有地方保存 AI 設定"
-        : "尚未設定 · 活動卡只會顯示 app 名稱和畫面文字",
+        : "尚未設定 · 活動卡只顯示 app 名稱和畫面文字",
     ai.enabled ? "ok" : "",
   );
-  if (ai.available === false)
-    add(model, el("p", "請依安裝文件掛載設定資料夾，再回來設定 AI。", "callout warn"));
-  if (ai.enabled) aiSwitches(model, shell, schedule);
-  add(
-    model,
-    row(
-      keyed(btn(ai.enabled ? "更換 AI" : "設定 AI", () => providerDialog(shell), ai.enabled ? "" : "primary"), "settings-ai-setup"),
-      ai.enabled || ai.has_key ? keyed(btn("停用並刪除金鑰", removeProvider, "quiet danger-text"), "settings-ai-remove") : null,
-    ),
-    el("p", "API 金鑰只存在你的伺服器，不會再顯示在網頁上。", "muted"),
-  );
+  if (ai.enabled) {
+    const brief = schedule ? schedule.enabled && schedule.provider_id === ai.provider_id : null;
+    add(model, el("p", `自動整理新截圖：${ai.auto_summarize ? "開" : "關"} · 每天自動產生回顧：${brief === null ? "—" : brief ? "開" : "關"}`, "summary-line"));
+  }
+  add(model, navRow(ai.enabled ? "AI 設定" : "設定 AI", "settings-ai-setup", () => providerDialog(shell), !ai.enabled));
 
   /* 3. 分類 */
   const sorting = settingsSection(
@@ -2496,7 +2521,7 @@ async function settingsPage(parent, seq) {
     add(item, el("i", null, "dot"), el("span", c.name));
     add(swatches, item);
   });
-  add(sorting, swatches, row(keyed(btn("編輯分類與規則", categoriesDialog), "settings-categories-edit")));
+  add(sorting, swatches, navRow("編輯分類與規則", "settings-categories-edit", categoriesDialog));
 
   /* 4. 連線與裝置 */
   const link1 = settingsSection(
@@ -2507,27 +2532,21 @@ async function settingsPage(parent, seq) {
   );
   add(
     link1,
-    rich("p", "", "手機要填的伺服器網址：", code(location.origin)),
-    row(
-      keyed(btn("管理裝置金鑰", devicesDialog, devices && !devices.devices.length ? "primary" : ""), "settings-devices-manage"),
-      keyed(btn("登出這個瀏覽器", async () => {
-        await api("/session", null, "DELETE");
-        login("signedout");
-      }, "quiet"), "settings-logout"),
+    el("p", "手機要填的伺服器網址", "field-label"),
+    add(
+      el("div", null, "copy-row"),
+      el("span", location.origin, "server-url"),
+      keyed(btn("複製", async () => {
+        await navigator.clipboard.writeText(location.origin);
+        notice("已複製伺服器網址");
+      }), "settings-copy-origin"),
     ),
+    navRow("管理裝置金鑰", "settings-devices-manage", devicesDialog, !!devices && !devices.devices.length),
+    row(keyed(btn("登出這個瀏覽器", async () => {
+      await api("/session", null, "DELETE");
+      login("signedout");
+    }, "text-btn"), "settings-logout")),
   );
-  const apiHelp = el("details", null, "topic");
-  add(
-    apiHelp,
-    el("summary", "用自己的程式讀取紀錄"),
-    listOf(true, [
-      "在「管理裝置金鑰」為那個工具建立一把「日誌」權限的金鑰。",
-      ["以 HTTPS 連線，金鑰放在 ", code("Authorization: Bearer"), " 標頭，不要放進網址。"],
-      ["用 ", code("GET /v1/activities"), " 分頁讀取活動卡；完整範例在 API 文件。"],
-    ]),
-    rich("p", "", link("API 文件", `${REPO}/blob/main/docs/API.md`)),
-  );
-  add(link1, apiHelp);
 
   /* 5. 資料 */
   const storage = status?.storage;
@@ -2545,12 +2564,11 @@ async function settingsPage(parent, seq) {
     add(
       data,
       used,
-      el("p", `活動卡和畫面文字永久保存。截圖 ${storage.image_count.toLocaleString()} 張（${gib(storage.image_bytes)}）；超過上限時從最舊的截圖開始刪除，只留文字。`, "muted"),
+      el("p", `截圖 ${storage.image_count.toLocaleString()} 張；超過上限時先刪最舊的截圖，文字永久保留。`, "hint"),
     );
     if (storage.text_only_before_ms)
-      add(data, el("p", `${new Date(storage.text_only_before_ms).toLocaleString("zh-TW")} 以前的截圖已刪除，只留文字。`, "muted"));
-    if (status.pending_context) add(data, el("p", `還有 ${status.pending_context} 筆畫面等著 AI 整理。`, "muted"));
-    add(data, row(keyed(btn("調整容量上限", () => storageDialog(storage)), "settings-storage")));
+      add(data, el("p", `${stamp(storage.text_only_before_ms)} 以前只剩文字。`, "hint"));
+    add(data, navRow("調整容量上限", "settings-storage", () => storageDialog(storage)));
   }
   add(data, el("h3", "匯出"));
   const range = select(data, "匯出範圍", [["1", "今天"], ["7", "最近 7 天"], ["30", "最近 30 天"]], "7");
@@ -2564,8 +2582,7 @@ async function settingsPage(parent, seq) {
       const snapshot = await loadDays(dates, renderSeq);
       await exportData(snapshot.days, snapshot.reviews, snapshot.reviewsTruncated, `${dates[0]}_${today}`);
     }), "settings-export")),
-    el("p", "檔案包含活動卡等私人內容，離開 PocketLog 後不受保存與刪除規則保護；不含截圖。", "muted"),
-    el("h3", "刪除"),
+    el("p", "檔案含私人內容、不含截圖；離開 PocketLog 後請自行保管。", "hint"),
     row(keyed(btn("永久刪除全部紀錄…", async () => {
       if (
         !(await ask(
@@ -2585,43 +2602,40 @@ async function settingsPage(parent, seq) {
       askState = null;
       notice("伺服器上的紀錄已刪除");
       await shell();
-    }, "danger"), "settings-delete")),
+    }, "text-btn danger-text"), "settings-delete")),
   );
-  if (status) {
-    const tech = el("details", null, "topic");
-    add(tech, el("summary", "技術資訊"), el("pre", JSON.stringify(status, null, 2)));
-    add(data, tech);
-  }
 
   /* 6. 說明 */
   const help = settingsSection(parent, "help", "說明");
-  add(help, el("p", PROMISE));
+  add(help, el("p", PROMISE, "hint"));
   topic(help, "時間軸沒有活動卡", [
-    "確認手機 app 填的是這個網址和一把有效的手機金鑰（上方「記錄」會顯示最後連線時間）。",
-    "在手機打開「自動記錄」，並授予「使用情況存取」和「輔助使用」權限。",
-    "截圖在充電時才上傳；app 使用時段大約每 15 分鐘同步一次。",
-    "確認伺服器沒有暫停記錄。",
+    "確認手機填的是這個網址和一把有效的金鑰（「記錄」會顯示最後連線時間）。",
+    "在手機打開「自動記錄」，並授予「使用情況存取」和「輔助使用」。",
+    "截圖在充電時才上傳；app 使用時段約每 15 分鐘同步。",
   ]);
   topic(help, "手機連不上或金鑰失效", [
-    "手機只接受有效憑證的 HTTPS 網址，網址要和這個網站相同。",
-    "手機金鑰有效 1–90 天，過期或撤銷後請建立新的一把。",
-    "更換 Owner 金鑰後，所有手機金鑰都會失效，需要重新建立。",
+    "手機只接受和這個網站相同的 HTTPS 網址。",
+    "金鑰有效 1–90 天，過期或撤銷後請建立新的。",
+    "更換 Owner 金鑰後，所有手機金鑰都會失效。",
   ]);
   topic(help, "AI 沒有整理", [
-    "在「AI」確認已連接，並打開「自動整理新截圖」。更換 AI 後這個開關會自動關閉。",
-    "按「更換 AI」再「測試並儲存」，只會送出一段固定的測試文字。",
-    "沒有 AI 時，活動卡仍會顯示 app 名稱和畫面文字。",
+    "在「AI 設定」打開「自動整理新截圖」；更換 AI 後它會自動關閉。",
+    "「測試並儲存」只會送一段固定的測試文字。",
   ]);
   topic(help, "找不到 Owner 金鑰", [
-    [
-      "金鑰在伺服器的 ",
-      code(".secrets/production_owner_token"),
-      "。在那台機器執行 ",
-      code("./scripts/setup-status.sh production"),
-      " 可以確認狀態，不會顯示金鑰。",
-    ],
+    ["在伺服器執行 ", code("./scripts/setup-status.sh production"), " 檢查狀態（不會顯示金鑰）。"],
     "這個網站無法顯示、寄送或重設 Owner 金鑰。",
   ]);
+  topic(help, "用自己的程式讀取紀錄", [
+    "在「管理裝置金鑰」建立一把「日誌」權限的金鑰。",
+    ["以 HTTPS 連線，金鑰放在 ", code("Authorization: Bearer"), " 標頭，不要放進網址。"],
+    ["用 ", code("GET /v1/activities"), " 分頁讀取活動卡。"],
+  ], link("API 文件", `${REPO}/blob/main/docs/API.md`));
+  if (status) {
+    const tech = el("details", null, "topic");
+    add(tech, el("summary", "技術資訊"), el("pre", JSON.stringify(status, null, 2)));
+    add(help, tech);
+  }
   add(
     help,
     add(
@@ -2630,19 +2644,18 @@ async function settingsPage(parent, seq) {
       add(el("li"), link("安裝與第一次使用", `${REPO}/blob/main/docs/SETUP.md`)),
       add(el("li"), link("安全與隱私邊界", `${REPO}/blob/main/docs/SECURITY.md`)),
     ),
-    el("p", "這個專案仍在早期開發，尚未經過獨立的安全稽核。回報問題時請不要附上金鑰、真實紀錄或截圖。", "muted"),
-    row(keyed(btn("重新看一次介紹", () => onboard(0), "quiet"), "settings-onboarding")),
+    row(keyed(btn("重新看一次介紹", () => onboard(0), "text-btn"), "settings-onboarding")),
   );
 }
 
 /* ---------- AI connection (pick provider → key → model → 測試並儲存) ---------- */
 const AI_PROVIDERS = [
-  { id: "openai", name: "OpenAI", protocol: "openai", endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-5-mini", format: "json_schema" },
-  { id: "anthropic", name: "Anthropic", protocol: "anthropic", endpoint: "https://api.anthropic.com/v1/messages", model: "claude-haiku-4-5", format: "json_schema" },
-  { id: "gemini", name: "Google Gemini", protocol: "gemini", endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", model: "gemini-2.5-flash", format: "json_schema" },
-  { id: "openrouter", name: "OpenRouter", protocol: "openai", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5-mini", format: "json_object" },
-  { id: "deepseek", name: "DeepSeek", protocol: "openai", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-chat", format: "json_object", images: false },
-  { id: "custom", name: "自訂（OpenAI 相容，例如 Ollama）", short: "自訂", protocol: "openai", endpoint: "", model: "", format: "json_object" },
+  { id: "openai", name: "OpenAI", protocol: "openai", endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-5-mini", format: "json_schema", keyUrl: "https://platform.openai.com/api-keys" },
+  { id: "anthropic", name: "Anthropic", protocol: "anthropic", endpoint: "https://api.anthropic.com/v1/messages", model: "claude-haiku-4-5", format: "json_schema", keyUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "gemini", name: "Google Gemini", protocol: "gemini", endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", model: "gemini-2.5-flash", format: "json_schema", keyUrl: "https://aistudio.google.com/apikey" },
+  { id: "openrouter", name: "OpenRouter", protocol: "openai", endpoint: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5-mini", format: "json_object", keyUrl: "https://openrouter.ai/keys" },
+  { id: "deepseek", name: "DeepSeek", protocol: "openai", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-chat", format: "json_object", images: false, keyUrl: "https://platform.deepseek.com/api_keys" },
+  { id: "custom", name: "自訂", note: "OpenAI 相容，例如 Ollama", protocol: "openai", endpoint: "", model: "", format: "json_object" },
 ];
 /* Turns a provider choice into the saved protocol/endpoint. Endpoints are fixed
    per provider and only typed for 自訂. Throws a user-facing Error when invalid. */
@@ -2684,7 +2697,7 @@ function presetFor(config) {
 }
 function aiLabel(config) {
   const preset = AI_PROVIDERS.find((p) => p.id === presetFor(config));
-  const name = preset ? preset.short || preset.name : providerHost(config);
+  const name = preset ? preset.name : providerHost(config);
   return `${name} · ${config.model}`;
 }
 /* Only one AI settings change at a time, across dialogs and pages. */
@@ -2717,15 +2730,16 @@ function aiForm(p, saved) {
   picker.setAttribute("role", "group");
   picker.setAttribute("aria-label", "AI 提供者");
   const form = el("div", null, "ai-form");
-  add(p, el("h3", "1. 選擇提供者"), picker, form);
+  add(p, el("h3", "選擇提供者"), picker, form);
   const renderPicker = () => {
     picker.replaceChildren(...AI_PROVIDERS.map((preset) => {
-      const b = keyed(btn(preset.name, () => {
+      const b = keyed(btn("", () => {
         chosen = preset.id;
         renderPicker();
         renderForm();
         picker.querySelector(`[data-key="provider-${preset.id}"]`)?.focus();
       }, chosen === preset.id ? "provider active" : "provider"), `provider-${preset.id}`);
+      add(b, el("span", preset.name), preset.note ? el("small", preset.note) : null);
       b.setAttribute("aria-pressed", String(chosen === preset.id));
       return b;
     }));
@@ -2745,18 +2759,20 @@ function aiForm(p, saved) {
     }
     const key = field(
       form,
-      "2. API 金鑰",
+      "API 金鑰",
       "",
       "password",
-      same && ai.has_key ? "已儲存一把金鑰；留白會繼續使用它。" : custom ? "本機模型（例如 Ollama）可以留白。" : `在 ${preset.name} 網站建立。只會存在你的伺服器，不會再顯示。`,
+      custom ? "本機模型（例如 Ollama）可以留白。" : same && ai.has_key ? undefined : "只存在你的伺服器，不會再顯示。",
     );
     key.autocomplete = "new-password";
     key.spellcheck = false;
-    const model = field(form, "3. 模型", same ? ai.model : preset.model, "text", custom ? "例如 llama3.2-vision。" : "已填入建議的模型，可以改成其他模型。");
+    if (same && ai.has_key) key.placeholder = "已儲存金鑰 ••••，貼上新的會取代";
+    if (preset.keyUrl) add(form, add(el("p", null, "key-link"), link(`取得 ${preset.name} API 金鑰`, preset.keyUrl)));
+    const model = field(form, "模型", same ? ai.model : preset.model, "text", custom ? "例如 llama3.2-vision。" : "已填入建議的模型，可以改。");
     model.spellcheck = false;
     model.autocapitalize = "off";
     const images = check(form, "讓 AI 看截圖", same ? ai.image_support : preset.images !== false);
-    add(form, el("p", "模型要能讀圖片。關閉時只送畫面文字。", "hint"));
+    add(form, el("p", "模型要能讀圖片；關閉時只送畫面文字。", "hint"));
     let format = null;
     if (custom) {
       const advanced = el("details", null, "topic");
@@ -2768,7 +2784,7 @@ function aiForm(p, saved) {
     const describe = () => {
       let host = "";
       try { host = new URL(custom ? endpoint.value.trim() : preset.endpoint.replace("{model}", "m")).host; } catch { host = "你填的網址"; }
-      disclosure.textContent = `會先儲存，再送一段固定的測試文字到 ${host}，不含你的任何紀錄；可能產生極少的費用。`;
+      disclosure.textContent = `先儲存，再送一段固定測試文字到 ${host}（不含紀錄，可能有極少費用）。`;
     };
     describe();
     if (endpoint) endpoint.oninput = describe;
@@ -2810,19 +2826,49 @@ function aiForm(p, saved) {
         await saved();
         notice(`已連接：${aiLabel(ai)}`);
       });
-    }, "primary"), "ai-save");
+    }, "primary large"), "ai-save");
     add(form, row(submit), disclosure, feedback);
   };
   renderPicker();
   renderForm();
 }
+/* The AI page: connection state and its two switches, or the setup form. */
 function providerDialog(done) {
-  modal("設定 AI", (p) => {
-    add(p, el("p", "AI 會看截圖和畫面文字，替每段時間寫標題和摘要。使用你自己的 API 金鑰。", "muted"));
-    aiForm(p, async () => {
+  modal(ai.enabled ? "AI 設定" : "設定 AI", (p) => {
+    const rerender = (key) => {
+      // The settings summary behind the dialog refreshes when it closes.
+      refreshOnClose = true;
+      providerDialog(done);
+      const target = key && $(`#modal [data-key="${key}"]`);
+      // The recap switch renders after its schedule read; focus it once it exists.
+      if (target) target.focus();
+      else switchFocus = key || null;
+    };
+    const finish = async () => {
       close();
       await done();
-    });
+    };
+    if (!ai.enabled) {
+      add(p, el("p", "AI 會看截圖和畫面文字，替每段時間寫標題和摘要。", "hint"));
+      aiForm(p, finish);
+      return;
+    }
+    add(p, el("p", `已連接：${aiLabel(ai)}`, "state-line ok"));
+    aiSwitches(p, rerender);
+    const change = el("div");
+    add(
+      p,
+      keyed(btn("更換 AI", () => {
+        toggle.hidden = true;
+        aiForm(change, finish);
+        change.querySelector("button")?.focus();
+      }), "ai-change"),
+      change,
+      row(keyed(btn("停用並刪除金鑰", async () => {
+        if (await removeProvider()) await finish();
+      }, "text-btn danger-text"), "ai-remove")),
+    );
+    const toggle = p.querySelector('[data-key="ai-change"]');
   });
 }
 async function removeProvider() {
@@ -2834,7 +2880,7 @@ async function removeProvider() {
       true,
     ))
   )
-    return;
+    return false;
   if (providerChangePending) throw Error("先前的 AI 設定變更還在處理，請稍候再試。");
   providerChangePending = true;
   try {
@@ -2844,9 +2890,9 @@ async function removeProvider() {
     providerChangePending = false;
   }
   focusKey = "settings-ai";
-  await shell();
+  return true;
 }
-/* Accessible on/off switch; the change handler runs only after explicit activation. */
+/* Accessible on/off switch with a 44 px target; changes only on explicit activation. */
 function toggleSwitch(label, hint, on, key, change) {
   const wrap = el("div", null, "switch-row");
   const id = "switch-" + crypto.randomUUID();
@@ -2855,7 +2901,7 @@ function toggleSwitch(label, hint, on, key, change) {
   b.setAttribute("aria-checked", String(on));
   b.setAttribute("aria-labelledby", id + "-label");
   b.setAttribute("aria-describedby", id + "-hint");
-  add(b, el("i"));
+  add(b, add(el("span", null, "track"), el("i")));
   const text = el("div", null, "switch-text");
   const name = el("span", label, "switch-label");
   name.id = id + "-label";
@@ -2891,7 +2937,7 @@ function aiSwitches(parent, rerender, schedule) {
       await changeProvider(box, () => box.isConnected, async () => {
         ai = await api("/v1/ai/auto", { provider_id: ai.provider_id, enabled: enable }, "PUT");
         focusKey = "switch-auto";
-        await rerender();
+        await rerender("switch-auto");
         notice(enable ? "已開啟自動整理" : "已關閉自動整理");
       });
     },
@@ -2942,13 +2988,18 @@ function aiSwitches(parent, rerender, schedule) {
           scheduleChangePending = false;
         }
         focusKey = "switch-brief";
-        await rerender();
+        await rerender("switch-brief");
         notice(enable ? "已開啟每天回顧" : "已關閉每天回顧");
       },
     ));
   };
   if (schedule !== undefined) renderSchedule(schedule);
-  else soft("/v1/briefs/schedule").then((s) => { if (box.isConnected) renderSchedule(s); }).catch(() => {});
+  else soft("/v1/briefs/schedule").then((s) => {
+    if (!box.isConnected) return;
+    renderSchedule(s);
+    if (switchFocus === "switch-brief") box.querySelector('[data-key="switch-brief"]')?.focus();
+    switchFocus = null;
+  }).catch(() => {});
 }
 function categoriesDialog() {
   modal("分類與自動規則", (container) => {
@@ -3408,6 +3459,7 @@ if (typeof module !== "undefined")
     searchActivities, timelineGroups, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds,
     timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot,
     captureStatus, providerSettings, presetFor, aiLabel, appName, cardTitle, AI_PROVIDERS,
+    shortDate, weekRange, cardLength, cardTimes, cardBadges,
   };
 if (inBrowser) {
   inspectorMedia.addEventListener("change", (event) => {

@@ -16,7 +16,9 @@
   const key = () => modal().querySelector('input[type=password]');
   const fill = (n, value) => { n.value = value; n.dispatchEvent(new Event('input', { bubbles: true })); };
   const open = async () => {
-    document.querySelector('[data-key=settings-ai-setup]').click(); await until(() => modal().open && !!modal().querySelector('[data-key=provider-openai]'));
+    document.querySelector('[data-key=settings-ai-setup]').click(); await until(() => modal().open && !!modal().querySelector('[data-key=provider-openai], [data-key=ai-change]'));
+    // A connected provider shows its switches first; the form is behind 更換 AI.
+    if (modal().querySelector('[data-key=ai-change]')) { modal().querySelector('[data-key=ai-change]').click(); await until(() => !!modal().querySelector('[data-key=provider-openai]')); }
     modal().querySelector('[data-key=provider-openai]').click(); await until(() => !!key());
     assert(modal().querySelector('[data-key=provider-openai]').getAttribute('aria-pressed') === 'true', 'Provider choice not pressed');
     assert(!modal().textContent.includes('API 網址'), 'Fixed provider must not show an endpoint field');
@@ -75,7 +77,7 @@
     await until(() => !modal().open && !!document.querySelector('.page-settings')?.textContent.includes('synthetic-authoritative-result'));
     assert(document.body.textContent.includes('已連接：OpenAI · synthetic-authoritative-result'), 'Connected state missing');
     assert(aiReads === reads, 'Redundant provider read after save');
-    assert(!!document.querySelector('[data-key=switch-auto][aria-checked=false]'), 'Auto switch must stay off after a new save');
+    assert(document.querySelector('.page-settings').textContent.includes('自動整理新截圖：關'), 'Auto switch must stay off after a new save');
     assert(document.documentElement.scrollWidth <= innerWidth, 'Document overflow');
     // A current unauthorized save must still expire the actual UI session.
     await open(); const expired = await save(); expired.resolve(json({}, 401)); await until(() => !modal().open && document.body.textContent.includes('工作階段已結束'));

@@ -176,13 +176,13 @@ assert.deepEqual(timelineGroups([],0,4),[]);
 console.log('Dense display groups preserve every record, true bounds and ordinary overlaps');
 
 const { duration } = require('../server/web/app.js');
-assert.equal(duration(0),'0 分鐘');
-assert.equal(duration(-1000),'0 分鐘');
-assert.equal(duration(1),'不到 1 分鐘');
-assert.equal(duration(29999),'不到 1 分鐘');
-assert.equal(duration(30000),'1 分鐘');
-assert.equal(duration(89999),'1 分鐘');
-assert.equal(duration(90000),'2 分鐘');
+assert.equal(duration(0),'0 分');
+assert.equal(duration(-1000),'0 分');
+assert.equal(duration(1),'不到 1 分');
+assert.equal(duration(29999),'不到 1 分');
+assert.equal(duration(30000),'1 分');
+assert.equal(duration(89999),'1 分');
+assert.equal(duration(90000),'2 分');
 assert.equal(duration(3600000),'1 小時');
 assert.equal(duration(3660000),'1 小時 1 分');
 console.log('Positive brief durations stay distinct from zero; minute/hour rounding retained');
@@ -256,7 +256,7 @@ console.log('Journal exports retain activity/review completeness without changin
   const on = { enabled: true, auto_summarize: true };
   const kind = (input) => captureStatus({ now, ai: on, pending: 0, paused: false, devices: [phone()], ...input }).kind;
   assert.equal(kind({}), 'ok');
-  assert.equal(captureStatus({ now, ai: on, paused: false, devices: [phone()] }).text, '記錄中 · AI 自動整理');
+  assert.equal(captureStatus({ now, ai: on, paused: false, devices: [phone()] }).text, '記錄中');
   assert.equal(kind({ paused: true, devices: [] }), 'paused', 'pause wins over everything');
   assert.equal(kind({ devices: [] }), 'not-started');
   assert.equal(kind({ devices: [phone({ scope: 'collector' })] }), 'not-started', 'collector keys are not phones');
@@ -269,7 +269,7 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(captureStatus({ now, ai: { enabled: false }, devices: [phone()] }).target, 'ai');
   assert.equal(kind({ ai: { enabled: true, auto_summarize: false } }), 'ai-off');
   const busy = captureStatus({ now, ai: on, devices: [phone()], pending: 3 });
-  assert.equal(busy.kind, 'processing'); assert.equal(busy.text, '記錄中 · AI 整理中（3 張）');
+  assert.equal(busy.kind, 'processing'); assert.equal(busy.text, 'AI 整理中（3 張）');
   // Unknown facts (failed reads) never produce a warning of their own.
   assert.equal(captureStatus({ now, paused: null, devices: null, ai: on }).kind, 'ok');
   assert.equal(captureStatus({ now, paused: null, devices: null, ai: null }).kind, 'ok');
@@ -327,4 +327,29 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(cardTitle({ app: 'com.example.notes', title: '' }), 'Notes');
   assert.equal(cardTitle({ app: 'com.example.notes', title: '寫週報' }), '寫週報');
   console.log('App display names and app-only title fallback');
+}
+
+// Cross-platform consistency (UX round 1): zh-TW dates, compact units, exception-only labels, true-overlap columns.
+{
+  const { shortDate, weekRange, cardLength, cardTimes, cardBadges, layoutLanes, captureStatus } = require('../server/web/app.js');
+  assert.equal(shortDate('2026-11-16'), '11月16日（週一）');
+  assert.equal(shortDate('2026-11-16', false), '11月16日');
+  assert.equal(weekRange('2026-11-16', '2026-11-22'), '11月16日 – 22日');
+  assert.equal(weekRange('2026-11-30', '2026-12-06'), '11月30日 – 12月6日');
+  const at = new Date('2026-11-16T01:26:00').getTime();
+  assert.equal(cardLength({ start_ms: at, end_ms: at }), '不到 1 分');
+  assert.equal(cardTimes({ start_ms: at, end_ms: at }), '01:26');
+  assert.equal(cardLength({ start_ms: at, end_ms: at + 56 * 60000 }), '56 分');
+  assert.equal(cardLength({ start_ms: at, end_ms: at + 64 * 60000 }), '1 小時 4 分');
+  assert.deepEqual(cardBadges({ source: 'ai' }), [], 'normal AI cards carry no label');
+  assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true, protected_screen: true }), ['只有 app', 'AI 整理中', '受保護畫面']);
+  assert.deepEqual(cardBadges({ source: 'user', protected_screen: true }, false), ['你改過', '受保護畫面（無截圖）']);
+  // 08:10–08:28 and 08:32 do not overlap, so they share one column.
+  const t = (h, m) => new Date(`2026-11-16T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
+  const placed = layoutLanes([{ start_ms: t(8, 10), end_ms: t(8, 28) }, { start_ms: t(8, 32), end_ms: t(8, 40) }], 60000);
+  assert.ok(placed.every(p => p.lanes === 1), 'adjacent activities must not split into columns');
+  assert.equal(layoutLanes([{ start_ms: t(8, 10), end_ms: t(8, 30) }, { start_ms: t(8, 20), end_ms: t(8, 40) }], 60000)[0].lanes, 2);
+  assert.equal(captureStatus({ now: 1, ai: { enabled: false }, devices: null }).text, 'AI 未設定，只顯示 app 名稱');
+  assert.equal(captureStatus({ now: 1, ai: { enabled: true, auto_summarize: false }, devices: null }).text, 'AI 自動整理已關閉');
+  console.log('zh-TW dates, compact units, exception-only labels and true-overlap columns');
 }

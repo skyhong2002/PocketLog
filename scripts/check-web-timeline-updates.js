@@ -37,7 +37,7 @@
   let n=readCount;await tick();assert(readCount===n+1&&!shown(),'unchanged check');
   for(const state of ['hidden','offline','editing','modal']){
    if(state==='hidden')visible='hidden';if(state==='offline')connected=false;
-   if(state==='editing')document.querySelector('[data-key=day-date]').focus();
+   if(state==='editing')document.querySelector('[data-key=category-filter]').focus();
    if(state==='modal'){document.querySelector('#modal').showModal();await until(()=>document.querySelector('#modal').open);}
    n=readCount;await tick();assert(readCount===n,'read during '+state);
    visible='visible';connected=true;document.activeElement.blur();
@@ -45,7 +45,7 @@
   }
   // A held check owns one request; a second tick cannot overlap it.
   hold=true;release=null;n=readCount;const first=tick();await until(()=>!!release);await tick();assert(readCount===n+1,'overlapping checks');release();await first;
-  version=1;const active=document.querySelector('[data-key=chip-null]');active.focus();const focus=document.activeElement;
+  version=1;const active=document.querySelector('[data-key=search-toggle]');active.focus();const focus=document.activeElement;
   const viewport=document.querySelector('.timeline-window');if(viewport)viewport.scrollTop=400;const scroll=viewport?.scrollTop;
   await tick();assert(shown()&&document.body.textContent.includes('有新的活動卡或更新'),'update missing');assert(document.activeElement===focus,'check stole focus');if(viewport)assert(viewport.scrollTop===scroll,'check moved timeline');assert(!document.querySelector('.timeline-panel').textContent.includes('合成即時更新'),'check silently replaced snapshot');
   update().click();await until(()=>!!update()&&!shown()&&document.querySelector('.timeline-panel')?.textContent.includes('合成即時更新 1'));assert(document.activeElement.dataset.key==='timeline-content','explicit reload focus');if(viewport)assert(document.querySelector('.timeline-window').scrollTop===scroll,'explicit reload moved timeline');

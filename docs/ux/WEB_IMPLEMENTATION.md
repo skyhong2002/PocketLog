@@ -91,6 +91,37 @@ Not done: screen-reader, 200 % zoom, Firefox/Safari and real-phone review; no ne
 acceptance screenshots were saved; the Android app is unchanged and still shows its
 older tabs; there is no dark theme (the site never had one).
 
+### UX round 1 fixes (2026-11-17)
+
+Follows "Cross-platform consistency (UX round 1)" in SIMPLIFIED_IA.md:
+
+- Status line uses the shared vocabulary (`記錄中`, `AI 整理中（N 張）`, `AI 未設定，只顯示
+  app 名稱`, `AI 自動整理已關閉`, …). Compact units (`56 分`, `不到 1 分`), zero-length
+  cards show `01:26 · 不到 1 分`, a `隔天凌晨` divider after midnight, and only
+  exception source labels (no `AI 整理`).
+- Dates are zh-TW everywhere: the date control is a button (`今天 · 11月16日（週一）`,
+  week `11月16日 – 22日`) that opens a hidden native picker; stamps read `11月16日 09:00`.
+  `今天` appears only away from today; refresh is hidden on narrow screens and absent on 設定.
+- Narrow windows default to the card list (until the owner picks 時間表/清單); the bottom
+  nav has 13 px labels and content keeps clear of it. The hourly table (renamed 時間表)
+  splits columns only for true overlaps and shows the time range in every block; category
+  chips became one filter select.
+- Card detail: read-only title, category picker right below it, × close button, no
+  duplicate category row.
+- 回顧: header aligned with the content column; 這週每天 directly after the AI recap with
+  visible empty days; bars are the share of total time; 常用 app and topic chips wrap on
+  phones; full-width 產生 AI 回顧 on phones; 重新產生 is a button and 刪除 a low-emphasis text
+  action with confirmation; period-specific example questions with a neutral placeholder.
+- 設定: stronger section titles, a section index (so 說明 is one tap away), one-line hints,
+  server URL in normal type with 複製, 管理裝置金鑰 only in 連線與裝置, the private API note in
+  說明. The AI section is a one-line summary plus an `AI 設定 ›` row; the dialog holds the
+  two switches, 更換 AI and 停用並刪除金鑰.
+- AI form: `自訂` with a small second line, saved key shown as the field placeholder
+  `已儲存金鑰 ••••，貼上新的會取代`, a `取得 API 金鑰` link per provider, larger
+  `測試並儲存` with a smaller cost note. All checkboxes render as switches.
+- Secondary text colour darkened to about 6:1 on the lightest surfaces; icon buttons and
+  switches have 44 px targets.
+
 ## History (before 2026-11-17)
 
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues
