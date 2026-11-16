@@ -56,6 +56,14 @@ Server APIs and stored data for those features are unchanged.
   quiet, AI page order with 載入模型清單 (`POST /v1/ai/models`) and an 自動化 section, and
   private-network `http://` connections (`EndpointPolicy.privateNetworkHost`, same rule as the
   server) with the VPN warning.
+- **UX round 3 + updater (2026-11-17)**: separate timeline cards with a 4 dp stripe and soft
+  badges (accent `AI 整理中`, amber `受保護畫面`, neutral others; pending cards show no app-only
+  line), icon-only 重新整理, compact 今天, header shadow, sheet in spec order with a 修改文字 icon
+  button and small inset chips, soft 日/週 segment, time split with a ≥ 40% bar, scrollable ask
+  chips and a send icon inside the input, a full-width 160 dp week chart with `—` and
+  `平均每天 X（已過 N 天）`, outlined/filled switches, 開始記錄 button and battery line in 記錄,
+  http warning row with an icon, and `AppUpdater`/`Updates` (GitHub releases, 12 h throttle,
+  SHA-256 check, PackageInstaller) behind `BuildConfig.UPDATE_CHECK`.
 - **Instrumentation**: checks for removed pages were deleted; `UiSnapshotInstrumentation`
   renders 設定, a synthetic 時間軸 and a synthetic 回顧. No device or emulator run was
   made for this change; the new UI has unit-tested logic only.
