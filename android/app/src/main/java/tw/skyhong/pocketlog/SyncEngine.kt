@@ -36,6 +36,8 @@ object SyncEngine {
         val credentials = CredentialStore(context).load() ?: run {
             if (LocalMode(context).enabled) {
                 // Local-only: organize consented app sessions on this phone; nothing is uploaded.
+                // There is no shared server pause here; clear any flag left from a past connection.
+                settings.remotePaused = false
                 if (settings.enabled) UsageCollector(context).collect(null)
                 settings.status(if (settings.enabled) "本機模式：app 使用紀錄已整理到這支手機" else "本機模式：手機紀錄未開啟")
             }

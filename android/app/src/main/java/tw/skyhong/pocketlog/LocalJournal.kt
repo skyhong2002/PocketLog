@@ -204,9 +204,12 @@ class LocalJournal internal constructor(private val files: JournalFiles, private
             } &&
             w.getInt("focus_minutes") in 0..1440 && w.getInt("distraction_minutes") in 0..1440 && w.getInt("onboarding_version") in 0..1 &&
             rules.length() <= 32 && (0 until rules.length()).map { rules.getJSONObject(it) }.all { r ->
-                validId(r.getString("id")) && r.getString("category") in ids &&
-                    (r.isNull("app") || !r.has("app") || r.getString("app").let { it.isNotEmpty() && it.length <= 200 }) &&
-                    (r.isNull("title_contains") || !r.has("title_contains") || r.getString("title_contains").let { it.isNotEmpty() && it.codePointCount(0, it.length) <= 100 })
+                val app = r.optString("app").takeIf { r.has("app") && !r.isNull("app") }
+                val title = r.optString("title_contains").takeIf { r.has("title_contains") && !r.isNull("title_contains") }
+                // Same bounds as server/src/workspace.rs validate().
+                validId(r.getString("id")) && r.getString("category") in ids && (app != null || title != null) &&
+                    (app == null || app.isNotEmpty() && app.length <= 200) &&
+                    (title == null || title.isNotBlank() && title.codePointCount(0, title.length) <= 80 && title.none(Char::isISOControl))
             }
     }.getOrDefault(false)
 

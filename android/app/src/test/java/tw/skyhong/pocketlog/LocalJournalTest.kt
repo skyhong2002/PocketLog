@@ -74,8 +74,11 @@ class LocalJournalTest {
         assertEquals("r1", preview.getString("matched_rule_id"))
         assertEquals(400, status { journal.request("/v1/cards", JSONObject().put("id", video.id).put("title", " ").put("summary", "").put("category", "work")) })
         assertEquals(400, status { journal.request("/v1/cards", JSONObject().put("id", video.id).put("title", "t").put("summary", "").put("category", "custom_missing")) })
-        val bad = JSONObject(saved.toString()).put("categories", JSONArray())
-        assertEquals(400, status { journal.request("/v1/workspace", bad, "PUT") })
+        for (broken in listOf(
+            JSONObject(saved.toString()).put("categories", JSONArray()),
+            JSONObject(saved.toString()).put("rules", JSONArray().put(JSONObject().put("id", "empty").put("category", "work"))),
+            JSONObject(saved.toString()).put("rules", JSONArray().put(JSONObject().put("id", "long").put("category", "work").put("title_contains", "x".repeat(81)))),
+        )) assertEquals(400, status { journal.request("/v1/workspace", broken, "PUT") })
     }
 
     @Test fun reflectionsReplaceByIdDeleteWhenBlankAndStayInTheirDay() {

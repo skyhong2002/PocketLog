@@ -640,7 +640,11 @@ class MainActivity : Activity() {
         dialog().setTitle("使用本機模式？")
             .setMessage("日誌會用 Android Keystore 加密保存在這支手機，不會上傳，也不會有網站或其他裝置的副本。刪除 app 或清除資料會一併刪除。本機最多保留約 400 天的活動。\n\n手機紀錄仍需你另外同意，進入後不會自動開始。")
             .setNegativeButton("取消", null).setPositiveButton("使用本機模式") { _, _ ->
-                task("建立本機日誌…", { synchronized(SyncEngine.lock) { LocalMode(this@MainActivity).enabled = true; UsageCollector(this@MainActivity).reset() } }) {
+                task("建立本機日誌…", { synchronized(SyncEngine.lock) {
+                    // A shared server pause from an earlier connection must not block local recording.
+                    RecordingSettings(this@MainActivity).remotePaused = false
+                    LocalMode(this@MainActivity).enabled = true; UsageCollector(this@MainActivity).reset()
+                } }) {
                     clearDrafts(); credentials = null; localMode = true; SyncEngine.schedule(this@MainActivity); enterWorkspace()
                     notice("已進入本機模式；日誌只存在這支手機。", Kind.INFO)
                 }
