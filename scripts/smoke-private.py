@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -94,6 +95,7 @@ def main():
             request("POST", "/v1/cards", {"id": activity["id"], "title": "My correction", "summary": "Disposable note", "category": "rest"})
             assert request("GET", path)["cards"][0]["source"] == "user"
             # The documented example client reads the journal through the paged contract.
+            sys.dont_write_bytecode = True  # Keep docs/examples free of __pycache__.
             spec = importlib.util.spec_from_file_location("pocketlog_client", Path(__file__).resolve().parent.parent / "docs" / "examples" / "pocketlog_client.py")
             example = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(example)
