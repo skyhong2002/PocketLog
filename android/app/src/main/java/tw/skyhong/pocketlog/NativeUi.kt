@@ -1,5 +1,6 @@
 package tw.skyhong.pocketlog
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
@@ -35,7 +36,7 @@ object Palette {
     const val ACCENT_DARK = 0xFF3B5A47.toInt()
     const val ACCENT_SOFT = 0xFFDDE8DA.toInt()
     const val INK = 0xFF303A32.toInt()
-    const val MUTED = 0xFF5D6A5F.toInt()
+    const val MUTED = 0xFF4E5A50.toInt()
     const val BORDER = 0xFFD8E0D3.toInt()
     const val HAIRLINE = 0xFFE6EBE2.toInt()
     const val DANGER = 0xFFA3352C.toInt()
@@ -58,7 +59,7 @@ object Palette {
  * interactive controls keep a 48 dp minimum target.
  */
 class Ui(val context: Context) {
-    enum class Tone { PRIMARY, TONAL, OUTLINE, TEXT, DANGER }
+    enum class Tone { PRIMARY, TONAL, OUTLINE, TEXT, DANGER, CHIP }
     enum class Kind { INFO, WARN, ERROR, SUCCESS }
     enum class Field { TEXT, MULTILINE, NUMBER, SECRET, URL }
 
@@ -119,7 +120,9 @@ class Ui(val context: Context) {
             Tone.OUTLINE -> Triple(Palette.PAPER, Palette.BORDER, Palette.INK)
             Tone.TEXT -> Triple(Color.TRANSPARENT, null, Palette.ACCENT_DARK)
             Tone.DANGER -> Triple(Palette.DANGER_SOFT, null, Palette.DANGER)
+            Tone.CHIP -> Triple(Palette.PAPER, Palette.BORDER, Palette.ACCENT_DARK)
         }
+        if (tone == Tone.CHIP) { textSize = 14f; setPadding(dp(14), dp(6), dp(14), dp(6)) }
         background = ripple(shape(fill, 24f, stroke), 24f); setTextColor(ink)
         if (tone == Tone.PRIMARY || tone == Tone.DANGER) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         setOnClickListener { onClick(it) }
@@ -150,6 +153,16 @@ class Ui(val context: Context) {
         parent?.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
+    /** Quiet outlined label for exceptions on cards (畫面文字, AI 整理中, 受保護畫面…). */
+    fun badge(parent: ViewGroup?, value: String): TextView = TextView(context).apply {
+        text = value; textSize = 12f; setTextColor(Palette.MUTED)
+        background = shape(Color.TRANSPARENT, 10f, Palette.BORDER); setPadding(dp(8), dp(2), dp(8), dp(2))
+        parent?.addView(this, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** A row that wraps its children onto new lines instead of clipping them. */
+    fun flow(parent: ViewGroup?, gap: Int = 8): FlowRow = FlowRow(context, dp(gap), dp(gap)).also { parent?.addView(it, lp(top = 4, bottom = 4)) }
+
     fun icon(res: Int, tint: Int = Palette.INK, size: Int = 24): ImageView = ImageView(context).apply {
         setImageResource(res); imageTintList = ColorStateList.valueOf(tint)
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size)); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -177,10 +190,10 @@ class Ui(val context: Context) {
         return row
     }
 
-    fun field(parent: ViewGroup, label: String, hint: String = "", kind: Field = Field.TEXT, value: String? = null, help: String? = null): EditText {
-        val title = text(parent, label, 14f, Palette.INK, bold = true, top = 8, bottom = 6)
+    fun field(parent: ViewGroup, label: String?, hint: String = "", kind: Field = Field.TEXT, value: String? = null, help: String? = null): EditText {
+        val title = label?.let { text(parent, it, 14f, Palette.INK, bold = true, top = 8, bottom = 6) }
         val edit = EditText(context).apply {
-            this.hint = hint; textSize = 16f; setTextColor(Palette.INK); setHintTextColor(0xFF7F8A80.toInt())
+            this.hint = hint; textSize = 16f; setTextColor(Palette.INK); setHintTextColor(Palette.MUTED)
             isSaveEnabled = false; importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
             minHeight = dp(48); setPadding(dp(14), dp(12), dp(14), dp(12))
             background = StateListDrawable().apply {
@@ -198,8 +211,8 @@ class Ui(val context: Context) {
             if (value != null) setText(value)
             id = View.generateViewId()
         }
-        title.labelFor = edit.id
-        parent.addView(edit, lp())
+        if (title != null) title.labelFor = edit.id else edit.contentDescription = hint
+        parent.addView(edit, lp(top = if (title == null) 8 else 0))
         if (help != null) meta(parent, help, top = 4)
         return edit
     }
@@ -315,4 +328,43 @@ class Ui(val context: Context) {
     }
 
     companion object { private const val ROW_TAG = "pocketlog-row" }
+}
+
+/** Lays children out left to right and wraps to a new line when the width runs out; lines are vertically centred. */
+@SuppressLint("ViewConstructor") // Built in code only, like the other native views.
+class FlowRow(context: Context, private val hGap: Int, private val vGap: Int) : ViewGroup(context) {
+    private fun lines(maxWidth: Int): List<List<View>> {
+        val out = mutableListOf<MutableList<View>>(mutableListOf())
+        var x = 0
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            if (child.visibility == GONE) continue
+            if (out.last().isNotEmpty() && x + child.measuredWidth > maxWidth) { out += mutableListOf<View>(); x = 0 }
+            out.last() += child; x += child.measuredWidth + hGap
+        }
+        return out.filter { it.isNotEmpty() }
+    }
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val width = MeasureSpec.getSize(widthSpec)
+        val inner = (width - paddingLeft - paddingRight).coerceAtLeast(0)
+        for (i in 0 until childCount) getChildAt(i).let { if (it.visibility != GONE) it.measure(MeasureSpec.makeMeasureSpec(inner, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)) }
+        val rows = lines(inner)
+        val height = rows.sumOf { row -> row.maxOf { it.measuredHeight } } + vGap * (rows.size - 1).coerceAtLeast(0)
+        setMeasuredDimension(width, height + paddingTop + paddingBottom)
+    }
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        var y = paddingTop
+        val rtl = layoutDirection == LAYOUT_DIRECTION_RTL
+        for (row in lines(r - l - paddingLeft - paddingRight)) {
+            val lineHeight = row.maxOf { it.measuredHeight }
+            var x = paddingLeft
+            for (child in row) {
+                val top = y + (lineHeight - child.measuredHeight) / 2
+                val left = if (rtl) r - l - x - child.measuredWidth else x
+                child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
+                x += child.measuredWidth + hGap
+            }
+            y += lineHeight + vGap
+        }
+    }
 }

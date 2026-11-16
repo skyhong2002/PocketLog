@@ -36,6 +36,19 @@ object TimelineMath {
     fun window(first: LocalDate, days: Long, zone: ZoneId, now: Long): Pair<Long, Long> =
         dayStart(first, zone) to minOf(dayStart(first.plusDays(days), zone), now)
 
+    /** zh-TW day label, e.g. `11月16日（週一）`. */
+    fun dayLabel(day: LocalDate): String = "${day.monthValue}月${day.dayOfMonth}日（${WEEKDAYS[day.dayOfWeek.value - 1]}）"
+    /** Week range, e.g. `11月16日 – 22日`, or `11月30日 – 12月6日` across months. */
+    fun weekLabel(first: LocalDate): String {
+        val last = first.plusDays(6)
+        return "${first.monthValue}月${first.dayOfMonth}日 – " + (if (last.monthValue == first.monthValue) "" else "${last.monthValue}月") + "${last.dayOfMonth}日"
+    }
+    fun weekdayShort(day: LocalDate): String = WEEKDAYS[day.dayOfWeek.value - 1].removePrefix("週")
+    private val WEEKDAYS = listOf("週一", "週二", "週三", "週四", "週五", "週六", "週日")
+    /** True when a card of this 04:00 journal [day] starts after midnight (shown under 隔天凌晨). */
+    fun afterMidnight(day: LocalDate, zone: ZoneId, startMs: Long): Boolean =
+        startMs >= day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+
     fun weekStart(day: LocalDate): LocalDate = day.minusDays((day.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
 
     fun inHistory(day: LocalDate, today: LocalDate): Boolean = day <= today && day >= today.minusDays(HISTORY_DAYS)
@@ -90,7 +103,7 @@ object TimelineMath {
     fun duration(ms: Long): String {
         val minutes = (ms.coerceAtLeast(0) + 30_000) / 60_000
         return when {
-            ms in 1 until 30_000 -> "不到 1 分"
+            ms < 30_000 -> "不到 1 分"
             minutes < 60 -> "$minutes 分"
             minutes % 60 == 0L -> "${minutes / 60} 小時"
             else -> "${minutes / 60} 小時 ${minutes % 60} 分"

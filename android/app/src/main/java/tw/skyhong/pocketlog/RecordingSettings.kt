@@ -82,6 +82,10 @@ class RecordingSettings(private val context: Context) {
     fun drop() { check(prefs.edit().putInt("dropped", (dropped().toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()).commit()) }
     fun status(value: String) { check(prefs.edit().putString("status", value).commit()) }
     fun status(): String = prefs.getString("status", "尚未同步")!!
+    /** Last completed upload pass, for 「上次同步 03:15」. */
+    var lastSync: Long
+        get() = prefs.getLong("last_sync", 0)
+        set(value) { check(prefs.edit().putLong("last_sync", value).commit()) }
     var nextAttempt: Long
         get() = prefs.getLong("next", 0)
         set(value) { check(prefs.edit().putLong("next", value).commit()) }

@@ -50,7 +50,7 @@ class TimelineMathTest {
         val items = listOf(Interval(0, 60_000), Interval(30_000, 120_000), Interval(600_000, 660_000))
         assertEquals(180_000L, TimelineMath.covered(items))
         assertEquals(120_000L, TimelineMath.longestMerged(items))
-        assertEquals("0 分", TimelineMath.duration(0))
+        assertEquals("不到 1 分", TimelineMath.duration(0))
         assertEquals("不到 1 分", TimelineMath.duration(10_000))
         assertEquals("54 分", TimelineMath.duration(54 * 60_000L))
         assertEquals("2 小時", TimelineMath.duration(120 * 60_000L))
@@ -108,4 +108,14 @@ class TimelineMathTest {
         }
     }
 
+    @Test fun zhTwDatesAndAfterMidnightCards() {
+        assertEquals("11月16日（週一）", TimelineMath.dayLabel(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("11月16日 – 22日", TimelineMath.weekLabel(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("11月30日 – 12月6日", TimelineMath.weekLabel(java.time.LocalDate.of(2026, 11, 30)))
+        assertEquals("一", TimelineMath.weekdayShort(java.time.LocalDate.of(2026, 11, 16)))
+        val zone = java.time.ZoneId.of("Asia/Taipei"); val day = java.time.LocalDate.of(2026, 11, 16)
+        val midnight = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        assertFalse(TimelineMath.afterMidnight(day, zone, midnight - 1))
+        assertTrue(TimelineMath.afterMidnight(day, zone, midnight))
+    }
 }
