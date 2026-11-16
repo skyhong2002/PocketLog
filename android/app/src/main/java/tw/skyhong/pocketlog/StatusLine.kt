@@ -48,6 +48,6 @@ object StatusLine {
         State.RECORDING -> "記錄中"
     }
 
-    /** States that need the user's action are shown as warnings; the rest are calm. */
-    fun needsAction(state: State): Boolean = state in setOf(State.PAUSED, State.KEY_REJECTED, State.NOT_STARTED, State.NEEDS_USAGE_ACCESS, State.NEEDS_ACCESSIBILITY, State.AI_MISSING, State.AI_OFF)
+    /** Amber only for real problems (paused, rejected key, missing permission); first use and AI setup stay neutral. */
+    fun needsAction(state: State): Boolean = state in setOf(State.PAUSED, State.KEY_REJECTED, State.NEEDS_USAGE_ACCESS, State.NEEDS_ACCESSIBILITY)
 }

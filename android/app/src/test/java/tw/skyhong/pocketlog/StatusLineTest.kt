@@ -36,5 +36,10 @@ class StatusLineTest {
         assertFalse(StatusLine.needsAction(StatusLine.State.RECORDING))
         assertFalse(StatusLine.needsAction(StatusLine.State.AI_PENDING))
         assertTrue(StatusLine.needsAction(StatusLine.State.NEEDS_USAGE_ACCESS))
+        assertTrue(StatusLine.needsAction(StatusLine.State.KEY_REJECTED))
+        assertTrue(StatusLine.needsAction(StatusLine.State.PAUSED))
+        // First use and AI setup are calm, not warnings.
+        assertFalse(StatusLine.needsAction(StatusLine.State.NOT_STARTED))
+        assertFalse(StatusLine.needsAction(StatusLine.State.AI_MISSING))
     }
 }

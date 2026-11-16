@@ -46,6 +46,8 @@ object Palette {
     const val FALLBACK_CATEGORY = 0xFFB1A797.toInt()
     /** Off-state switch outline/thumb: 4.6:1 against paper. */
     const val SWITCH_OFF = 0xFF6B776D.toInt()
+    /** Lighter off-state thumb, still 3.2:1 against paper. */
+    const val SWITCH_THUMB_OFF = 0xFF89938B.toInt()
 
     /** Mixes a category color toward paper for readable dark text on a tinted card. */
     fun tint(color: Int, amount: Float): Int {
@@ -189,7 +191,7 @@ class Ui(val context: Context) {
         if (state != null) pill(row, state.first, state.second).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(8) }
         if (onClick != null && chevron) row.addView(icon(R.drawable.ic_chevron, Palette.MUTED, 20).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(6) })
         row.contentDescription = listOfNotNull(title, state?.first, detail).joinToString("，")
-        if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag == ROW_TAG) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
+        if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag in setOf(ROW_TAG, SWITCH_TAG)) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
         row.tag = ROW_TAG
         parent.addView(row, lp())
         return row
@@ -249,17 +251,20 @@ class Ui(val context: Context) {
         // Off: outlined track and grey thumb (>= 3:1 against paper). On: filled accent track, white thumb.
         thumbTintList = null; trackTintList = null
         trackDrawable = StateListDrawable().apply {
-            addState(intArrayOf(-android.R.attr.state_enabled), shape(Palette.HAIRLINE, 14f, Palette.BORDER, 2f).apply { setSize(dp(48), dp(28)) })
-            addState(intArrayOf(android.R.attr.state_checked), shape(Palette.ACCENT, 14f).apply { setSize(dp(48), dp(28)) })
-            addState(intArrayOf(), shape(Palette.PAPER, 14f, Palette.SWITCH_OFF, 2f).apply { setSize(dp(48), dp(28)) })
+            addState(intArrayOf(-android.R.attr.state_enabled), shape(Palette.HAIRLINE, 16f, Palette.BORDER, 2f).apply { setSize(dp(52), dp(32)) })
+            addState(intArrayOf(android.R.attr.state_checked), shape(Palette.ACCENT, 16f).apply { setSize(dp(52), dp(32)) })
+            addState(intArrayOf(), shape(Palette.PAPER, 16f, Palette.SWITCH_OFF, 2f).apply { setSize(dp(52), dp(32)) })
         }
-        fun knob(color: Int) = android.graphics.drawable.InsetDrawable(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setSize(dp(18), dp(18)) }, dp(5))
+        // Material 3 proportions: 24 dp thumb when on, 16 dp when off, both centred in the 32 dp track.
+        fun knob(color: Int, size: Int) = android.graphics.drawable.InsetDrawable(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setSize(dp(size), dp(size)) }, dp((32 - size) / 2))
         thumbDrawable = StateListDrawable().apply {
-            addState(intArrayOf(-android.R.attr.state_enabled), knob(Palette.BORDER))
-            addState(intArrayOf(android.R.attr.state_checked), knob(Color.WHITE))
-            addState(intArrayOf(), knob(Palette.SWITCH_OFF))
+            addState(intArrayOf(-android.R.attr.state_enabled), knob(Palette.BORDER, 16))
+            addState(intArrayOf(android.R.attr.state_checked), knob(Color.WHITE, 24))
+            addState(intArrayOf(), knob(Palette.SWITCH_THUMB_OFF, 16))
         }
         setOnCheckedChangeListener { _, value -> onChange(value) }
+        if (parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag in setOf(ROW_TAG, SWITCH_TAG)) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
+        tag = SWITCH_TAG
         parent.addView(this, lp())
     }
 
@@ -348,7 +353,7 @@ class Ui(val context: Context) {
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
     }
 
-    companion object { private const val ROW_TAG = "pocketlog-row" }
+    companion object { private const val ROW_TAG = "pocketlog-row"; private const val SWITCH_TAG = "pocketlog-switch" }
 }
 
 /** Lays children out left to right and wraps to a new line when the width runs out; lines are vertically centred. */

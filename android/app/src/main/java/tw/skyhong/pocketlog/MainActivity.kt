@@ -293,7 +293,7 @@ class MainActivity : Activity() {
         val titles = ui.column(header).apply { layoutParams = ui.lp(0, weight = 1f) }
         ui.text(titles, title, 22f).apply { isAccessibilityHeading = true; maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         stickyPeriod = null
-        headerSubtitle = ui.text(titles, subtitle ?: "", 13f, Palette.INK).apply { visibility = if (subtitle != null) View.VISIBLE else View.GONE }
+        headerSubtitle = ui.text(titles, subtitle ?: "", 14f, Palette.INK, bold = true).apply { visibility = if (subtitle != null) View.VISIBLE else View.GONE }
         if (action != null) header.addView(iconButton(action.first, action.second, action.third))
         page.removeAllViews(); scroll.scrollTo(0, 0); headerDivider.visibility = View.INVISIBLE
         if (!busy) statusStrip.visibility = View.GONE
@@ -504,14 +504,14 @@ class MainActivity : Activity() {
         val sum = totals.sumOf { it.second }.coerceAtLeast(1)
         totals.forEach { (id, ms) ->
             val percent = (ms.toDouble() / sum * 100).roundToInt()
-            val row = ui.horizontal(parent, 8).apply { minimumHeight = ui.dp(52); isScreenReaderFocusable = true; contentDescription = "${label(id)}，${TimelineMath.duration(ms)}，$percent%" }
+            val row = ui.horizontal(parent, 8).apply { minimumHeight = ui.dp(46); isScreenReaderFocusable = true; contentDescription = "${label(id)}，${TimelineMath.duration(ms)}，$percent%" }
             ui.text(row, label(id), 14f).apply {
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(6)
             }.layoutParams = LinearLayout.LayoutParams(ui.dp(84), ViewGroup.LayoutParams.WRAP_CONTENT)
-            // The bar takes all remaining width up to the value column.
+            // Fixed label and value columns, so every track ends on the same line.
             row.addView(bar(ms.toFloat() / sum, colorFor(id)), ui.lp(0, ui.dp(8), weight = 1f))
-            ui.text(row, "${TimelineMath.duration(ms)} · $percent%", 12f, Palette.INK).apply { gravity = Gravity.END; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }.layoutParams = wrap()
+            ui.text(row, "${TimelineMath.duration(ms)} · $percent%", 12f, Palette.INK).apply { gravity = Gravity.END; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }.layoutParams = LinearLayout.LayoutParams(ui.dp(112), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
     }
 
@@ -530,8 +530,11 @@ class MainActivity : Activity() {
         ui.row(parent, title, detail) { onClick() }.also { row -> ((row.getChildAt(0) as LinearLayout).getChildAt(0) as TextView).setTextColor(Palette.DANGER) }
 
     /** Low-emphasis text action (e.g. delete); the caller confirms. */
-    private fun quietAction(parent: ViewGroup, label: String, color: Int = Palette.MUTED, onClick: () -> Unit): Button =
-        ui.button(parent, label, Tone.TEXT) { onClick() }.apply { setTextColor(color); textSize = 14f; layoutParams = wrap(); setPadding(ui.dp(4), ui.dp(8), ui.dp(12), ui.dp(8)) }
+    private fun quietAction(parent: ViewGroup, label: String, color: Int = Palette.MUTED, bold: Boolean = false, onClick: () -> Unit): Button =
+        ui.button(parent, label, Tone.TEXT) { onClick() }.apply {
+            setTextColor(color); textSize = 14f; layoutParams = wrap(); setPadding(ui.dp(4), ui.dp(8), ui.dp(12), ui.dp(8))
+            typeface = if (bold) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+        }
 
     /** Bottom sheet with a drag handle; drag down or tap outside to close. A tap on the handle calls performClick. */
     @SuppressLint("ClickableViewAccessibility")
@@ -549,7 +552,6 @@ class MainActivity : Activity() {
             minimumHeight = ui.dp(48); isClickable = true; isFocusable = true; contentDescription = "關閉"
             setOnClickListener { dialog.dismiss() }
         }
-        handleArea.addView(View(this).apply { background = ui.shape(Palette.BORDER, 3f) }, FrameLayout.LayoutParams(ui.dp(40), ui.dp(5), Gravity.CENTER))
         handleArea.addView(iconButton(R.drawable.ic_close, "關閉") { dialog.dismiss() }, FrameLayout.LayoutParams(ui.dp(48), ui.dp(48), Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = ui.dp(8) })
         var downY = 0f
         handleArea.setOnTouchListener { view, event ->
@@ -583,7 +585,7 @@ class MainActivity : Activity() {
     }
 
     private fun chipRow(parent: ViewGroup): LinearLayout {
-        val scroller = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val scroller = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isHorizontalFadingEdgeEnabled = true; setFadingEdgeLength(ui.dp(24)) }
         val row = ui.horizontal(null, 6)
         scroller.addView(row); parent.addView(scroller, ui.lp(top = 4, bottom = 4))
         return row
@@ -608,7 +610,6 @@ class MainActivity : Activity() {
             }.show()
         }.apply { layoutParams = wrap(); setPadding(ui.dp(6), 0, ui.dp(6), 0); setTextColor(Palette.INK); textSize = 17f; typeface = android.graphics.Typeface.DEFAULT_BOLD; contentDescription = "$label，選擇日期" }
         row.addView(iconButton(R.drawable.ic_chevron, "後一$unit") { onChange(next) }.apply { if (samePeriod(next)) { isEnabled = false; alpha = .25f; contentDescription = "後一$unit（已是最新）" } })
-        row.addView(View(this), ui.lp(0, 1, weight = 1f))
         if (!samePeriod(today)) ui.button(row, if (step == 7L) "本週" else "今天", Tone.TEXT) { onChange(today) }.apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(48)); setPadding(ui.dp(12), 0, ui.dp(12), 0); textSize = 14f
         }
@@ -935,7 +936,10 @@ class MainActivity : Activity() {
             filter.text = "篩選：${categoryFilter?.let(::label) ?: "全部"} ▾"
             holder.removeAllViews()
             var pastMidnight = false
-            shown.forEachIndexed { i, card ->
+            val groups = TimelineMath.collapse(shown.map { TimelineMath.Slot(it.optString("app"), it.getLong("start_ms"), it.getLong("end_ms"),
+                it.optString("source") == "app_only" && !it.optBoolean("pending_context") && !it.optBoolean("pending_edit")) })
+            groups.forEachIndexed { i, members ->
+                val card = shown[members.first()]
                 val late = TimelineMath.afterMidnight(day, zone, card.getLong("start_ms"))
                 if (late && !pastMidnight) {
                     pastMidnight = true
@@ -947,7 +951,7 @@ class MainActivity : Activity() {
                     }.layoutParams = wrap()
                     divider.addView(View(this@MainActivity).apply { setBackgroundColor(Palette.BORDER) }, ui.lp(0, 1, weight = 1f))
                 }
-                cardRow(holder, card)
+                if (members.size > 1) groupRow(holder, members.map { shown[it] }) else cardRow(holder, card)
             }
         }
         filter = ui.button(head, "", Tone.CHIP) {
@@ -956,7 +960,7 @@ class MainActivity : Activity() {
                 .setSingleChoiceItems(options.map { it?.let(::label) ?: "全部" }.toTypedArray(), options.indexOf(categoryFilter).coerceAtLeast(0)) { d, which ->
                     categoryFilter = options[which]; d.dismiss(); draw()
                 }.setNegativeButton("取消", null).showSecure()
-        }.apply { layoutParams = wrap() }
+        }.apply { layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(38)); minHeight = ui.dp(38); minimumHeight = ui.dp(38); setPadding(ui.dp(14), 0, ui.dp(14), 0); textSize = 13f }
         draw()
     }
 
@@ -997,14 +1001,47 @@ class MainActivity : Activity() {
         val meta = ui.flow(column, 6).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0; bottomMargin = ui.dp(4) } }
         val time = timeRange(start, end)
         ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        categoryChip(meta, c.getString("category"))
+        if (!c.optBoolean("pending_context")) categoryChip(meta, c.getString("category"))
         val badges = badges(c)
         badges.forEach { ui.badge(meta, it, badgeKind(it)) }
-        ui.text(column, title, 17f, Palette.INK, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+        // App-only titles are just the app's name: regular weight, not the bold AI-title weight.
+        ui.text(column, title, 17f, Palette.INK, bold = c.optString("source") != "app_only").apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         val summary = cardSummary(c)
         if (summary.isNotBlank()) ui.text(column, summary, 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         row.contentDescription = (listOf(title, time, label(c.getString("category"))) + badges + summary).filter { it.isNotBlank() }.joinToString("，")
-        parent.addView(row, ui.lp(bottom = 8))
+        parent.addView(row, ui.lp(bottom = 12))
+    }
+
+    /** Several short app-only uses of one app shown as one card: `N 次 · 總時長`; tap lists them. */
+    private fun groupRow(parent: LinearLayout, cards: List<JSONObject>) {
+        val first = cards.first(); val start = first.getLong("start_ms"); val end = cards.last().getLong("end_ms")
+        val total = cards.sumOf { it.getLong("end_ms") - it.getLong("start_ms") }
+        val title = cardTitle(first)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; minimumHeight = ui.dp(56)
+            isClickable = true; isFocusable = true; clipToOutline = true
+            background = ui.ripple(ui.shape(Palette.PAPER, 14f, Palette.BORDER), 14f); setOnClickListener { if (!busy) groupDetail(cards) }
+        }
+        row.addView(View(this).apply { setBackgroundColor(colorFor(first.getString("category"))) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
+        val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f); setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(10)) }
+        val meta = ui.flow(column, 6).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0; bottomMargin = ui.dp(4) } }
+        val time = "${clock(start)}–${clock(end)} · ${cards.size} 次 · ${TimelineMath.duration(total)}"
+        ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        categoryChip(meta, first.getString("category"))
+        ui.badge(meta, "只有應用程式")
+        ui.text(column, title, 17f, Palette.INK).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+        ui.text(column, "只知道使用了這個應用程式", 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        row.contentDescription = "$title，$time，${label(first.getString("category"))}，只有應用程式，點開看每一次"
+        parent.addView(row, ui.lp(bottom = 12))
+    }
+
+    private fun groupDetail(cards: List<JSONObject>) {
+        val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
+        ui.text(content, cardTitle(cards.first()), 19f, bold = true)
+        ui.text(content, "${cards.size} 次 · ${TimelineMath.duration(cards.sumOf { it.getLong("end_ms") - it.getLong("start_ms") })}", 14f, Palette.INK, top = 4, bottom = 8)
+        lateinit var list: android.app.Dialog
+        cards.forEach { card -> ui.row(content, timeRange(card.getLong("start_ms"), card.getLong("end_ms")), null) { list.dismiss(); cardDetail(card) } }
+        list = sheet(content)
     }
 
     /** Soft category chip with a colour dot. */
@@ -1030,39 +1067,43 @@ class MainActivity : Activity() {
         ui.text(content, cardTitle(card), 19f, bold = true)
         ui.text(content, listOfNotNull(appNames.name(app).takeIf { app.isNotBlank() }, timeRange(start, end)).joinToString(" · "), 14f, Palette.INK, top = 4)
         val summary = card.optString("summary")
-        cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 10) }
+        cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
+        lateinit var detail: android.app.Dialog
+        quietAction(content, "修改文字", Palette.ACCENT_DARK) { detail.dismiss(); editCardText(card) }.apply {
+            setCompoundDrawablesRelative(scaled(R.drawable.ic_edit, 18, Palette.ACCENT_DARK), null, null, null); compoundDrawablePadding = ui.dp(6)
+        }
         val note = when {
             card.optBoolean("pending_context") -> "AI 整理中：還有新的截圖或文字等 AI 整理，稍後再看。"
             card.optBoolean("protected_screen") -> "受保護畫面：沒有截圖，只依 app 名稱與畫面文字整理。"
             card.optString("source") in setOf("ai", "local_excerpt") -> "AI 整理，可能有誤，請核對。"
             else -> null
         }
-        note?.let { ui.text(content, it, 13f, Palette.MUTED, top = 8) }
-        ui.heading(content, "分類", top = 16)
-        ui.text(content, "點一下就會儲存，你選的分類會優先。", 13f, Palette.MUTED)
-        lateinit var detail: android.app.Dialog
+        note?.let { ui.text(content, it, 13f, Palette.MUTED, top = 4) }
+        ui.text(content, "分類", 15f, Palette.INK, bold = true, top = 12).isAccessibilityHeading = true
+        ui.text(content, "點一下就會儲存，你選的分類會優先。", 13f, Palette.MUTED, bottom = 4)
         val current = card.getString("category")
-        val chips = ui.flow(content, 6)
-        (categories + current).distinct().forEach { id ->
+        // An even three-column grid in workspace order.
+        val ids = (categories + current).distinct()
+        ids.chunked(3).forEach { rowIds ->
+          val gridRow = ui.horizontal(content, 6)
+          (rowIds + List(3 - rowIds.size) { null }).forEach { id ->
+            if (id == null) { gridRow.addView(View(this), ui.lp(0, 1, weight = 1f)); return@forEach }
             val on = id == current
-            ui.button(chips, (if (on) "✓ " else "") + label(id), Tone.CHIP) {
+            ui.button(gridRow, (if (on) "✓ " else "") + label(id), Tone.CHIP, 1f) {
                 if (!on) saveCard(card, cardTitleForSave(card), summary, id) { detail.dismiss() }
             }.apply {
-                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                // Small visible chip (about 32 dp) inside a 48 dp touch target.
-                textSize = 13f; setPadding(ui.dp(14), 0, ui.dp(14), 0)
+                // Small visible chip (about 32 dp) inside a 48 dp touch target; dot inside the start padding.
+                textSize = 13f; setPadding(ui.dp(12), 0, ui.dp(8), 0); gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                isSingleLine = true; ellipsize = TextUtils.TruncateAt.END
                 background = ui.ripple(android.graphics.drawable.InsetDrawable(ui.shape(if (on) Palette.ACCENT_SOFT else Palette.PAPER, 16f, if (on) null else Palette.BORDER), 0, ui.dp(8), 0, ui.dp(8)), 16f)
                 setTextColor(if (on) Palette.ACCENT_DARK else Palette.INK)
                 if (on) typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(6)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(8)
                 isSelected = on; contentDescription = "${label(id)}，${if (on) "目前分類" else "改成這個分類"}"
             }
+          }
         }
-        val actions = ui.horizontal(content, 4).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(8); gravity = Gravity.START or Gravity.CENTER_VERTICAL }
-        quietAction(actions, "修改文字", Palette.ACCENT_DARK) { detail.dismiss(); editCardText(card) }.apply {
-            setCompoundDrawablesRelative(scaled(R.drawable.ic_edit, 18, Palette.ACCENT_DARK), null, null, null); compoundDrawablePadding = ui.dp(6)
-        }
-        if (RecordingSettings(this).replayConsent) quietAction(actions, "看截圖", Palette.ACCENT_DARK) { replayForCard(card) }
+        if (RecordingSettings(this).replayConsent) quietAction(content, "看截圖", Palette.ACCENT_DARK) { replayForCard(card) }
         detail = sheet(content)
     }
 
@@ -1255,8 +1296,8 @@ class MainActivity : Activity() {
                             }
                         }
                     } else {
-                        ui.body(this, if (data.briefs == null) "目前讀不到已保存的回顧。" else if (weekly) "還沒有這週的回顧" else "還沒有${period}的回顧")
-                        ui.button(this, "產生 AI 回顧") { generateBrief(weekly, ai, from, to, fresh = false) }.layoutParams = wrap().apply { topMargin = ui.dp(8) }
+                        ui.body(this, if (data.briefs == null) "目前讀不到已保存的回顧。" else if (weekly) "還沒有這週的回顧。" else "還沒有${period}的回顧。")
+                        ui.button(this, "產生 AI 回顧") { generateBrief(weekly, ai, from, to, fresh = false) }.layoutParams = wrap().apply { topMargin = ui.dp(10); bottomMargin = ui.dp(6) }
                     }
                     ui.text(this, "會把這段時間的活動卡送到 $aiHost", 13f, Palette.MUTED, top = 4)
                 }
@@ -1276,6 +1317,7 @@ class MainActivity : Activity() {
         val rows = (0 until categoriesJson.length()).map { categoriesJson.getJSONObject(it).let { c -> c.getString("category") to c.getLong("duration_ms") } }.filter { it.second > 0 }
         ui.card(slot).apply {
             ui.heading(this, "時間分配")
+            ui.text(this, if (weekly) TimelineMath.weekLabel(TimelineMath.weekStart(day)) else dateTitle(day), 13f, Palette.MUTED, bottom = 4)
             if (rows.isEmpty()) ui.text(this, "這段時間沒有活動。", 14f, Palette.MUTED) else categoryBars(this, rows)
         }
 
@@ -1323,12 +1365,12 @@ class MainActivity : Activity() {
             val examples = chipRow(this)
             (if (weekly) listOf("這週花最多時間在哪？", "這週學了什麼？", "這週有哪些分心的時段？") else listOf("今天花最多時間在哪？", "今天學了什麼？", "有哪些分心的時段？")).forEach { sample ->
                 ui.button(examples, sample, Tone.CHIP) { question.setText(sample); ask(question, answers, ai, from, to, key) }.apply {
-                    layoutParams = wrap(); textSize = 13f; setPadding(ui.dp(14), 0, ui.dp(14), 0)
+                    layoutParams = wrap(); textSize = 12.5f; setPadding(ui.dp(14), 0, ui.dp(14), 0)
                     background = ui.ripple(android.graphics.drawable.InsetDrawable(ui.shape(Palette.PAPER, 16f, Palette.BORDER), 0, ui.dp(8), 0, ui.dp(8)), 16f)
                 }
             }
             // Keep "（不含截圖）" together with a no-break joiner between its characters.
-            ui.text(this, "會把問題和這段時間的活動卡送到 $aiHost" + "（不含截圖）".toList().joinToString("\u2060") + "。", 13f, Palette.MUTED, top = 2)
+            ui.text(this, "會把問題和這段時間的活動卡\n送到 $aiHost" + "（不含截圖）。".toList().joinToString("\u2060"), 13f, Palette.MUTED, top = 2)
             if (turns.length() > 0) quietAction(this, "開始新的對話", Palette.ACCENT_DARK) { conversations.remove(key); review() }
         }
     }
@@ -1338,7 +1380,7 @@ class MainActivity : Activity() {
         val split = days.map { (_, data) -> totals(cardsOf(data)) }
         val covered = days.map { (_, data) -> TimelineMath.covered(intervals(cardsOf(data))) }
         val max = split.maxOfOrNull { parts -> parts.sumOf { it.second } }?.coerceAtLeast(1) ?: 1
-        val barHeight = ui.dp(132)
+        val barHeight = ui.dp(140)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
         parent.addView(row, ui.lp(top = 8))
         days.forEachIndexed { i, (date, _) ->
@@ -1359,7 +1401,7 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ui.dp(2) }
             }
             split[i].reversed().forEach { (id, part) ->
-                track.addView(View(this).apply { setBackgroundColor(colorFor(id)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (barHeight * part.toFloat() / max).toInt().coerceAtLeast(1)))
+                track.addView(View(this).apply { setBackgroundColor(colorFor(id)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (barHeight * part.toFloat() / max).toInt().coerceAtLeast(ui.dp(2))))
             }
             cell.addView(track, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, barHeight + ui.dp(20)))
             cell.addView(View(this).apply { setBackgroundColor(Palette.BORDER) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(1)))
@@ -1436,11 +1478,10 @@ class MainActivity : Activity() {
 
         ui.groupLabel(body, "記錄")
         ui.card(body, padding = 8).apply {
-            ui.switchRow(this, "自動記錄", recordingSummary(s), s.hasUsageGrant) { on ->
+            ui.switchRow(this, "自動記錄", recordingSummary(s) + "\n截圖在充電時上傳，平常只記錄、不耗流量。", s.hasUsageGrant) { on ->
                 if (busy) { settings(); return@switchRow }
                 if (on) autoRecordFlow(0) { settings() } else confirm("停止自動記錄？", "之後不再記錄 app 使用時段、畫面文字和截圖。還沒上傳的截圖會刪除；已上傳的記錄保留。", "停止", { settings() }) { stopRecording(s) }
             }.also(::pad)
-            ui.text(this, "截圖在充電時上傳，平常只記錄、不耗流量。", 13f, Palette.MUTED, bottom = 4).setPadding(ui.dp(4), 0, ui.dp(4), 0)
             if (s.hasUsageGrant && !s.remotePaused) {
                 val missing = nextStep(s)
                 // The one missing step, aligned with the other rows; only its title is tinted.
@@ -1465,8 +1506,9 @@ class MainActivity : Activity() {
             load(slot, "讀取 AI 設定…", { api().request("/v1/ai") }) { config ->
                 rememberAi(config)
                 val enabled = config.optBoolean("available") && config.optBoolean("enabled")
-                ui.row(slot, if (config.optBoolean("available")) aiState(config) else "伺服器還不支援在 app 裡設定 AI",
-                    if (enabled) "自動整理${if (config.optBoolean("auto_summarize")) "開啟" else "關閉"}" else "選一個 AI 服務並貼上金鑰") { aiSettings { settings() } }
+                val provider = AiProviders.detect(config.optString("protocol"), config.optString("endpoint")).short
+                ui.row(slot, if (!config.optBoolean("available")) "伺服器還不支援在 app 裡設定 AI" else if (enabled) provider else "尚未設定 AI",
+                    if (enabled) "${config.optString("model")} · 自動整理${if (config.optBoolean("auto_summarize")) "開啟" else "關閉"}" else "選一個 AI 服務並貼上金鑰") { aiSettings { settings() } }
             }
         }
 
@@ -1474,20 +1516,20 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply {
             val styles = workspace?.optJSONArray("categories")
             val rules = workspace?.optJSONArray("rules")
-            ui.row(this, "分類與自動規則", if (styles != null) "${styles.length()} 個分類 · ${rules?.length() ?: 0} 條規則" else "名稱、顏色與自動分類") { categoriesPage() }
+            ui.row(this, "分類與自動規則", if (styles != null) "${styles.length()} 個分類 · ${rules?.length() ?: 0} 條自動規則" else "名稱、顏色與自動分類") { categoriesPage() }
         }
 
         ui.groupLabel(body, "連線與裝置")
         ui.card(body, padding = 8).apply {
-            lateinit var server: LinearLayout
-            server = ui.row(this, "已連線到你的伺服器", "點一下顯示位址") {
-                ((server.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = host()
-            }
+            ui.row(this, "已連線到你的伺服器", host(), onClick = null)
             if (EndpointPolicy.isPlainHttp(credentials?.endpoint)) {
                 // Its own row with a warning icon.
-                val warning = ui.horizontal(this, 10).apply { minimumHeight = ui.dp(48); setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8)) }
+                val warning = ui.horizontal(this, 10).apply {
+                    minimumHeight = ui.dp(48); setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10)); background = ui.shape(Palette.WARN_SOFT, 12f)
+                    (layoutParams as LinearLayout.LayoutParams).apply { topMargin = ui.dp(4); bottomMargin = ui.dp(4) }
+                }
                 warning.addView(ui.icon(R.drawable.ic_warning, Palette.WARN_INK, 20))
-                ui.text(warning, "沒有 HTTPS：資料靠你的 VPN／私人網路保護", 14f, Palette.WARN_INK).layoutParams = ui.lp(0, weight = 1f)
+                ui.text(warning, "這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路", 14f, Palette.WARN_INK).layoutParams = ui.lp(0, weight = 1f)
             }
             val sync = ui.column(this)
             load(sync, "讀取同步狀態…", { synchronized(SyncEngine.lock) { val q = JournalQueue(this@MainActivity); Triple(q.counts().second, q.observationBacklog().first, SyncEngine.charging(this@MainActivity)) } }) { (rejected, captures, charging) ->
@@ -1504,7 +1546,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            ui.row(this, "更換伺服器或金鑰", "會清除這支手機的連線與待上傳資料") {
+            ui.row(this, "更換伺服器或金鑰", "換成另一台伺服器或新的裝置金鑰") {
                 confirmReset("更換連線？", "會停止記錄，刪除這支手機還沒上傳的資料，然後重新輸入網址與金鑰。伺服器上的記錄不會被刪除。")
             }
         }
@@ -1519,12 +1561,12 @@ class MainActivity : Activity() {
             ui.row(this, "匯出這一天", "${md(day)}的活動卡，存成檔案") { export() }
             // Destructive actions last, separated, low emphasis, each behind a 無法復原 confirmation.
             addView(View(this@MainActivity).apply { setBackgroundColor(Palette.HAIRLINE) }, ui.lp(height = 1, top = 8))
-            ui.text(this, "刪除", 12f, Palette.MUTED, bold = true, top = 8).setPadding(ui.dp(4), 0, ui.dp(4), 0)
+            ui.text(this, "刪除", 13f, Palette.MUTED, top = 16, bottom = 2).setPadding(ui.dp(4), 0, ui.dp(4), 0)
             val deletes = ui.column(this)
-            quietAction(deletes, "清除這支手機的資料", Palette.DANGER) {
+            quietAction(deletes, "清除這支手機的資料", Palette.INK) {
                 confirmReset("清除這支手機的資料？", "會停止記錄並刪除這支手機還沒上傳的資料。伺服器上的記錄仍保留。無法復原。")
             }
-            quietAction(deletes, "永久刪除伺服器上的全部記錄", Palette.DANGER) {
+            quietAction(deletes, "永久刪除伺服器上的全部記錄", Palette.DANGER, bold = true) {
                 confirm("永久刪除全部記錄？", "會刪除伺服器上所有活動、截圖與文字，並停止記錄、清除這支手機的待上傳資料。無法復原。", "全部刪除") {
                     task("刪除中…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); api().request("/v1/journal", method = "DELETE") } }) { clearDrafts(); settings(); notice("已刪除伺服器上的全部記錄，記錄已停止。", Kind.INFO) }
                 }
@@ -1541,7 +1583,10 @@ class MainActivity : Activity() {
 
     /** 設定 › 說明: 檢查更新 (current version + last result) and 自動檢查更新; test builds never contact GitHub. */
     private fun updateRows(parent: LinearLayout) {
-        if (!BuildConfig.UPDATE_CHECK) { ui.row(parent, "檢查更新", "目前版本 ${version()} · 測試版不會自動更新", onClick = null); return }
+        if (!BuildConfig.UPDATE_CHECK) {
+            ui.row(parent, "版本 ${version()}", "測試版不會自動更新", onClick = null)
+            return
+        }
         val updater = AppUpdater(this)
         val result = updater.lastResult.ifBlank { "還沒檢查" }
         ui.row(parent, "檢查更新", "目前版本 ${version()} · $result", chevron = false) { manualUpdateCheck() }.also { trailing(it, R.drawable.ic_sync) }
@@ -1873,12 +1918,12 @@ class MainActivity : Activity() {
         val enabled = config.optBoolean("enabled")
         rememberAi(config)
         val saved = if (enabled) AiProviders.detect(config.optString("protocol"), config.optString("endpoint")) else AiProviders.Preset.OPENAI
-        ui.card(slot).apply { ui.text(this, (if (enabled) "✓ " else "") + aiState(config), 15f, if (enabled) Palette.ACCENT_DARK else Palette.MUTED, bold = enabled) }
+        headerSubtitle?.apply { text = aiState(config); visibility = View.VISIBLE }
         val presets = AiProviders.Preset.entries
         var current = saved
         val form = ui.card(slot)
         ui.text(form, "AI 服務", 14f, Palette.INK, bold = true, bottom = 4)
-        val grid = ui.flow(form, 8)
+        val grid = ui.column(form)
         val providerHint = ui.text(form, "", 13f, Palette.MUTED, top = 2)
         val endpointStart = form.childCount
         val endpoint = ui.field(form, "API 網址", "http://127.0.0.1:8317/v1", Field.URL, if (enabled && saved.needsEndpoint) config.optString("endpoint").removeSuffix("/chat/completions") else "",
@@ -1889,7 +1934,7 @@ class MainActivity : Activity() {
             setPadding(0, ui.dp(8), ui.dp(12), ui.dp(8)); paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
             setCompoundDrawablesRelative(null, null, scaled(R.drawable.ic_external, 16, Palette.ACCENT_DARK), null); compoundDrawablePadding = ui.dp(4)
         }
-        val model = ui.field(form, "模型", "", Field.TEXT, if (enabled) config.optString("model") else saved.suggestedModel)
+        val model = ui.field(form, "模型", "", Field.TEXT, if (enabled) config.optString("model") else saved.suggestedModel, help = "已填入建議的模型，可以改，或載入清單選擇。")
         fun requestBase(preset: AiProviders.Preset): JSONObject? {
             val url = runCatching { preset.endpoint(model.text.toString().ifBlank { preset.suggestedModel.ifBlank { "model" } }, endpoint.text.toString()) }.getOrNull() ?: return null
             return JSONObject().put("protocol", preset.protocol).put("endpoint", url).also { if (key.text.isNotBlank()) it.put("api_key", key.text.toString().trim()) }
@@ -1914,9 +1959,10 @@ class MainActivity : Activity() {
                 if (ids.isEmpty()) { notice("沒有找到模型，請直接輸入模型名稱。", Kind.WARN); return@task }
                 dialog().setTitle("選擇模型").setItems(ids.toTypedArray()) { _, which -> model.setText(ids[which]) }.setNegativeButton("取消", null).showSecure()
             }
-        }.apply { layoutParams = wrap().apply { topMargin = ui.dp(4) } }
-        val images = ui.switchRow(form, "讓 AI 看截圖", "關閉後只送畫面文字", if (enabled) config.optBoolean("image_support") else saved.vision) {}
+        }.apply { layoutParams = wrap().apply { topMargin = ui.dp(4); bottomMargin = ui.dp(12) } }
+        val images = ui.switchRow(form, "讓 AI 看截圖", "模型要能讀圖片；關閉時只送畫面文字。", if (enabled) config.optBoolean("image_support") else saved.vision) {}
         val buttons = mutableListOf<Button>()
+        var refreshNote: () -> Unit = {}
         fun paint() {
             presets.forEachIndexed { i, preset ->
                 val on = preset == current
@@ -1940,18 +1986,23 @@ class MainActivity : Activity() {
                 else -> "貼上金鑰"
             }
             endpointViews.forEach { it.visibility = if (current.needsEndpoint) View.VISIBLE else View.GONE }
+            refreshNote()
         }
-        presets.forEach { preset ->
-            buttons += ui.button(grid, preset.short, Tone.CHIP) {
+        // Equal-width two-column grid, text left-aligned, ✓ on the selected tile.
+        var gridRow: LinearLayout? = null
+        presets.forEachIndexed { index, preset ->
+            if (index % 2 == 0) gridRow = ui.horizontal(grid, 8).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(8) }
+            buttons += ui.button(gridRow, preset.short, Tone.CHIP, 1f) {
                 if (preset == current) return@button
                 // Keep a typed model; replace an untouched suggestion with the new provider's one.
                 if (model.text.isBlank() || model.text.toString() == current.suggestedModel || (enabled && model.text.toString() == config.optString("model"))) model.setText(preset.suggestedModel)
                 images.isChecked = preset.vision
                 current = preset; paint()
-            }.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
+            }.apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL; setPadding(ui.dp(14), ui.dp(10), ui.dp(12), ui.dp(10)) }
         }
+        if (presets.size % 2 == 1) gridRow?.addView(View(this), ui.lp(0, 1, weight = 1f))
         paint()
-        ui.text(form, "金鑰加密傳到你的伺服器，不會傳回手機。API 費用由你的帳號支付。", 13f, Palette.MUTED, top = 8)
+        ui.text(form, "金鑰加密傳到你的伺服器，不會傳回手機。\nAPI 費用由你自己的帳號支付。", 13f, Palette.MUTED, top = 8)
         ui.button(form, "測試並儲存") {
             val preset = current
             val url = runCatching { preset.endpoint(model.text.toString(), endpoint.text.toString()) }.getOrNull()
@@ -1982,20 +2033,30 @@ class MainActivity : Activity() {
                 }
             }
         }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
+        val testNote = ui.text(form, "", 13f, Palette.MUTED, top = 4)
+        fun updateTestNote() {
+            val target = AiProviders.host(runCatching { current.endpoint(model.text.toString().ifBlank { current.suggestedModel.ifBlank { "model" } }, endpoint.text.toString()) }.getOrNull())
+            testNote.text = if (target.isBlank()) "會送一段固定的測試文字（不含你的記錄）。" else "會送一段固定的測試文字到 $target（不含你的記錄）。"
+        }
+        updateTestNote()
+        endpoint.addTextChangedListener(watcher { updateTestNote() })
+        refreshNote = { updateTestNote() }
         aiResult?.let { (message, kind) -> ui.banner(form, message, kind, 0).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(8); accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE } }
         aiResult = null
         if (enabled) {
-            ui.groupLabel(slot, "自動化")
-            ui.card(slot, padding = 8).apply { aiSwitches(this, config) { aiSettings(back) } }
-            ui.groupLabel(slot, "金鑰")
-            ui.card(slot, padding = 8).apply {
-              ui.text(this, "停用後不再整理新截圖，也不能產生回顧或問 AI。", 13f, Palette.MUTED, top = 4).setPadding(ui.dp(4), 0, ui.dp(4), 0)
-              quietAction(this, "停用並刪除金鑰", Palette.DANGER) {
-                confirm("停用並刪除金鑰？", "會刪除伺服器上的 AI 設定與金鑰，無法復原。已送出的請求無法撤回，已產生的活動卡與回顧會保留。", "停用並刪除") {
+            // Final 停用 AI row: destructive text with a divider above it.
+            form.addView(View(this).apply { setBackgroundColor(Palette.HAIRLINE) }, ui.lp(height = 1, top = 16))
+            form.apply {
+              quietAction(this, "停用 AI", Palette.DANGER) {
+                confirm("停用 AI？", "會刪除伺服器上的 AI 設定與金鑰，無法復原。已送出的請求無法撤回，已產生的活動卡與回顧會保留。", "停用並刪除") {
                     task("停用 AI…", { synchronized(SyncEngine.lock) { api().request("/v1/ai", method = "DELETE") } }) { aiConfigured = false; aiAutomatic = false; aiSettings(back); notice("已停用並刪除金鑰") }
                 }
               }
+              ui.text(this, "停用後不再整理新截圖，也不能產生回顧或問 AI。", 13f, Palette.MUTED)
             }
+            ui.groupLabel(slot, "自動化")
+            // Same 16 dp padding as the form so every switch ends on one trailing keyline.
+            ui.card(slot).apply { aiSwitches(this, config) { aiSettings(back) } }
         }
         // Room below the last action so it is never half-cut by the gesture bar.
         View(this).also { slot.addView(it, ui.lp(height = ui.dp(48))) }
@@ -2017,7 +2078,7 @@ class MainActivity : Activity() {
             }) { aiAutomatic = on; after(); notice(if (on) "已開啟自動整理" else "已關閉自動整理") }
             if (on) confirm("開啟自動整理？", "所有裝置新記下的畫面文字${if (config.optBoolean("image_support")) "與截圖" else ""}，以及還沒整理的內容，會經你的伺服器送到 $target（${config.optString("model")}），整理成活動卡。API 費用由你支付；已送出的內容無法撤回。換了 AI 設定後會自動關閉。", "開啟", { after() }) { commit() }
             else commit()
-        }.apply { setPadding(ui.dp(4), 0, ui.dp(4), 0) }
+        }
         val schedule = ui.column(parent)
         load(schedule, "讀取回顧排程…", { api().request("/v1/briefs/schedule") }) { current ->
             val on = current.optBoolean("enabled") && current.optString("provider_id") == config.optString("provider_id") && (current.optBoolean("daily") || current.optBoolean("weekly"))
@@ -2032,7 +2093,7 @@ class MainActivity : Activity() {
                 }) { after(); notice(if (enable) "已開啟每天自動產生回顧" else "已關閉自動回顧") }
                 if (enable) confirm("每天自動產生回顧？", "每天會把前一天（週一另外加上上一週）的活動卡送到 $target 產生回顧，回顧保存 30 天。只送活動卡，不送截圖或畫面文字。API 費用由你支付。", "開啟", { after() }) { commit() }
                 else commit()
-            }.apply { setPadding(ui.dp(4), 0, ui.dp(4), 0) }
+            }
         }
     }
 
