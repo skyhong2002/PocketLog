@@ -184,6 +184,35 @@ adds `processed`/`jpeg_bytes` observation columns and stops 30-day journal and
 24-hour raw deletion; screenshots are then bounded by the 10 GiB default storage
 budget (Settings → 資料). No new production token is needed.
 
+## Updating the app
+
+Release builds of the Android app update themselves from this repository's GitHub releases.
+Pushing a version tag (`git tag v0.5.0 && git push origin v0.5.0`) runs
+`.github/workflows/release.yml`, which builds a signed release APK and publishes
+`PocketLog-<version>-<versionCode>.apk` plus its `.sha256` file. Bump `versionCode` in
+`android/app/build.gradle.kts` for every release; the app only offers a higher versionCode.
+
+Before the first tag, create a release keystore once and keep it (and its passwords) safe outside
+the repository, for example:
+
+```sh
+keytool -genkeypair -v -keystore pocketlog-release.jks -alias pocketlog -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 pocketlog-release.jks   # value for POCKETLOG_KEYSTORE_BASE64
+```
+
+Then add these repository secrets (Settings → Secrets and variables → Actions):
+`POCKETLOG_KEYSTORE_BASE64`, `POCKETLOG_KEYSTORE_PASSWORD`, `POCKETLOG_KEY_ALIAS` and
+`POCKETLOG_KEY_PASSWORD`. Without them the workflow fails instead of publishing an unsigned APK.
+Local `assembleRelease` without these environment variables produces an unsigned APK.
+
+On the phone, 設定 › 說明 › 檢查更新 shows the installed version; 自動檢查更新 (on by default)
+checks at most every 12 hours when the app opens. The app downloads the APK only from GitHub over
+HTTPS, verifies its SHA-256 and hands it to Android's installer, which asks you to confirm (and the
+first time, to allow installs from PocketLog). Android only accepts an update signed with the same
+key as the installed app: an installation signed with a different key (for example a debug build
+or a build from another machine) must be uninstalled and reinstalled once from the release APK.
+Sandbox and debug builds never check for updates.
+
 ## Private website and bring your own AI
 
 Open the same trusted HTTPS origin used by Android. Sign in with the owner token;

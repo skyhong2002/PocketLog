@@ -138,6 +138,11 @@ report suspected vulnerabilities privately through the repository owner.
   capture, and confirmed pause clears queued capture. Retention is not extended.
   Failed server deletion must be retried; other installations can still upload
   with the shared owner token. Rotate/revoke that token when necessary.
+- In-app updates (release builds only, at most every 12 h or on request) contact only
+  `api.github.com` and GitHub's download hosts over HTTPS (redirects are followed only to GitHub
+  hosts, 150 MB cap), send no journal data or credentials, refuse a release without a SHA-256
+  digest, verify the APK before installing through `PackageInstaller`, and rely on Android's
+  same-signing-key rule; release notes are shown as plain text.
 - Raw screen content never belongs in logs or infovore. Daily exports contain
   private derived content and are outside app encryption/retention after export.
 - Dependency auditing is a development check, not proof of safety. SQLite/native
