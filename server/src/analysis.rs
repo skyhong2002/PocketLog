@@ -437,7 +437,7 @@ pub fn process_with_provider(
     run(db, provider).map_err(|_| "context processing failed")
 }
 type ContextRow = (String, String, i64, Option<String>, Option<String>, bool);
-const MAX_CONTEXTS: i64 = 40;
+const MAX_CONTEXTS: i64 = 200;
 const MAX_IMAGES: usize = 6;
 const MAX_EVIDENCE_CHARS: usize = 12_000;
 /// Joins capture text in order, collapsing repeated identical screens.
@@ -489,7 +489,7 @@ fn run(db: &mut Connection, provider: Option<&Provider>) -> Result<usize> {
             .map_err(storage_error)?;
         // All retained evidence for the session, so late uploads re-summarize the whole
         // activity rather than overwriting it with a partial view. Sessions are at most
-        // 20 minutes, about one capture per minute.
+        // 20 minutes, about one capture every ten seconds.
         let contexts:Vec<ContextRow>=db.prepare("SELECT o.id,o.text,o.consent,o.jpeg_base64,o.provider_id,o.processed FROM observations o JOIN activities a ON a.id=? AND o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms ORDER BY o.at_ms LIMIT ?").map_err(storage_error)?
             .query_map(params![&id, MAX_CONTEXTS],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         if !contexts.iter().any(|c| !c.5) {

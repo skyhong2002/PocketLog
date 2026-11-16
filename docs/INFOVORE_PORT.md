@@ -13,13 +13,13 @@ that decision.
 | --- | --- |
 | Foreground app observations | Incremental UsageStats reader; only after explicit consent and OS access; background reads no more often than 15 minutes |
 | App/session boundaries | Resume/pause, screen-off and shutdown events; completed intervals; deterministic IDs; segments capped at 20 minutes |
-| Visible screen text | Separate consent and explicit package allowlist; every 60 s while an allowed app is in front of an unlocked, interactive screen, plus app switches ≥5 s apart (infovore cadence) |
+| Visible screen text | Separate consent and explicit package allowlist; every 10 s while an allowed app is in front of an unlocked, interactive screen, plus app switches ≥5 s apart (owner decision; denser than infovore's 60 s) |
 | Screen JPEGs | On by default with screen text (Dayflow-style), can be turned off separately; same allowlist/exclusions; 720 px long edge, ≤300,000 bytes, mostly-black frames skipped (infovore bounds); retained on the server under the storage budget; no image read API except the separate replay opt-in |
 | Sensitive exclusions | Own app, password managers, authenticators, payment/banking patterns, user exclusions; password/editable fields and incomplete window traversal reject the whole window before content capture |
 | Secure/locked screen behavior | Locked/screen-off states reject capture; Android window screenshot failure rejects capture; no FLAG_SECURE bypass |
 | Pause | Visible settings switch; reset incremental cursor and remove queued context; no backfill across pause |
 | Durable uploads | Android Keystore AES-GCM AtomicFiles; endpoint+token destination binding; same IDs across crash/retry |
-| Offline and quarantine | FIFO queue, 24 h / 256 MiB / 16,384 record limits; HTTP permanent failures quarantined; visible counts/drop counter; explicit retry/delete |
+| Offline and quarantine | FIFO queue, 24 h / 1 GiB / 32,768 record limits; HTTP permanent failures quarantined; visible counts/drop counter; explicit retry/delete |
 | Retry/backoff | WorkManager exponential backoff, bounded Retry-After, batches of 32 for up to 45 seconds per run (the sync lock is held meanwhile), default unmetered networking |
 | Server context jobs | Separate Rust worker; bounded durable leases, four failed attempts then excerpt fallback; raw text retained permanently, screenshots until the owner storage budget (default 10 GiB) removes the oldest |
 | Summaries | App-only cards or labeled local excerpts without a model; with a configured provider and the owner's automatic switch, every session is summarized from its text and up to six screenshots |
@@ -74,5 +74,5 @@ network bytes, queue/cache size, captured/failed observations and timeline delay
 Use `adb shell dumpsys batterystats --reset` before each run and save
 `adb shell dumpsys batterystats tw.skyhong.pocketlog` afterward to private local
 storage. Define a product battery budget from those measurements before increasing
-frequency further or recommending routine image capture. The per-minute cadence
+frequency further or recommending routine image capture. The 10-second cadence
 was adopted by owner decision before these runs; they have not been performed.

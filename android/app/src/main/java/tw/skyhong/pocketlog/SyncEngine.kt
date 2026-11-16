@@ -66,10 +66,11 @@ object SyncEngine {
         }
         // Model processing is now a single server-side switch; drop any legacy per-capture grant.
         settings.forgetLegacyAiGrant()
+        settings.applyScreenshotDefault()
         if (!paused) UsageCollector(context).collect(credentials)
         val queue = JournalQueue(context)
         var count = 0
-        // Per-minute context needs more than a few requests per run: drain in batches of 32 for at
+        // Ten-second context needs more than a few requests per run: drain in batches of 32 for at
         // most 45 seconds. The lock is held throughout and capture enqueues wait on it, so keep
         // the run short; each capture schedules another upload and the next worker continues the FIFO.
         val deadline = System.currentTimeMillis() + 45_000L

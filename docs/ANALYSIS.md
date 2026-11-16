@@ -65,7 +65,7 @@ the local fallback. Turning the switch off advances the deletion epoch and drops
 jobs; a result whose switch was turned off mid-request is discarded. Legacy
 environment providers use `POCKETLOG_AI_AUTO=true`. Thumbnails still require
 separate capture consent. One request uses all retained evidence for the session
-(at most 40 captures, consecutive identical screens collapsed, at most 12,000
+(at most 200 captures, consecutive identical screens collapsed, at most 12,000
 characters) and up to six JPEGs spread across the session. Input images are max
 300 KiB (400,000 base64 characters); only JPEG decoding in the worker, dimensions
 at most 1440 by 1440, with a 16 MiB decoder allocation budget. Invalid images are skipped. The API never

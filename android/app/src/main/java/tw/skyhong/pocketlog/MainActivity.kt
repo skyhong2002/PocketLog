@@ -131,6 +131,8 @@ class MainActivity : Activity() {
             exportBytes = it.export
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        // Upgrade path: existing screen-context grants include screenshots by default.
+        runCatching { synchronized(SyncEngine.lock) { RecordingSettings(this).applyScreenshotDefault() } }
         window.setDecorFitsSystemWindows(false)
         ui = Ui(this)
         listMode = getSystemService(AccessibilityManager::class.java)?.isTouchExplorationEnabled == true
@@ -1623,7 +1625,7 @@ class MainActivity : Activity() {
         captureAllowlistWarning(body, s, eligible)
         ui.card(body, padding = 8).apply {
             ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
-            val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；前景時每分鐘及切換時讀取，仍需系統權限" }
+            val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；前景時每 10 秒及切換時擷取，仍需系統權限" }
             ui.row(this, "畫面文字", contextDetail, (if (s.hasContextGrant && !s.contextEnabled) "已保存" else if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
             ui.row(this, "畫面縮圖", if (s.hasImagesGrant && !s.imagesEnabled) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "隨畫面文字預設開啟；最長邊 720 px，點此可關閉" else if (s.contextEnabled) "已關閉，只擷取文字；點此重新開啟" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else if (s.hasImagesGrant) "已保存" else "關閉") to s.imagesEnabled) { toggleImages(s) }
             ui.row(this, "短期縮圖回放", if (s.hasReplayGrant && !s.replayConsent) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else if (s.hasReplayGrant) "已保存" else "關閉") to s.replayConsent) { toggleReplay(s) }
@@ -1754,7 +1756,7 @@ class MainActivity : Activity() {
         if (s.allowed.isEmpty()) { notice("請先在「排除與允許清單」加入允許的 app", Kind.WARN); appListsPage(); return }
         // Like Dayflow, screen context includes screenshots by default; they can be turned off separately.
         dialog().setTitle("允許選定 app 的畫面文字與截圖？")
-            .setMessage("允許的 app 在前景時每分鐘擷取一次，切換 app 時也會擷取（至少間隔 5 秒）：畫面文字加上一張截圖（最長邊 720 像素、JPEG 最多約 300 KB）。Android 安全視窗、鎖定畫面、密碼與輸入欄位會跳過。截圖可能含無法從文字判斷的私人資訊，請只允許你願意記錄的 app；之後可在設定單獨關閉截圖。內容透過 HTTPS 傳送到你設定的私人伺服器並永久保存，超過伺服器儲存上限時最舊的截圖會先刪除、只留文字；手機離線佇列最長 24 小時。伺服器開啟自動摘要時，文字與截圖會送到伺服器設定的模型。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false) + "\n\n下一步會開啟 Android 輔助使用設定，請開啟 PocketLog 服務；可隨時暫停。")
+            .setMessage("允許的 app 在前景時每 10 秒擷取一次，切換 app 時也會擷取（至少間隔 5 秒）：畫面文字加上一張截圖（最長邊 720 像素、JPEG 最多約 300 KB）。Android 安全視窗、鎖定畫面、密碼與輸入欄位會跳過。截圖可能含無法從文字判斷的私人資訊，請只允許你願意記錄的 app；之後可在設定單獨關閉截圖。內容透過 HTTPS 傳送到你設定的私人伺服器並永久保存，超過伺服器儲存上限時最舊的截圖會先刪除、只留文字；手機離線佇列最長 24 小時。伺服器開啟自動摘要時，文字與截圖會送到伺服器設定的模型。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false) + "\n\n下一步會開啟 Android 輔助使用設定，請開啟 PocketLog 服務；可隨時暫停。")
             .setNegativeButton("取消", null).setPositiveButton("同意文字與截圖") { _, _ ->
                 task("開啟畫面情境…", { synchronized(SyncEngine.lock) { require(s.enabled && s.allowed.isNotEmpty()); s.contextEnabled = true; s.analysisConsent = true; s.imagesEnabled = true } }) {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); settings(); notice("已同意畫面文字與截圖；請在系統設定開啟服務", Kind.INFO)
@@ -1770,7 +1772,7 @@ class MainActivity : Activity() {
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.contextEnabled) { notice("請先開啟畫面文字", Kind.WARN); return }
         dialog().setTitle("允許選定 app 的畫面縮圖？")
-            .setMessage("與畫面文字同時擷取（每分鐘一次及切換 app 時），縮圖最長邊 720 像素、JPEG 最多約 300 KB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器保存；超過伺服器儲存上限時，最舊的縮圖會先刪除、只留文字。伺服器開啟自動摘要且模型支援圖片時會送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false))
+            .setMessage("與畫面文字同時擷取（每 10 秒一次及切換 app 時），縮圖最長邊 720 像素、JPEG 最多約 300 KB。整個允許視窗中可能有無法從文字判斷的私人資訊；請只允許你願意記錄的 app。圖片會加密暫存並傳到私人伺服器保存；超過伺服器儲存上限時，最舊的縮圖會先刪除、只留文字。伺服器開啟自動摘要且模型支援圖片時會送給模型；安全視窗、密碼與輸入欄位會跳過。尚未完成實機全天耗電量測。" + savedCaptureDisclosure(s, text = false, images = false))
             .setNegativeButton("取消", null).setPositiveButton("同意選定 app 的縮圖") { _, _ ->
                 task("開啟縮圖…", { synchronized(SyncEngine.lock) { require(s.contextEnabled); s.imagesEnabled = true } }) { settings(); notice("已開啟畫面縮圖") }
             }.showSecure()

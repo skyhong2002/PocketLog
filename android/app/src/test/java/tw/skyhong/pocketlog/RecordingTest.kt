@@ -91,10 +91,10 @@ class RecordingTest {
         assertEquals("/v1/checkins",queue.entries(c).single().data.getString("path"))
     }
 
-    @Test fun captureCadenceMatchesInfovore() {
+    @Test fun captureCadenceIsTenSecondsWithFiveSecondSwitchGap() {
         assertEquals(0L, RecordingRules.nextCaptureDelay(1_000_000, 0, appSwitch = false))
-        assertEquals(60_000L, RecordingRules.nextCaptureDelay(1_000_000, 1_000_000, appSwitch = false))
-        assertEquals(20_000L, RecordingRules.nextCaptureDelay(1_040_000, 1_000_000, appSwitch = false))
+        assertEquals(10_000L, RecordingRules.nextCaptureDelay(1_000_000, 1_000_000, appSwitch = false))
+        assertEquals(4_000L, RecordingRules.nextCaptureDelay(1_006_000, 1_000_000, appSwitch = false))
         assertEquals(5_000L, RecordingRules.nextCaptureDelay(1_000_000, 1_000_000, appSwitch = true))
         assertEquals(0L, RecordingRules.nextCaptureDelay(1_010_000, 1_000_000, appSwitch = true))
         // A clock moved backwards never stalls capture.

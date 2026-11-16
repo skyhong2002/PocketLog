@@ -22,6 +22,15 @@ class RecordingSettings(private val context: Context) {
         editor.remove("external_ai").remove("ai_renewal").remove("ai_verified").remove("ai_provider_id")
     }
     fun forgetLegacyAiGrant() { if (prefs.contains("external_ai") || prefs.contains("ai_provider_id")) update(prefs.edit().also(::forgetLegacyAi)) }
+    // Screenshots became part of screen context by default (owner decision 2026-11-16). Once per
+    // install, an existing context grant also turns screenshots on; later explicit choices stick.
+    // Caller holds SyncEngine.lock.
+    fun applyScreenshotDefault() {
+        if (prefs.getBoolean("images_default_v1", false)) return
+        val editor = prefs.edit().putBoolean("images_default_v1", true)
+        if (hasContextGrant) editor.putBoolean("images", true)
+        update(editor)
+    }
     fun confirmCollectionCredentials(credentials: Credentials) { if (isAuthRejected(credentials)) clearRejectedCredentials() }
     fun clearRejectedCredentials() { if (prefs.contains("rejected_destination")) update(prefs.edit().remove("rejected_destination")) }
     // Saved choices remain reviewable/revocable while upstream recording is paused.

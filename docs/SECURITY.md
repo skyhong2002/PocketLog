@@ -67,14 +67,14 @@ report suspected vulnerabilities privately through the repository owner.
   entirely while the app is not executing is not detectable from the later
   current AppOps grant; do not treat this as continuous permission-history proof.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
-  filename AAD. Queue max 24 h / 256 MiB / 16,384 entries, including quarantine;
+  filename AAD. Queue max 24 h / 1 GiB / 32,768 entries, including quarantine;
   screenshot entries are stored separately so reflection/edit reads never decrypt them;
   timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
   app/workers execute, not while powered off. Key loss can make local records
   unrecoverable; corrupt files are discarded with a visible drop count.
 - Analysis-only raw context is private and retained on the server (text
   permanently; screenshots until the owner storage budget evicts the oldest), never
-  readable/exportable by API. Context is sampled every minute and on app switches;
+  readable/exportable by API. Context is sampled every 10 seconds and on app switches;
   screenshots are at most 720 px / 300,000 bytes.
   Independent per-image `replay_consent` can additionally create a separate private
   archive (256 images / 24 hours). Only worker-decoded, resized/re-encoded JPEGs

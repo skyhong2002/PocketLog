@@ -6,13 +6,13 @@ import java.security.MessageDigest
 object RecordingRules {
     const val MAX_TEXT = 2000
     const val RAW_TTL = 24 * 60 * 60 * 1000L
-    // About one day of per-minute captures with thumbnails while offline.
-    const val MAX_QUEUE_BYTES = 256 * 1024 * 1024L
-    const val MAX_QUEUE_RECORDS = 16_384
+    // Several hours of 10-second captures with screenshots while offline.
+    const val MAX_QUEUE_BYTES = 1024 * 1024 * 1024L
+    const val MAX_QUEUE_RECORDS = 32_768
     const val MAX_SESSION = 20 * 60 * 1000L
-    // infovore cadence: one capture per minute while an allowed app stays in front,
-    // plus app switches no closer than five seconds apart.
-    const val CONTEXT_INTERVAL = 60 * 1000L
+    // Owner decision: one capture (text + screenshot) every ten seconds while an allowed
+    // app stays in front, plus app switches no closer than five seconds apart.
+    const val CONTEXT_INTERVAL = 10 * 1000L
     const val CONTEXT_MIN_GAP = 5 * 1000L
     // Android rejects takeScreenshot calls closer than about one second apart.
     const val SCREENSHOT_GAP = 1_100L

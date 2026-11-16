@@ -52,7 +52,7 @@ to your own tools. Manual mood entry is no longer part of the app.
 | Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
-| Text and optional image context | Separate opt-ins, explicit app allowlist, capture every minute and on app switch, 720 px screenshots, secure-window gate |
+| Text and optional image context | Opt-in with explicit app allowlist; screenshots on by default with text (can be turned off); capture every 10 s and on app switch, 720 px screenshots, secure-window gate |
 | Activity cards and summaries | App-only/excerpt fallback; editable categories; OpenAI-compatible, Anthropic or Gemini BYO model with a provider-bound owner automatic-summary switch and model-labeled topic keywords |
 | Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
 | Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |

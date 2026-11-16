@@ -7,7 +7,7 @@ Read README.md and docs/SECURITY.md before changing data collection, sync or aut
   to configure a provider and turn on its server-side automatic switch. Implement
   consent and pre-capture exclusion before introducing screenshot/text collection.
 - Keep Android work bounded; no on-device inference. On 2026-11-16 the owner made
-  the explicit product decision to match infovore's per-minute context sampling
+  the explicit product decision to match infovore's context sampling (screen text + screenshot every 10 seconds, revised 2026-11-16)
   (plus app switches). Its battery budget is not yet measured: do not claim
   acceptance or raise frequency further without the documented battery runs.
 - Kotlin on Android, Rust for the service. No application `unsafe`, custom crypto,

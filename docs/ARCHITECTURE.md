@@ -56,13 +56,13 @@ model, independent device identities, account recovery, abuse limits and audits.
 2. Additional context capture is explicit opt-in. Exclude password, payment,
    authentication and selected private apps before reading/storing the content.
    Respect secure windows; no bypass. Screen-off/locked states stop capture.
-3. By owner decision (2026-11-16) context is sampled every 60 seconds while an
+3. By owner decision (2026-11-16) context is sampled every 10 seconds while an
    allowed app is in front of an unlocked, interactive screen, plus on app switches
    (at least 5 s apart); the timer stops on screen-off, lock or disable. Image
    encoding, radio wakeups and accessibility traversal cost battery even with no
    on-phone AI; this cadence's battery budget is not yet measured.
 4. Phone queues are bounded and encrypted with a Keystore-protected key. Initial
-   limit for context is max 24 h / 256 MiB / 16,384 records, with visible
+   limit for context is max 24 h / 1 GiB / 32,768 records, with visible
    drop/backlog status. Acknowledged uploads are removed. This queue is implemented; physical-device recovery is not yet validated.
 5. Upload in batches with stable IDs, exponential backoff and explicit Wi-Fi /
    metered / charging preferences. WorkManager timing is inexact; review freshness

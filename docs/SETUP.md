@@ -99,19 +99,19 @@ Manually entered packages outside the launcher list are preserved. Then read
 and accept the separate context notice, then enable the PocketLog Accessibility
 service in Android settings. Thumbnail capture has an additional opt-in; model
 processing is the owner's automatic-summary switch in AI settings. Context is
-captured every minute and on app switches while an allowed app is in front. Exclusions take precedence over allowlists; Settings, Support
+captured every 10 seconds and on app switches while an allowed app is in front. Exclusions take precedence over allowlists; Settings, Support
 and capture diagnostics warn when consent is on but no allowed app is eligible.
 The eligible count is a package-rule check, not proof of permissions or successful
 capture. Built-in sensitive-app matching is incomplete: explicitly exclude your
 sensitive apps even if their package names do not look financial or private.
-Per-minute and image capture are not battery-validated until a full-day device run is recorded.
+10-second and image capture are not battery-validated until a full-day device run is recorded.
 Do not enable banking, authentication or private messaging apps just to increase
 coverage. Review [capture limits](INFOVORE_PORT.md) and [analysis setup](ANALYSIS.md).
 
 The default networking policy is unmetered only, not necessarily Wi-Fi. You can
 explicitly permit metered mobile data. Pending/rejected counts, expiry drops,
-manual retry and deletion are visible in settings. Queues hold at most 256 MiB /
-16,384 records; each sync uploads batches of 32 for up to 45 seconds. Queues expire after 24 hours,
+manual retry and deletion are visible in settings. Queues hold at most 1 GiB /
+32,768 records; each sync uploads batches of 32 for up to 45 seconds. Queues expire after 24 hours,
 including rejected records; preserve important manual notes by syncing in time.
 Changing servers requires the local-clear action, which stops capture and discards
 pending uploads/cache before entering another endpoint/token.

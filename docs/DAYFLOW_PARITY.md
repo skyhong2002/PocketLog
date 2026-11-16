@@ -25,7 +25,7 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | Pause | Local pause plus shared server stop switch, immediate rejection/clearing of pending context, phone propagation on existing sync cadence; offline phones cannot receive an immediate stop; saved local capture grants stay visible and revocable while paused, and upstream resume discloses retained downstream choices without granting OS permissions |
 | Copy/export | Website clipboard + JSON; Android clipboard + daily JSON document picker; raw observations never exported |
 | Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; local diagnostics and documentation links; no automatic support messages or telemetry |
-| Recording and replay | Opt-in Android text/screenshots every minute and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription |
+| Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription |
 | Storage limit | Owner-set server budget (1 GiB–1 TiB) in both clients; over the limit the oldest screenshots are removed and text is kept |
 
 ## Shared setup

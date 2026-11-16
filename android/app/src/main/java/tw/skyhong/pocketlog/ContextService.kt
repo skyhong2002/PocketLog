@@ -9,7 +9,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * Allowlisted screen text, captured once a minute while an allowed app stays in front and on app
+ * Allowlisted screen text, captured every ten seconds while an allowed app stays in front and on app
  * switches (at least five seconds apart). Pixels are a secure-window gate; thumbnails need consent.
  */
 class ContextService : AccessibilityService() {
