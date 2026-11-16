@@ -8,24 +8,30 @@ no real journal entries or screenshots are included in this repository.
 PocketLog is independent Android + Rust software. The table records working
 capabilities and gaps; adding a navigation tab does not establish feature parity.
 
+Since 2026-11-17 the website follows the [simplified product](ux/SIMPLIFIED_IA.md):
+only 時間軸, 回顧 and 設定. Rows below say "website" where the web differs from
+Android, which keeps its older tabs until its own simplification. Server APIs and
+stored data for removed web features (reflections, ratings, goals, Flow, Agents,
+saved Chat threads) are unchanged.
+
 | Official Dayflow area | PocketLog status |
 | --- | --- |
-| Onboarding: explain capture/privacy/provider | Website and native Android onboarding share server completion, goals and category settings; OS permissions and capture/model consent remain device-specific |
+| Onboarding: explain capture/privacy/provider | Shared server completion and category settings; website onboarding is three skippable steps (promise, connect AI, connect phone) with no goal step; OS permissions and capture/model consent remain device-specific |
 | Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank; desktop web selection opens a read-only side inspector, with explicit editing; web activity corrections retain newer unsaved edits and ignore closed-editor responses; visible current-day native and web views check activity changes at most once every two minutes and offer an explicit update without silently rebuilding the reader |
-| Week timeline | Website seven-column grid or readable list; native compact seven-column overview with per-day rows; any past journal date (the journal is retained permanently) |
+| Week timeline | Website: a seven-day bar row in 回顧 › 週 (the seven-column week grid was removed); native compact seven-column overview with per-day rows; any past journal date (the journal is retained permanently) |
 | Category filtering and editing | Both clients filter categories and edit ten built-ins plus up to 30 custom categories; up to 32 ordered app/title rules, with manual corrections taking priority; both clients test unsaved rules through the private server classifier; Android can search local launcher apps for a rule, while web offers up to 20 recorded packages from the last 29 days. Selection fills an unsaved draft only |
-| Targets, distraction budget, longest focus | Website selected-day sidebar and Android daily review; user-defined focus/distraction roles; intervals are merged for longest-focus metric |
-| Daily | Activity totals, top activities, editable reflection and focus review; manual mood/energy entry removed at the owner’s request (legacy records/API retained); both clients generate, save and delete AI briefs with per-request consent |
-| Weekly | Website seven-day activity summaries/reflections, totals, AI recap; Android week timeline and category/app overview; both show model-labeled topic keywords (local fallback); separate opt-in daily/weekly schedules with IANA timezone/DST support; no generated artwork |
-| BYO AI | Both clients configure OpenAI-compatible, Anthropic Messages or Gemini generateContent URL, model, key and image capability, plus an owner automatic-summary switch per provider; no CLI execution |
-| Chat | Both clients can explicitly send up to 100 derived cards to selected provider; both clients support day/week scope, saved multi-turn conversations, same-provider bounded history, deletion and deterministic category charts; no tools or desktop CLI |
-| Flow | Private user-started focus sessions and results, with a server-persisted cross-device timer and browser countdown; **not** the official authenticated remote Flow web app, distraction agent or cloud account service |
-| Agents | Native Codex/Claude JSONL is parsed locally after file selection; preview/edit and explicitly choose text turns, then group by project, update status and replay approved text on both clients. Summary JSON/manual import remains supported; no background filesystem scanning, Fable, or opening desktop tools |
+| Targets, distraction budget, longest focus | Android daily review only; removed from the website (no goals or meters); category roles stay stored |
+| Daily | Website 回顧 › 日: AI 回顧 first (saved or one-tap generate), category time with percentages, top five apps and topics; no reflection or rating on the website. Android keeps its reflection and focus review. Manual mood/energy entry removed earlier (legacy records/API retained) |
+| Weekly | Website 回顧 › 週: the same cards plus a seven-day bar row; Android week timeline and category/app overview; both show model-labeled topic keywords (local fallback); opt-in daily/weekly recap schedule (website: one 每天自動產生回顧 switch); no generated artwork |
+| BYO AI | Website: pick OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek or a custom OpenAI-compatible endpoint (e.g. Ollama); the endpoint and protocol are filled in, then key, model, 讓 AI 看截圖 and 測試並儲存 (save + bound probe). Android configures URL/protocol/model/key directly. Both have the provider-bound automatic-summary switch; no CLI execution |
+| Chat | Website: 問 AI inside 回顧 for the selected day/week, answers stacked as one conversation per period (no thread list). Android keeps its Chat tab with saved threads. Both send up to 100 derived cards only after an explicit send; no tools or desktop CLI |
+| Flow | Android only; removed from the website (API kept). **Not** the official authenticated remote Flow web app, distraction agent or cloud account service |
+| Agents | Android only; the website's JSONL import and replay were removed (API kept). No background filesystem scanning, Fable, or opening desktop tools |
 | Privacy shield | Pre-capture exclusions/allowlist, password/editable-field/secure-window checks and default-on suspected-secret/long-number text gate before pixels on Android; **not** OCR/image redaction or a promise to remove all visual secrets |
 | Pause | Local pause plus shared server stop switch, immediate rejection/clearing of pending context, phone propagation on existing sync cadence; offline phones cannot receive an immediate stop; saved local capture grants stay visible and revocable while paused, and upstream resume discloses retained downstream choices without granting OS permissions |
-| Copy/export | Website clipboard + JSON; Android clipboard + daily JSON document picker; raw observations never exported |
-| Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; local diagnostics and documentation links; no automatic support messages or telemetry |
-| Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription |
+| Copy/export | Website JSON export in 設定 › 資料 (today / 7 / 30 days; the copy-timeline action was removed); Android clipboard + daily JSON document picker; raw observations never exported |
+| Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; website help is condensed into 設定 › 說明; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; no automatic support messages or telemetry |
+| Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images), shown on the website only inside a card's detail (the replay page was removed); protected/DRM screens are recorded as text only and labelled 受保護畫面（無截圖）; no desktop continuous recording/audio/transcription |
 | Storage limit | Owner-set server budget (1 GiB–1 TiB) in both clients; over the limit the oldest screenshots are removed and text is kept |
 
 ## Shared setup

@@ -1,5 +1,98 @@
 # Web first-run and responsive UI: implementation notes
 
+## Current state: simplified website (2026-11-17)
+
+The website now implements the web parts of [SIMPLIFIED_IA.md](SIMPLIFIED_IA.md).
+The sections after this one are the earlier history of the eight-page website and
+describe UI that no longer exists; keep them only as a record.
+
+Files: `server/web/app.js`, `app.css`, `index.html`, the `/agent-import.js` route
+in `server/src/web.rs` (removed with `server/web/agent-import.js` and its test),
+`scripts/test-web-timeline.cjs`, the `scripts/check-web-*.js` browser checks,
+`scripts/dev-check.sh` and the web CI job. No API, storage or Android change.
+
+- **Navigation:** exactly 時間軸 / 回顧 / 設定 (left rail on desktop, three-item
+  bottom bar at ≤ 860 px).
+- **時間軸:** date navigation; one status line chosen by `captureStatus()` from
+  `GET /v1/collection`, `/v1/devices` (journal keys, expiry, last authentication),
+  `/v1/ai` and the day's `pending_context` cards, in this order: 已暫停 → 金鑰失效
+  → 尚未開始記錄 (no key or never connected) → 手機超過一天沒有連線 → AI 未設定 →
+  AI 自動整理已關閉 → AI 整理中（N 張） → 記錄中 · AI 自動整理. Unknown reads never
+  produce a warning. The line opens the matching 設定 section (or the phone step of
+  onboarding). Below it: 已記錄 time with one stacked category bar whose labels are
+  the legend; category chips for categories present that day; 時間格/清單 and a
+  search icon button (the existing bounded search). Desktop ≥ 1100 px shows the
+  hourly grid with an inspector; narrower windows open cards in a dialog and start
+  in the list. Cards show the AI title (app display name for app-only cards), a
+  one-line summary, category, source label (AI 整理 / 畫面文字 / 只有 app / 你改過),
+  `AI 整理中` and `受保護畫面（無截圖）`. Card detail: full summary, app, time, a
+  one-tap category picker that saves immediately (`POST /v1/cards`), `修改文字` for
+  title/summary (newer typing during a save stays unsaved and is reported), and
+  replay thumbnails only when `/v1/replay` has images for that app in the last 24 h.
+  Empty day: the promise sentence plus at most one action.
+- **回顧:** 日/週 segmented control sharing the date navigation (week steps by
+  seven days). AI 回顧 card first: the newest saved brief of that kind for the
+  period, or `產生 AI 回顧` (one tap sends `POST /v1/briefs` with `provider_id` and
+  `consent:true`; a 409 re-reads `/v1/ai` and asks again), with the line
+  `會把這段時間的活動卡送到 <host>`; without AI, `先設定 AI`. 時間分配 (category
+  bars with duration and percent from `/v1/overview`), 常用 app (top five), 主題
+  chips, and for the week a seven-day bar row that opens a day. 問 AI: one input,
+  three example chips that only fill it, answers stacked below; one conversation
+  per period (`conversation_id`), the same `request_id` for a retried question, the
+  saved `provider_id`, `consent:true` only on explicit send, and on 409 a new
+  conversation with no automatic retry.
+- **設定:** 記錄 (state, each phone key's last contact, pause/resume all devices,
+  link to keys), AI (state `已連接：<Provider> · <model>`, switches `自動整理新截圖`
+  = `PUT /v1/ai/auto` with confirmation and `每天自動產生回顧` = brief schedule
+  enabled with the browser's IANA time zone, daily and weekly, after
+  confirmation; 停用並刪除金鑰), 分類 (one row to the existing category/rule editor;
+  the focus/neutral/distraction role select was removed, stored roles are kept),
+  連線與裝置 (server address, device-key dialog, logout, short private API note),
+  資料 (storage use and limit, JSON export of today / 7 / 30 days, delete all),
+  說明 (condensed help and links).
+- **AI setup:** provider list OpenAI · Anthropic · Google Gemini · OpenRouter ·
+  DeepSeek · 自訂（OpenAI 相容，例如 Ollama）. `providerSettings()` fills the
+  endpoint and protocol (Gemini puts the model in the path; 自訂 alone shows the
+  endpoint field and accepts HTTPS or literal loopback HTTP). Then API key, model
+  (editable suggestion), `讓 AI 看截圖` (on except DeepSeek) and `測試並儲存`:
+  `PUT /v1/ai`, then `POST /v1/ai/test` bound to the returned `provider_id`. A
+  failed probe keeps the dialog open with the saved-but-untested message; nothing is
+  retried automatically. Saving still turns the automatic switch off server-side.
+- **Onboarding:** three skippable steps: promise with what is / is never captured;
+  connect your AI (same form, `稍後再說`); install and connect the Android app
+  (device-key dialog, server address). The goal step and the getting-started
+  checklist (and its `localStorage` flag) are gone; the website stores nothing in
+  browser storage.
+- **Removed from the website:** 每日/每週 pages, Chat page and thread list, Flow,
+  Agents and JSONL import, 支援 page, daily reflection, day rating, goals and
+  meters, replay page, copy-timeline, the week timeline grid, the brief schedule
+  dialog. Their APIs and stored data are untouched.
+
+Verification done for this change (synthetic data only):
+
+- `scripts/dev-check.sh web` (adds status-line, provider-preset and app-name tests)
+  and `scripts/dev-check.sh rust` (fmt, clippy -D warnings, tests, audit) pass.
+- The production image built with podman and `scripts/smoke-private.py` passed.
+- In headless Chromium against a disposable container of that image (throw-away
+  owner key, synthetic activities, AI pointed at a closed loopback port so nothing
+  left the machine): every provider preset was accepted by `PUT /v1/ai` and mapped
+  back to its preset; login, onboarding, timeline, one-tap category save, 回顧 day
+  and week, brief/ask/probe failure messages and 設定 rendered at 1280 and 390 px
+  with no horizontal overflow, console errors or CSP violations.
+- The nine remaining `scripts/check-web-*.js` checks passed at 1280 and 390 px, but
+  against a local mock of the API on the fixture port, not the real service; rerun
+  them against the built image before treating them as accepted.
+  `check-web-chat-reads.js`, `check-web-chat-writes.js`,
+  `check-web-schedule-ownership.js` and `check-web-provider-completion.js` were
+  deleted (their UI is gone or folded into `check-web-provider-ownership.js`);
+  ACCEPTANCE.md still mentions them as history.
+
+Not done: screen-reader, 200 % zoom, Firefox/Safari and real-phone review; no new
+acceptance screenshots were saved; the Android app is unchanged and still shows its
+older tabs; there is no dark theme (the site never had one).
+
+## History (before 2026-11-17)
+
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues
 [#8](https://github.com/skyhong2002/PocketLog/issues/8) (deployment → first
 connected phone, website half) and

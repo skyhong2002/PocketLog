@@ -19,11 +19,12 @@
 
 > **Early development.** The timeline reader and self-hosted API
 > now include opt-in app/context capture, encrypted offline sync, editable activity
-> cards, daily reflection, shared onboarding, a private responsive website and BYO AI.
-> Daily/weekly saved AI briefs and opt-in schedules, durable Chat, shared focus timers,
-> native agent JSONL preview/replay, custom categories/rules and revocable device keys
-> are available; full desktop Dayflow parity is not shipped. Real-device capture and
-> full-day battery validation are still required. There is no stable release yet.
+> cards, a private responsive website and BYO AI. The website follows the
+> [simplified product](docs/ux/SIMPLIFIED_IA.md) (2026-11-17): only 時間軸, 回顧 and
+> 設定, with AI recaps and asking the AI inside 回顧; the Android app has not been
+> simplified yet. Custom categories/rules and revocable device keys are available;
+> full desktop Dayflow parity is not shipped. Real-device capture and full-day
+> battery validation are still required. There is no stable release yet.
 
 ## Your Day, in Context
 
@@ -46,17 +47,17 @@ to your own tools. Manual mood entry is no longer part of the app.
 
 | Feature | Status |
 | --- | --- |
-| Shared onboarding and website | Owner login, shared setup/goals/category presentation; separate phone permission/consent flow |
-| Daily timeline and overview | Native + web hourly day/week cards, 04:00 day boundary, daily/week/month totals, top apps and keywords |
-| Daily reflection | Optional editable reflection with encrypted offline queue; manual mood entry removed |
+| Shared onboarding and website | Owner login; website onboarding in three skippable steps (promise and what is captured, connect your AI, connect the Android app); separate phone permission/consent flow |
+| Daily timeline and overview | Native + web hourly day cards, 04:00 day boundary; the website adds one status line, recorded time with a stacked category bar, and 回顧 with day/week category time, top apps, topics and a seven-day bar row |
+| Daily reflection | Android only for now (optional, encrypted offline queue); removed from the website by the 2026-11-17 simplification, API and stored data retained |
 | Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
 | Text and optional image context | Opt-in with explicit app allowlist; screenshots on by default with text (can be turned off); capture every 10 s and on app switch, 720 px screenshots, secure-window gate |
-| Activity cards and summaries | App-only/excerpt fallback; editable categories; OpenAI-compatible, Anthropic or Gemini BYO model with a provider-bound owner automatic-summary switch and model-labeled topic keywords |
+| Activity cards and summaries | App-only/excerpt fallback; source labels AI 整理 / 畫面文字 / 只有 app / 你改過, AI 整理中 and 受保護畫面（無截圖）; one-tap category on the web; OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek or a custom OpenAI-compatible model with a provider-bound owner automatic-summary switch and model-labeled topic keywords |
 | Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
-| Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |
-| Export | Private JSON + timeline clipboard; Android document picker |
+| AI recap and asking the AI | Website 回顧: saved or one-tap day/week recap, opt-in daily recap schedule, and 問 AI for the selected period with bounded saved history. Flow and Agents were removed from the website (APIs kept); Android still has Chat, Flow and Agents until its own simplification |
+| Export | Private JSON (website: 設定 › 資料); Android clipboard + document picker |
 | Device credentials | Owner-issued journal/collector keys, expiry and individual revocation; phone Keystore storage |
 | Short-term image replay | Independent opt-in; worker-sanitized 480 px thumbnails, 24 hours / 256 images |
 | infovore publishing | Not enabled; PocketLog operates independently |
