@@ -50,10 +50,10 @@ to your own tools. Manual mood entry is no longer part of the app.
 | Daily timeline and overview | Native + web hourly day/week cards, 04:00 day boundary, daily/week/month totals, top apps and keywords |
 | Daily reflection | Optional editable reflection with encrypted offline queue; manual mood entry removed |
 | Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
-| Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; quotas, retention and deletion |
+| Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
-| Text and optional image context | Separate opt-ins, explicit app allowlist, event-driven capture, secure-window gate |
-| Activity cards and summaries | App-only/excerpt fallback; editable categories; app-configured OpenAI-compatible, Anthropic or Gemini BYO model with provider-bound consent |
+| Text and optional image context | Separate opt-ins, explicit app allowlist, capture every minute and on app switch, 720 px screenshots, secure-window gate |
+| Activity cards and summaries | App-only/excerpt fallback; editable categories; OpenAI-compatible, Anthropic or Gemini BYO model with a provider-bound owner automatic-summary switch and model-labeled topic keywords |
 | Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
 | Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |
 | Export | Private JSON + timeline clipboard; Android document picker |
@@ -70,8 +70,8 @@ for exact boundaries, verified interface states and remaining work.
 
 PocketLog separates a lightweight Android client from a server you control.
 Heavier analysis runs in a separate server worker. No external AI provider is
-configured by default; model processing requires independent per-capture consent
-and explicit provider setup. Native Anthropic Messages and Gemini generateContent
+configured by default; model processing requires explicit provider setup and
+the owner turning on automatic summaries for that provider. Native Anthropic Messages and Gemini generateContent
 are supported alongside OpenAI-compatible endpoints. No CLI process is executed. There are no analytics or public journal endpoints.
 
 Credentials are protected by Android Keystore. The API authenticates journal

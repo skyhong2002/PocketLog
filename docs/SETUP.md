@@ -97,19 +97,21 @@ granting broad package visibility. Selections survive searches; Cancel discards
 the temporary edits.「填入清單」only fills the form; press「儲存清單」to apply it.
 Manually entered packages outside the launcher list are preserved. Then read
 and accept the separate context notice, then enable the PocketLog Accessibility
-service in Android settings. Thumbnail capture and model processing each have
-additional opt-ins. Exclusions take precedence over allowlists; Settings, Support
+service in Android settings. Thumbnail capture has an additional opt-in; model
+processing is the owner's automatic-summary switch in AI settings. Context is
+captured every minute and on app switches while an allowed app is in front. Exclusions take precedence over allowlists; Settings, Support
 and capture diagnostics warn when consent is on but no allowed app is eligible.
 The eligible count is a package-rule check, not proof of permissions or successful
 capture. Built-in sensitive-app matching is incomplete: explicitly exclude your
 sensitive apps even if their package names do not look financial or private.
-Image capture is experimental until a full-day device battery run is recorded.
+Per-minute and image capture are not battery-validated until a full-day device run is recorded.
 Do not enable banking, authentication or private messaging apps just to increase
 coverage. Review [capture limits](INFOVORE_PORT.md) and [analysis setup](ANALYSIS.md).
 
 The default networking policy is unmetered only, not necessarily Wi-Fi. You can
 explicitly permit metered mobile data. Pending/rejected counts, expiry drops,
-manual retry and deletion are visible in settings. Queues expire after 24 hours,
+manual retry and deletion are visible in settings. Queues hold at most 256 MiB /
+16,384 records; each sync uploads batches of 32 for up to 45 seconds. Queues expire after 24 hours,
 including rejected records; preserve important manual notes by syncing in time.
 Changing servers requires the local-clear action, which stops capture and discards
 pending uploads/cache before entering another endpoint/token.
@@ -146,8 +148,10 @@ volumes, owner key and model configuration. Rollback uses the saved image tag an
 the same recreate command, subject to schema compatibility; never use `down -v`.
 
 The worker receives no owner-token secret. Do not enable a provider by merely
-adding a key; both the explicit server switch and per-capture client consent are
-required. No new production token is needed for this backward-compatible update.
+adding a key; the owner must turn on 自動摘要 for the saved provider. The upgrade
+adds `processed`/`jpeg_bytes` observation columns and stops 30-day journal and
+24-hour raw deletion; screenshots are then bounded by the 10 GiB default storage
+budget (Settings → 資料). No new production token is needed.
 
 ## Private website and bring your own AI
 
@@ -156,13 +160,13 @@ it becomes a Secure/HttpOnly eight-hour session cookie, never a query parameter
 or localStorage value. The public shell has no journal. Restart logs browsers out.
 Complete onboarding in either client; the other reads its shared completion,
 goals and category settings. Each phone still needs its own OS permissions and
-separate capture/image/model consent. Browser use does not start screen capture.
+separate capture/image consent. Browser use does not start screen capture.
 
 The base Compose config mounts `ai_settings:/config` writable for the API and
 read-only for the worker, setting `POCKETLOG_AI_CONFIG_DIR=/config` on both.
 Configure an OpenAI-compatible, native Anthropic Messages or Gemini generateContent endpoint/model via Settings.
-Use the synthetic test, then explicitly approve future phone context for that
-provider. Local models are addressed from the server/container network, not the
+Use the synthetic test, then turn on 自動摘要 for that provider to summarize
+phone context and label topic keywords automatically. Local models are addressed from the server/container network, not the
 phone; verified HTTPS or literal loopback HTTP only. No CLI model process executes. See [analysis](ANALYSIS.md).
 
 Back up both private volumes on encrypted storage. The config volume contains the

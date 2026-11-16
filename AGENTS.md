@@ -3,10 +3,13 @@
 Read README.md and docs/SECURITY.md before changing data collection, sync or auth.
 
 - Keep private journal content private. No implicit cloud AI, analytics, public
-  projection or infovore publishing. Implement consent and pre-capture exclusion
-  before introducing screenshot/text collection.
-- Keep Android work bounded; no on-device inference or periodic high-frequency
-  sampling without a measured battery budget and explicit product decision.
+  projection or infovore publishing. Automatic capture summaries require the owner
+  to configure a provider and turn on its server-side automatic switch. Implement
+  consent and pre-capture exclusion before introducing screenshot/text collection.
+- Keep Android work bounded; no on-device inference. On 2026-11-16 the owner made
+  the explicit product decision to match infovore's per-minute context sampling
+  (plus app switches). Its battery budget is not yet measured: do not claim
+  acceptance or raise frequency further without the documented battery runs.
 - Kotlin on Android, Rust for the service. No application `unsafe`, custom crypto,
   relaxed TLS verification, credential-bearing URLs or request/content logging.
 - Retain documented quotas, request bounds, idempotency and data retention.

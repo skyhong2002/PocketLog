@@ -4,15 +4,20 @@ The Compose deployment includes a separate `pocketlog-worker` process with no
 owner API token. It shares the private SQLite volume, waits for completed sessions
 to settle for 12 minutes, and checks for work every 60 seconds. App-only timeline
 cards work without it. With no configured provider, it writes a maximum 300-character
-visible-text excerpt, labeled `local_excerpt`, and deletes consumed raw context.
+visible-text excerpt, labeled `local_excerpt`, and marks the raw context analyzed.
 Images alone have no semantic fallback; the card stays app-only in meaning.
 
-All raw observations expire at 24 hours even if there is no matching app session,
-no model, invalid images, repeated failures or abandoned jobs. Cleanup runs on API
-use and each worker pass; an idle server's scheduled cleanup can lag by up to one
-hour if the worker is stopped. Turning off a host also stops retention execution.
-Derived cards and reflections have the journal's 30-day retention. Excerpts can
-contain private words; they are private journal data, not anonymized telemetry.
+Since 2026-11-16 raw observations are retained, not deleted after analysis.
+Analysis sets a `processed` flag; only unprocessed observations are pending.
+Observations that never match an app session within 24 hours stop being pending,
+but their text is kept. Activities, cards, reflections and observation text are
+retained permanently. Screenshots are bounded by the owner storage budget (default
+10 GiB, 1 GiB–1 TiB, `GET/PUT /v1/storage`): each worker pass, when SQLite pages in
+use exceed the limit, the oldest already-analyzed screenshots are removed (text
+kept) down to 95% of the limit, at most 50 batches of 200 per pass, and
+`text_only_before_ms` records the boundary. The database file does not shrink;
+freed pages are reused. Excerpts and raw text contain private words; they are
+private journal data, not anonymized telemetry.
 
 ## Optional model
 
@@ -24,13 +29,12 @@ Keys travel over HTTPS to the private server and live in a dedicated config volu
 not SQLite, the phone or read responses. Saving does not call a model. The explicit
 connection test sends only fixed synthetic text.
 
-Each save creates a fresh provider identity; each phone must explicitly renew
-future-capture consent for that exact configuration. A missing key retains it only
+Each save creates a fresh provider identity with automatic summaries off. The
+owner turns them on once for that exact configuration (`PUT /v1/ai/auto`, website
+or Android AI settings); the phone no longer asks for per-capture model consent. A missing key retains it only
 on the same endpoint; switching endpoints clears it unless a new key is provided.
-The phone checks an existing grant on its normal sync cadence and when opening
-capture/AI settings. A confirmed changed or disabled provider requires renewed
-consent; an offline or failed check is shown as unverified. Existing queued
-observations keep their original provider identity and are never rebound.
+Android reads `auto_summarize` from `GET /v1/ai` and can change it with a journal
+key; collector keys can only read it. Old saved per-capture grants are discarded.
 Disabling writes a tombstone that overrides legacy environment configuration.
 The API mounts settings read/write and the worker read-only, reloading each pass.
 
@@ -42,6 +46,7 @@ on the worker** using a private Compose override after reviewing provider policy
   `http://127.0.0.1:11434/v1/chat/completions`, or your chosen provider's HTTPS URL.
 - `POCKETLOG_AI_MODEL`: explicit model ID supporting strict JSON-schema outputs;
   image input support is also required if you consent to thumbnails.
+- `POCKETLOG_AI_AUTO=true`: automatic summaries/topic labels for this provider.
 - `POCKETLOG_AI_KEY_FILE`: optional mounted provider secret file, never the owner
   token, and never a URL parameter. Local services may not need a key.
 
@@ -52,13 +57,18 @@ rejected. System certificate verification remains enabled. The worker disables
 proxy environment inheritance and bounds connection/request time and response
 bytes. Do not put keys into Compose source files or commit a private override.
 
-Additionally enable model processing explicitly in Android settings. Every
-observation carries its own consent; enabling the server later cannot authorize
-old unconsented data. A group containing unconsented observations gets only the
-local fallback. Thumbnails require separate capture consent. Up to six JPEGs
-and 6,000 text characters (at most 24 KiB UTF-8) enter one request. Input images
-are max 24 KiB; only JPEG decoding in the worker, dimensions at most 960 by 960,
-with an 8 MiB decoder allocation budget. Invalid images are skipped. The API never
+With the automatic switch on, every finalized app session with pending context is
+summarized, including evidence uploaded before the switch was turned on.
+Observations sent by older clients with `external_ai_consent` bound to the current
+`provider_id` are still honored without the switch; otherwise a session gets only
+the local fallback. Turning the switch off advances the deletion epoch and drops
+jobs; a result whose switch was turned off mid-request is discarded. Legacy
+environment providers use `POCKETLOG_AI_AUTO=true`. Thumbnails still require
+separate capture consent. One request uses all retained evidence for the session
+(at most 40 captures, consecutive identical screens collapsed, at most 12,000
+characters) and up to six JPEGs spread across the session. Input images are max
+300 KiB (400,000 base64 characters); only JPEG decoding in the worker, dimensions
+at most 1440 by 1440, with a 16 MiB decoder allocation budget. Invalid images are skipped. The API never
 decodes images. Analysis-only raw context is never served; a separate explicit
 replay opt-in permits only worker-sanitized short-term thumbnails.
 
@@ -74,10 +84,22 @@ The worker commits only while source records still exist in the same deletion
 epoch. Owner deletion invalidates in-flight work. Manual edits always take
 precedence over worker output. A model request already sent cannot be recalled
 from a provider; deletion does not erase provider copies, backups or exports.
-Changing providers requires the owner to review and renew their consent; the
-configuration binds observation consent to provider identity. There is no
+Changing providers turns automatic summaries off until the owner re-enables them
+for the new identity. There is no
 provider-side deletion API. Existing legacy consent is not authorization for a
 new app-configured provider.
+
+## Topic keywords
+
+While the automatic switch is on, the worker also labels card titles (user- or
+AI-written, non-idle) with at most four topics `{name, kind, confidence}`, kind
+`project|topic|work|tool`, like infovore's Dayflow topic labels. Only cleaned titles
+are sent: URLs, emails, paths, domains, secret-like and 24+ character opaque tokens
+are removed; no summaries, raw text, images, apps, times or IDs. Batches of 12,
+at most four rounds per pass, newest first; generic/unsafe labels are rejected and
+four failures fall back to local extraction for that title. `GET /v1/overview`
+ranks model labels (excluding tools, confidence ≥0.6) and uses local word
+extraction for unlabeled titles; `keyword_mode` is `model`, `local` or `mixed`.
 
 ## Interactive questions and recaps
 
