@@ -182,7 +182,7 @@ async fn update(
                 .map_err(|_| invalid())?;
             let mut nonce = [0u8; 32];
             getrandom::fill(&mut nonce).map_err(storage_error)?;
-            let id = format!("{:x}", Sha256::digest(nonce));
+            let id = crate::hex_digest(nonce);
             let settings = StoredSettings {
                 protocol: change.protocol,
                 enabled: true,

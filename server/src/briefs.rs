@@ -345,8 +345,8 @@ pub(crate) fn process(
         let mut count = 0;
         for (kind, from, to) in due(&settings, now) {
             let id = format!(
-                "brief-{:x}",
-                Sha256::digest(format!(
+                "brief-{}",
+                crate::hex_digest(format!(
                     "{}:{from}:{to}:{}",
                     kind.name(),
                     settings.provider_id

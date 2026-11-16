@@ -739,7 +739,10 @@ async fn existing_observation_schema_migrates_and_legacy_receipts_still_replay()
     let canonical = format!(
         r#"{{"id":"legacy","at_ms":{at},"app":"app.example","text":"synthetic legacy","analysis_consent":true,"external_ai_consent":false,"jpeg_base64":null,"image_consent":false}}"#
     );
-    let hash = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+    let hash: String = Sha256::digest(canonical.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     db.execute(
         "INSERT INTO observations VALUES('legacy',?,'app.example','synthetic legacy',1,NULL)",
         [at],

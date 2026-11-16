@@ -58,6 +58,17 @@ fn storage_error(_: impl std::fmt::Debug) -> ApiError {
 fn invalid() -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, "invalid request")
 }
+/// Lowercase hex SHA-256, byte-for-byte identical to the earlier `{:x}` digest
+/// formatting so persisted receipt, topic and brief identifiers stay stable.
+fn hex_digest(data: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write;
+    Sha256::digest(data)
+        .iter()
+        .fold(String::with_capacity(64), |mut out, b| {
+            let _ = write!(out, "{b:02x}");
+            out
+        })
+}
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -504,4 +515,16 @@ pub fn process_briefs(
     provider: Option<&Provider>,
 ) -> std::result::Result<usize, &'static str> {
     briefs::process(db, provider)
+}
+
+#[cfg(test)]
+mod digest_tests {
+    #[test]
+    fn hex_digest_matches_known_sha256_vector() {
+        // Pinned so the sha2 upgrade cannot silently change stored identifiers.
+        assert_eq!(
+            super::hex_digest("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 }

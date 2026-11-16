@@ -6,12 +6,12 @@ bundled tools retain their respective licenses.
 ## Gradle Wrapper
 
 `android/gradlew` and `android/gradle/wrapper/gradle-wrapper.jar` are from Gradle
-8.11.1, carried over from the infovore development setup. Gradle is licensed under
+9.9.1 (originally carried over from the infovore development setup at 8.11.1). Gradle is licensed under
 the Apache License, Version 2.0. The launcher's original copyright and license
 header is preserved. The wrapper JAR's bundled license and dependency notices are
 also reproduced in [docs/licenses/gradle-wrapper-LICENSE.txt](docs/licenses/gradle-wrapper-LICENSE.txt).
 
-Source: https://github.com/gradle/gradle/tree/v8.11.1
+Source: https://github.com/gradle/gradle/tree/v9.9.1
 
 ## infovore behavior reference
 

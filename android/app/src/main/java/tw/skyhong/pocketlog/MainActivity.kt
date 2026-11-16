@@ -306,10 +306,8 @@ class MainActivity : Activity() {
         else if (action == null && backRegistered) { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback); backRegistered = false }
     }
     private fun handleBack() { if (busy) notice("請等目前的操作完成", Kind.WARN) else back?.invoke() }
-    @Deprecated("Android 14/15 without predictive-back opt-in still deliver Back here")
-    override fun onBackPressed() {
-        if (back != null) handleBack() else @Suppress("DEPRECATION") super.onBackPressed()
-    }
+    // The manifest opts Android 14/15 into OnBackInvokedCallback too, so gesture and
+    // button Back both reach backCallback; with none registered the system default applies.
 
     // ---------------------------------------------------------------- status, loading and actions
 

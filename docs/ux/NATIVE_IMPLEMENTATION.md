@@ -37,8 +37,8 @@ No Dayflow artwork, copy or icons were reused. Icons are new 24 dp stroke vector
 - Sub-pages (Bring your own AI, 目標與分類, 分類與自動規則, AI 回顧/排程, app 清單,
   工作線, 對話回放, JSONL 核准, 縮圖回放) show a back arrow; the rail keeps the parent
   tab highlighted. Back from a root tab returns to 時間軸; from 時間軸 it leaves the app.
-  Back uses `OnBackInvokedDispatcher` (required for targetSdk 36 on Android 16) plus
-  the legacy `onBackPressed` path for Android 14/15 without the manifest opt-in.
+  Back uses `OnBackInvokedDispatcher` only; the manifest sets
+  `enableOnBackInvokedCallback` so Android 14/15 route button and gesture Back there too.
   The category editor asks before discarding unsaved edits.
 - targetSdk 36 is edge-to-edge: the shell applies system-bar, cutout and IME insets;
   the rail hides while the keyboard is open. Content is limited to a 720 dp column

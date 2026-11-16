@@ -89,10 +89,7 @@ pub(crate) fn clean_title(title: &str) -> String {
     out.join(" ").chars().take(600).collect()
 }
 pub(crate) fn hash(title: &str) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(format!("{VERSION}\n{}", clean_title(title)))
-    )
+    crate::hex_digest(format!("{VERSION}\n{}", clean_title(title)))
 }
 
 const GENERIC: &[&str] = &[

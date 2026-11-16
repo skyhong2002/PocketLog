@@ -149,7 +149,7 @@ async fn login(
     }
     let mut random = [0u8; 32];
     getrandom::fill(&mut random).map_err(storage_error)?;
-    let value = format!("{:x}", Sha256::digest(random));
+    let value = crate::hex_digest(random);
     let mut sessions = state.sessions.lock().map_err(storage_error)?;
     sessions.retain(|s| s.expires > now_ms());
     // Bound RAM; existing devices are never silently evicted by a new login.

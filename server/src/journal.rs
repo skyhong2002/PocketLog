@@ -128,10 +128,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
     {
         return Err(invalid());
     }
-    let hash = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&o).map_err(storage_error)?)
-    );
+    let hash = crate::hex_digest(serde_json::to_vec(&o).map_err(storage_error)?);
     state
         .database(move |db| {
             let tx = db.transaction().map_err(storage_error)?;
