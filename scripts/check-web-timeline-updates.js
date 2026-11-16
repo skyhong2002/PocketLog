@@ -33,7 +33,8 @@
    if(hold){hold=false;return new Promise(resolve=>{release=(status=200)=>resolve(status===200?json(data):json({error:'synthetic failure'},status));});}
    return failure?json({error:'synthetic failure'},503):json(data);
   };
-  await nav('時間軸');document.querySelector('[data-key=view-grid]').click();await until(()=>!!document.querySelector('.timeline-window')&&!!update());assert(watch().ms===120000,'cadence');assert(!shown(),'unchanged initial banner');
+  // Narrow windows are list-only; wide ones exercise the hourly table.
+  await nav('時間軸');const wide=innerWidth>860;if(wide)document.querySelector('[data-key=view-grid]').click();await until(()=>(!wide||!!document.querySelector('.timeline-window'))&&!!update());assert(watch().ms===120000,'cadence');assert(!shown(),'unchanged initial banner');
   let n=readCount;await tick();assert(readCount===n+1&&!shown(),'unchanged check');
   for(const state of ['hidden','offline','editing','modal']){
    if(state==='hidden')visible='hidden';if(state==='offline')connected=false;

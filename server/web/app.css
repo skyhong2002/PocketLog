@@ -2624,3 +2624,340 @@ button.secondary:hover {
     padding-right: 40px;
   }
 }
+
+/* ---- UX round 4 ---- */
+.nowrap {
+  white-space: nowrap;
+}
+/* Desktop 時間表: hour labels centred on their rule; blocks at their true times. */
+.hour,
+.hour.after-gap {
+  top: var(--y);
+  transform: translateY(-50%);
+  line-height: 1;
+  background: var(--panel);
+  padding: 2px 0;
+}
+.event,
+.event:hover {
+  top: calc(var(--top) + 1px);
+  height: calc(var(--height) - 2px);
+}
+/* Empty stretches are faint text-only markers. */
+.axis-gap {
+  border: 0;
+  background: none;
+}
+.axis-gap span {
+  font-size: 13px;
+  color: #6b766d;
+}
+/* 隔天凌晨: a small soft pill centred on a hairline at 00:00. */
+.midnight {
+  border-top: 1px solid var(--edge);
+  z-index: 3;
+}
+.midnight span {
+  right: auto;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%);
+  padding: 1px 10px;
+  border-radius: 20px;
+  background: #eef1ec;
+  color: #4f5b51;
+}
+.badge-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.badge-icon .icon {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2;
+}
+.badge-icon.pending {
+  background: #dbe8de;
+  color: var(--accent-deep);
+}
+.badge-icon.protected {
+  background: #f6ead0;
+  color: #5d4513;
+}
+.event.compact {
+  gap: 6px;
+}
+/* Selection: tonal fill, never a thick dark outline. */
+.event.is-selected,
+.activity.is-selected {
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--edge));
+  border-left-color: var(--cat);
+  background: #e3ede0;
+}
+.chip.active,
+.chip.active:hover {
+  border-color: transparent;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.chip .dot {
+  margin-right: 0;
+}
+/* Rail / bottom nav: the soft pill sits behind the icon. */
+nav button.active,
+nav button.active:hover {
+  background: transparent;
+  box-shadow: none;
+  color: var(--accent-deep);
+}
+nav button .icon {
+  box-sizing: content-box;
+  padding: 4px 14px;
+  border-radius: 16px;
+}
+nav button.active .icon {
+  background: #d6e5d2;
+}
+/* Settings section tabs: same soft treatment, wrapping on phones. */
+.section-jump .chip.current,
+.section-jump .chip.current:hover {
+  background: #d6e5d2;
+  border-color: transparent;
+  color: var(--accent-deep);
+}
+/* Native selects and the date navigation use the soft pill style. */
+select.category-filter,
+.export-row select,
+.date-nav .icon-btn,
+.date-button,
+[data-key="day-today"] {
+  border-radius: 22px;
+  background-color: var(--wash);
+  border: 1px solid var(--edge);
+}
+select.category-filter,
+.export-row select {
+  padding-left: 14px;
+  min-height: 40px;
+}
+.dashboard aside {
+  position: sticky;
+  top: 96px;
+}
+/* Inspector header and meta. */
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.detail-head h2 {
+  flex: 1;
+  margin: 6px 0 4px;
+}
+.inspector-actions {
+  display: none;
+}
+/* 回顧 */
+.chart-row {
+  grid-template-columns: 6.5em minmax(40%, 1fr) auto;
+}
+.review-layout + .ask-card {
+  margin-top: 18px;
+}
+.ask-ideas {
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent);
+  mask-image: linear-gradient(to right, #000 88%, transparent);
+  padding-right: 32px;
+}
+.ask-ideas .chip {
+  padding: 4px 14px;
+}
+.ask-empty {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.send-btn {
+  top: 50%;
+  bottom: auto;
+  width: 38px;
+  height: 38px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+}
+.ask-form input {
+  border-radius: 24px;
+  padding-left: 16px;
+}
+/* Week chart: bars ~60% of the column, value directly above the bar, one label baseline. */
+.week-day-bar,
+.week-day-bar:hover,
+.week-day-bar.future {
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  gap: 8px;
+}
+.week-day-bar:hover .week-label {
+  color: var(--accent-deep);
+}
+.week-column,
+.week-column.is-empty {
+  width: 60%;
+  height: 160px;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 2px solid #d3dccf;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  overflow: visible;
+}
+.week-fill {
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+}
+.week-value {
+  text-align: center;
+  margin-bottom: 4px;
+}
+.week-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+.week-label.today {
+  font-weight: 700;
+  color: #303a32;
+}
+/* 設定 */
+.settings-section .text-btn,
+.danger-zone .text-btn {
+  padding-left: 0;
+  padding-right: 0;
+}
+.settings-section .text-btn:hover,
+.danger-zone .text-btn:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.status-chip {
+  font-size: 13px;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: #eef1ec;
+  color: #4f5b51;
+}
+.status-chip.on {
+  background: #dbe8de;
+  color: var(--accent-deep);
+}
+.switch-row:last-child {
+  border-bottom: 0;
+}
+/* AI dialog */
+.provider,
+.provider.active {
+  border-radius: 12px;
+}
+.provider small {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.external-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+}
+.external-link .icon {
+  width: 15px;
+  height: 15px;
+}
+.check .switch-text {
+  display: grid;
+  gap: 2px;
+}
+.check .switch-label {
+  font-weight: 400;
+}
+.check small,
+.switch-text small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.ai-form .disclosure {
+  font-size: 13px;
+}
+.ai-automation {
+  border-top: 0;
+}
+.ai-automation .switches {
+  margin-bottom: 0;
+}
+.danger-zone {
+  margin-top: 18px;
+}
+@media (min-width: 861px) {
+  .check small,
+  .switch-text small,
+  .status-chip {
+    font-size: 14px;
+  }
+}
+@media (max-width: 860px) {
+  [data-key="view-grid"],
+  .tool-buttons .segmented {
+    display: none;
+  }
+  .main-review .top-controls .segmented {
+    width: 100%;
+    justify-self: stretch;
+  }
+  .main-review .top-controls .segmented button {
+    flex: 1;
+  }
+  .section-jump {
+    flex-wrap: wrap;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+    margin: 0 0 14px;
+    padding: 0;
+  }
+  .dashboard aside {
+    position: static;
+  }
+}
+/* One switch size everywhere: the 44 px button is transparent; only its 52×30 track shows. */
+button.switch,
+button.switch.on,
+button.switch:hover,
+button.switch.on:hover {
+  background: transparent;
+  box-shadow: none;
+}
+.provider-list {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+@media (max-width: 860px) {
+  .chart-row {
+    grid-template-columns: 5.2em minmax(0, 1fr) auto;
+  }
+}

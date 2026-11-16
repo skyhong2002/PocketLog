@@ -183,6 +183,32 @@ Follows "Round 3 rules" in SIMPLIFIED_IA.md:
   origins show the no-HTTPS warning row in addition to the loopback hint; desktop secondary
   text is 14 px.
 
+### UX round 4 (2026-11-17)
+
+Follows "Round 4 rules" in SIMPLIFIED_IA.md:
+
+- 時間表: hour labels are centred on their hour rules and blocks sit at their true times
+  (minimum height only); short blocks show a badge icon (AI 整理中 / 受保護畫面); empty
+  stretches are faint text-only markers, split at the calendar midnight so the `隔天凌晨`
+  pill sits on a hairline at 00:00; the inspector column is sticky.
+- Selection is a tonal fill everywhere (grid blocks, chips, settings tabs); the rail and
+  bottom nav show a soft pill behind the selected icon.
+- Inspector: × on the title row, meta `App · 時間 · 時長` without the date, category chips in
+  workspace order with dots inside the padding. Pending cards read `正在整理這段活動…`.
+- Native selects and the date navigation use soft pills; phones are list-only (the
+  時間表/清單 toggle is hidden) and 日/週 spans the width.
+- 回顧: time-split bars flex to the value column; 問 AI spans both columns with an empty-state
+  line, padded chips with an edge fade, a disclosure that never breaks inside （不含截圖）, and a
+  circular send button; the week chart has 60 % bars, values directly above, `—` on the
+  baseline and a bold weekday for today.
+- 設定: `最後連線` appears once, text buttons align with the card padding, the storage bar keeps
+  a minimum sliver, the AI summary is two status chips, phone section tabs wrap, and the
+  no-HTTPS note keeps `VPN／私人網路` together.
+- AI dialog: 12 px provider tiles with a two-line 自訂 tile, `取得 API 金鑰` as a text link with
+  an external-link icon, one switch size with helper text under each label, a 13 px test
+  disclosure, a single divider before `停用並刪除金鑰`, and delete confirmations that state the
+  scope and `無法復原`.
+
 ## History (before 2026-11-17)
 
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues

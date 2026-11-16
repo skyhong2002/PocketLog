@@ -441,3 +441,15 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(m.badgeClass('只有 app'), 'badge');
   console.log('Same-minute ranges, recording status from last contact, storage, week average and copy');
 }
+
+// Round 4: empty stretches split at the calendar midnight; pending cards have a summary placeholder.
+{
+  const m = require('../server/web/app.js');
+  const H = 3600000, bounds = Array.from({ length: 25 }, (_, i) => i * H);
+  const axis = m.timeAxis(bounds, [{ start_ms: 5 * H, end_ms: 6 * H }], { splitAt: [20 * H] });
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'gap').map(s => [s.from / H, s.to / H]), [[0, 5], [6, 20], [20, 24]], '隔天凌晨 sits between two gaps');
+  assert.equal(axis.y(20 * H), axis.segments.find(s => s.from === 20 * H).top);
+  assert.equal(m.cardSummary({ source: 'app_only', pending_context: true, summary: '' }), '正在整理這段活動…');
+  assert.equal(m.cardSummary({ source: 'ai', pending_context: true, summary: '寫週報' }), '寫週報');
+  console.log('Gaps split at midnight; pending summary placeholder');
+}
