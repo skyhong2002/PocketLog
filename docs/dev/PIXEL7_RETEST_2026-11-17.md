@@ -60,3 +60,31 @@ unobservable (see SECURITY.md); this run does not claim that case.
 - #107 lock-screen test with the accessibility service re-enabled: needs the
   owner to unlock the phone; not attempted.
 - #95 battery/Doze and the #94 24-hour run: need an unplugged, scheduled period.
+
+## Local-only mode and reflection reminder
+
+Installed the sandbox build from commit `455bb5b` (before `415079e`, which only
+adds the stale-pause and rule-bound fixes covered by unit tests). From settings,
+**清除這支手機的資料與連線** returned to first-run setup, which now offers
+**只在這支手機使用（本機模式）**.
+
+- Onboarding ran without a server (its header and first-step text still said
+  "網站與手機共用"; fixed in the same commit before this record). The AI step
+  said local mode uses no AI.
+- Chat showed "本機模式不提供這項功能" with a 連接私人伺服器 action, without
+  making any request.
+- Settings hid server rows (shared pause, Wi-Fi-only upload, screen context, AI,
+  server storage, sync queue) and showed 本機模式, 改為連接私人伺服器, 每日反思提醒,
+  and the local delete actions.
+- With usage recording consented at `1794851778401`, the fixture was used for
+  50 s. After the 15-minute scan, a manual 同步並重新整理 reported
+  "本機模式：app 使用紀錄已整理到這支手機". The list view showed the fixture sessions
+  01:56–01:57 and 02:13 as `app_only` cards. The disposable server received
+  **0** activities for that window: nothing left the phone.
+- The reminder set for 02:05 requested Android notification permission (granted
+  on the sandbox). It posted "寫下今天的反思" at `1794852300115` (02:05:00)
+  on the `reflection-reminder` channel, with no journal content. Tapping it opened
+  **每日** and cleared the notification. The test reminder was then turned off.
+
+The sandbox is left in local-only mode with recording on and the reminder off.
+Re-pairing it to the disposable server needs another reset.
