@@ -107,6 +107,9 @@ queries return at most 1,000 of each record type and cap serialized output at
 480 KiB; `truncated` is true if anything is omitted. Exports use this same contract
 and are not guaranteed complete when truncated; `GET /v1/activities` pages
 the same cards completely. Import/restore remains planned.
+Observations may set `protected_screen:true` (no `jpeg_base64` allowed) when the
+phone saw a secure/DRM window, such as a video app, that returns no pixels; only its
+text is sent. Cards then report `protected_screen:true`. Older servers omit the field.
 Cards identify `source` as `app_only`, `local_excerpt`, `ai` or `user`. AI output
 must be reviewed and never infers feelings. Each card also includes
 `pending_context`: true when the server still has matching unanalyzed observations for

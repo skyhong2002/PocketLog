@@ -90,6 +90,10 @@ struct Observation {
     replay_consent: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider_id: Option<String>,
+    /// The window was protected (FLAG_SECURE/DRM): text only, never pixels. Omitted
+    /// when false so receipts for earlier payloads keep the same hash.
+    #[serde(default, skip_serializing_if = "is_false")]
+    protected_screen: bool,
 }
 /// Phones defer screenshot uploads until charging, so context may arrive up to
 /// three days after capture and must still be analysed.
@@ -127,6 +131,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
             .as_ref()
             .is_some_and(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
         || o.replay_consent && (!o.image_consent || o.jpeg_base64.is_none())
+        || o.protected_screen && o.jpeg_base64.is_some()
         || !o.analysis_consent
     {
         return Err(invalid());
@@ -179,7 +184,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                 )
                 .map_err(storage_error)?;
                 tx.execute(
-                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes) VALUES (?,?,?,?,?,?,?,0,?)",
+                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes,protected_screen) VALUES (?,?,?,?,?,?,?,0,?,?)",
                     params![
                         o.id,
                         o.at_ms,
@@ -188,7 +193,8 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                         if o.external_ai_consent { 2 } else { 1 },
                         o.jpeg_base64,
                         o.provider_id,
-                        o.jpeg_base64.as_ref().map(|j| j.len() as i64)
+                        o.jpeg_base64.as_ref().map(|j| j.len() as i64),
+                        o.protected_screen
                     ],
                 )
                 .map_err(storage_error)?;
@@ -213,6 +219,9 @@ pub(super) struct Card {
     // Matching raw context remains on the server; this is neither a worker
     // execution state nor permission to send context to an external provider.
     pending_context: bool,
+    /// Some captured evidence came from a protected (secure/DRM) window, so the card
+    /// was understood from app and screen text without screenshots.
+    protected_screen: bool,
 }
 pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card>> {
     let preferences = workspace::load(db)?;
@@ -221,11 +230,11 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
         .map(|a| {
             // Timeline activities may be clipped to the requested window. Match
             // pending raw evidence against the stored activity's full interval.
-            let pending_context = db
+            let (pending_context, protected_screen): (bool, bool) = db
                 .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms WHERE a.id=? AND o.processed=0)",
+                    "SELECT COALESCE(MAX(o.processed=0),0),COALESCE(MAX(o.protected_screen),0) FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms WHERE a.id=?",
                     [&a.id],
-                    |r| r.get(0),
+                    |r| Ok((r.get::<_, i64>(0)? != 0, r.get::<_, i64>(1)? != 0)),
                 )
                 .map_err(storage_error)?;
             let note: Option<(String, String, String, i64)> = db
@@ -260,6 +269,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 category,
                 source,
                 pending_context,
+                protected_screen,
             })
         })
         .collect()

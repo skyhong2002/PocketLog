@@ -707,3 +707,52 @@ async fn credential_scope_matrix_covers_every_route() {
         .await;
     assert_eq!(erase.status, StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn protected_screens_are_text_only_and_flagged_on_their_card() {
+    let j = Journal::new();
+    let t = now() - 3_600_000;
+    let activity = json!({"id":"video","start_ms":t,"end_ms":t + 600_000,"app":"com.example.video","category":"unsorted"});
+    assert_eq!(
+        j.owner("POST", "/v1/activities", json!({"activities":[activity]}))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let text_only = json!({"id":"drm-1","at_ms":t + 60_000,"app":"com.example.video","text":"Synthetic show title","analysis_consent":true,"protected_screen":true});
+    assert_eq!(
+        j.owner("POST", "/v1/observations", text_only.clone())
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    // Same-ID replay stays idempotent; a protected capture can never carry pixels.
+    assert_eq!(
+        j.owner("POST", "/v1/observations", text_only).await.status,
+        StatusCode::NO_CONTENT
+    );
+    let with_pixels = json!({"id":"drm-2","at_ms":t + 70_000,"app":"com.example.video","text":"x","analysis_consent":true,"protected_screen":true,"jpeg_base64":"AAAA","image_consent":true});
+    assert_eq!(
+        j.owner("POST", "/v1/observations", with_pixels)
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    let window = format!("from_ms={}&to_ms={}", t - 1, t + 3_000_000);
+    let card = &j
+        .owner("GET", &format!("/v1/timeline?{window}"), Value::Null)
+        .await
+        .body["cards"][0];
+    assert_eq!(card["protected_screen"], true);
+    assert_eq!(card["pending_context"], true);
+    assert!(
+        !card.to_string().contains("Synthetic show title"),
+        "raw text is never read back"
+    );
+    // Earlier payloads without the field keep working and are not flagged.
+    let plain = json!({"id":"plain","at_ms":t + 80_000,"app":"com.example.other","text":"x","analysis_consent":true});
+    assert_eq!(
+        j.owner("POST", "/v1/observations", plain).await.status,
+        StatusCode::NO_CONTENT
+    );
+}
