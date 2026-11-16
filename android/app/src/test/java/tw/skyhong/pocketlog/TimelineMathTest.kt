@@ -112,10 +112,20 @@ class TimelineMathTest {
         assertEquals("11月16日（週一）", TimelineMath.dayLabel(java.time.LocalDate.of(2026, 11, 16)))
         assertEquals("11月16日 – 22日", TimelineMath.weekLabel(java.time.LocalDate.of(2026, 11, 16)))
         assertEquals("11月30日 – 12月6日", TimelineMath.weekLabel(java.time.LocalDate.of(2026, 11, 30)))
-        assertEquals("一", TimelineMath.weekdayShort(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("週一", TimelineMath.weekdayShort(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("4.1 時", TimelineMath.hours(4 * 3_600_000L + 6 * 60_000L))
+        assertEquals("0.0 時", TimelineMath.hours(0))
         val zone = java.time.ZoneId.of("Asia/Taipei"); val day = java.time.LocalDate.of(2026, 11, 16)
         val midnight = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         assertFalse(TimelineMath.afterMidnight(day, zone, midnight - 1))
         assertTrue(TimelineMath.afterMidnight(day, zone, midnight))
+    }
+    @Test fun shortRangesNeverShowAFakeMinute() {
+        assertEquals("不到 1 分", TimelineMath.duration(59_999))
+        assertEquals("1 分", TimelineMath.duration(60_000))
+        assertEquals("01:26 · 不到 1 分", TimelineMath.rangeLabel("01:26", "01:26", 0))
+        // 40 s that crosses a minute boundary is still under a minute and shows only the start.
+        assertEquals("01:26 · 不到 1 分", TimelineMath.rangeLabel("01:26", "01:27", 40_000))
+        assertEquals("16:00–16:14 · 14 分", TimelineMath.rangeLabel("16:00", "16:14", 14 * 60_000L))
     }
 }
