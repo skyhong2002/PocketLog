@@ -59,6 +59,11 @@ import javax.net.ssl.SSLException
  * Pages are built from platform Views via [Ui]; no WebView, no new dependencies.
  */
 class MainActivity : Activity() {
+    companion object {
+        const val EXTRA_OPEN = "tw.skyhong.pocketlog.OPEN"
+        const val OPEN_DAILY = "daily"
+        private const val REQUEST_NOTIFICATIONS = 31
+    }
     private enum class Tab(val label: String, val icon: Int) {
         TIMELINE("時間軸", R.drawable.ic_nav_timeline), DAILY("每日", R.drawable.ic_nav_daily), WEEKLY("每週", R.drawable.ic_nav_weekly),
         CHAT("Chat", R.drawable.ic_nav_chat), FLOW("Flow", R.drawable.ic_nav_flow), AGENTS("Agents", R.drawable.ic_nav_agents),
@@ -98,6 +103,8 @@ class MainActivity : Activity() {
     private val mutedCategories = linkedSetOf<String>()
 
     private var credentials: Credentials? = null
+    /** No server: the journal lives in [LocalJournal] on this phone. */
+    private var localMode = false
     private var workspace: JSONObject? = null
     private var day = TimelineMath.journalDay()
     private var loaded: JSONObject? = null
@@ -140,8 +147,17 @@ class MainActivity : Activity() {
         state?.getStringArrayList("muted_categories")?.take(100)?.let { mutedCategories.addAll(it) }
         restoreTab = state?.getString("tab")?.let { name -> Tab.entries.firstOrNull { it.name == name } }
         state?.getString("day")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.takeIf { TimelineMath.inHistory(it, journalDay()) }?.let { day = it }
+        if (intent?.getStringExtra(EXTRA_OPEN) == OPEN_DAILY) { restoreTab = Tab.DAILY; day = journalDay() }
+        // Recompute after time zone or clock changes; schedules nothing while reminders are off.
+        runCatching { ReflectionReminder(this).schedule() }
         buildShell()
         boot()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Reminder tap while running: open today's review once the journal is ready.
+        if (intent.getStringExtra(EXTRA_OPEN) == OPEN_DAILY && workspace != null && !busy) { day = journalDay(); go(Tab.DAILY) }
     }
 
     override fun onRetainNonConfigurationInstance(): Any {
@@ -290,8 +306,28 @@ class MainActivity : Activity() {
     }
 
     private fun go(target: Tab) = when (target) {
-        Tab.TIMELINE -> home(); Tab.DAILY -> dailyReview(); Tab.WEEKLY -> weeklyTimeline(); Tab.CHAT -> chatPage()
-        Tab.FLOW -> flowPage(); Tab.AGENTS -> agentsPage(); Tab.SUPPORT -> supportPage(); Tab.SETTINGS -> settings()
+        Tab.TIMELINE -> home(); Tab.DAILY -> dailyReview(); Tab.WEEKLY -> weeklyTimeline()
+        Tab.CHAT -> if (localMode) serverOnly(Tab.CHAT, "Chat 會把你選擇的活動卡送到私人伺服器設定的模型。") else chatPage()
+        Tab.FLOW -> flowPage()
+        Tab.AGENTS -> if (localMode) serverOnly(Tab.AGENTS, "Agents 匯入的工作紀錄保存在私人伺服器，並與網站共用。") else agentsPage()
+        Tab.SUPPORT -> supportPage(); Tab.SETTINGS -> settings()
+    }
+
+    /** A page that needs the private server, shown honestly instead of failing a request. */
+    private fun serverOnly(target: Tab, why: String) {
+        val body = screen(target.label, "需要私人伺服器", target)
+        ui.card(body).apply {
+            ui.heading(this, "本機模式不提供這項功能")
+            ui.body(this, why)
+            ui.meta(this, "本機模式只在這支手機保存 app 使用紀錄、活動卡修正、反思、回顧與 Flow 計時，不連網、不使用 AI。", top = 8)
+            ui.button(this, "連接私人伺服器", Tone.TONAL) { connectFromLocal() }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
+        }
+    }
+
+    private fun connectFromLocal() {
+        dialog().setTitle("改為連接私人伺服器？")
+            .setMessage("本機日誌會留在這支手機，但連線後不會顯示或上傳；之後清除這支手機的資料時會一併刪除。連線成功後，手機紀錄會回到關閉，需要重新同意。")
+            .setNegativeButton("取消", null).setPositiveButton("繼續設定連線") { _, _ -> setup(fromLocal = true) }.showSecure()
     }
 
     private fun iconButton(res: Int, label: String, onClick: () -> Unit) = ImageButton(this@MainActivity).apply {
@@ -338,6 +374,8 @@ class MainActivity : Activity() {
 
     /** User-facing failure text. Never includes response bodies, tokens or journal content. */
     private fun describe(error: Throwable): String = when (error) {
+        is LocalOnlyUnsupported -> "這項功能需要連接私人伺服器；本機模式只保存在這支手機。"
+        is ApiFailure if localMode && error.status == 400 -> "內容不符合限制，請檢查後再試。"
         is ApiFailure -> when (error.status) {
             401 -> "伺服器拒絕這把金鑰：可能打錯、已過期或已撤銷。請到「設定 → 更換伺服器或金鑰」。"
             403 -> "這把金鑰沒有此權限（例如「僅收集」金鑰）。手機請使用「日誌（手機 app）」金鑰。"
@@ -402,7 +440,7 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- shared formatting
 
-    private fun api() = PocketLogApi(requireNotNull(credentials))
+    private fun api(): JournalBackend = credentials?.let(::PocketLogApi) ?: if (localMode) LocalJournal(this) else error("尚未連線")
     private fun journalDay() = TimelineMath.journalDay()
     private fun range(first: LocalDate, days: Long = 1) = TimelineMath.window(first, days, zone, System.currentTimeMillis())
     private fun dayPath(selected: LocalDate = day) = range(selected).let { "/v1/timeline?from_ms=${it.first}&to_ms=${it.second}" }
@@ -411,7 +449,7 @@ class MainActivity : Activity() {
     private fun relative(d: LocalDate): String = when (val diff = ChronoUnit.DAYS.between(d, journalDay())) { 0L -> "今天"; 1L -> "昨天"; else -> "$diff 天前" }
     private fun clock(ms: Long): String = Instant.ofEpochMilli(ms).atZone(zone).format(DateTimeFormatter.ofPattern("HH:mm"))
     private fun stamp(ms: Long): String = Instant.ofEpochMilli(ms).atZone(zone).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
-    private fun host(): String = credentials?.endpoint?.removePrefix("https://") ?: "未連線"
+    private fun host(): String = credentials?.endpoint?.removePrefix("https://") ?: if (localMode) "本機模式 · 只存在這支手機" else "未連線"
     private fun style(id: String): JSONObject? = workspace?.optJSONArray("categories")?.let { s -> (0 until s.length()).map { s.getJSONObject(it) }.firstOrNull { it.optString("id") == id } }
     private fun label(id: String): String = style(id)?.optString("name")?.takeIf { it.isNotBlank() } ?: categoryLabels.getOrElse(baseCategories.indexOf(id)) { id }
     private fun colorFor(id: String): Int = style(id)?.let { Palette.parse(it.optString("color")) } ?: Palette.parse(defaultColors.getOrNull(baseCategories.indexOf(id)))
@@ -500,9 +538,9 @@ class MainActivity : Activity() {
     private fun boot() {
         val body = screen("PocketLog", "私人活動日誌", nav = false, logo = true)
         val slot = ui.column(body)
-        load(slot, "開啟加密連線資料…", { synchronized(SyncEngine.lock) { CredentialStore(this@MainActivity).load() } }) { saved ->
-            credentials = saved
-            if (saved == null) setup() else { SyncEngine.schedule(this@MainActivity); enterWorkspace() }
+        load(slot, "開啟加密連線資料…", { synchronized(SyncEngine.lock) { CredentialStore(this@MainActivity).load() to LocalMode(this@MainActivity).enabled } }) { (saved, local) ->
+            credentials = saved; localMode = saved == null && local
+            if (saved == null && !local) setup() else { SyncEngine.schedule(this@MainActivity); enterWorkspace() }
         }
         // Recovery path if Keystore or the stored connection cannot be read.
         ui.button(body, "無法開啟？重設本機資料與連線", Tone.TEXT) { confirmReset() }
@@ -510,8 +548,10 @@ class MainActivity : Activity() {
 
     private fun confirmReset(title: String = "重設本機資料？", message: String = "用於金鑰失效或連線資料損毀。會停止紀錄、刪除未同步資料與快取，然後重新設定連線。伺服器日誌不會被刪除。") {
         dialog().setTitle(title).setMessage(message).setNegativeButton("取消", null).setPositiveButton("清除並重新設定") { _, _ ->
-            task("清除這支手機的資料…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); CredentialStore(this@MainActivity).clear(); RecordingSettings(this@MainActivity).clearRejectedCredentials() } }) {
-                clearDrafts(); credentials = null; workspace = null; loaded = null; setup(); notice("已清除這支手機的連線與待傳資料；伺服器日誌仍保留。", Kind.INFO)
+            task("清除這支手機的資料…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); CredentialStore(this@MainActivity).clear(); RecordingSettings(this@MainActivity).clearRejectedCredentials(); LocalMode(this@MainActivity).enabled = false } }) {
+                val wasLocal = localMode
+                clearDrafts(); credentials = null; localMode = false; workspace = null; loaded = null; setup()
+                notice(if (wasLocal) "已清除這支手機上的本機日誌與設定。" else "已清除這支手機的連線與待傳資料；伺服器日誌仍保留。", Kind.INFO)
             }
         }.showSecure()
     }
@@ -529,9 +569,10 @@ class MainActivity : Activity() {
         return Credentials(endpoint, key)
     }
 
-    private fun setup() {
-        workspace = null
-        val body = screen("連接私人伺服器", "首次設定 · 約 2 分鐘", nav = false, logo = true)
+    private fun setup(fromLocal: Boolean = false) {
+        if (!fromLocal) workspace = null
+        val body = screen("連接私人伺服器", if (fromLocal) "本機日誌會保留在這支手機" else "首次設定 · 約 2 分鐘", nav = false, logo = !fromLocal,
+            back = if (fromLocal) ({ go(Tab.SETTINGS) }) else null)
         ui.card(body).apply {
             ui.text(this, "把一天，收進口袋。", 20f, bold = true, bottom = 6).isAccessibilityHeading = true
             ui.body(this, "連接自己的私人日誌。AI 與手機紀錄都可稍後設定，連線不會開始擷取。")
@@ -555,10 +596,15 @@ class MainActivity : Activity() {
                     PocketLogApi(candidate).request(dayPath())
                     CredentialStore(this@MainActivity).save(candidate)
                     RecordingSettings(this@MainActivity).clearRejectedCredentials()
+                    if (LocalMode(this@MainActivity).enabled) {
+                        // A server connection starts from fresh consent; local sessions are never uploaded.
+                        RecordingSettings(this@MainActivity).enabled = false
+                        LocalMode(this@MainActivity).enabled = false
+                    }
                     UsageCollector(this@MainActivity).reset()
                 }
             }, failed = { fail(describe(it)) }) {
-                clearDrafts(); credentials = candidate; token.text.clear(); SyncEngine.schedule(this@MainActivity); notice("已連線到 ${host()}"); enterWorkspace()
+                clearDrafts(); credentials = candidate; localMode = false; workspace = null; token.text.clear(); SyncEngine.schedule(this@MainActivity); notice("已連線到 ${host()}"); enterWorkspace()
             }
         }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
         ui.meta(form, "金鑰以 Android Keystore 加密保存在這支手機，只放在 HTTPS 標頭、不會出現在網址。驗證時只讀取今天的時間軸。", top = 8)
@@ -574,12 +620,31 @@ class MainActivity : Activity() {
             step(this, "1", "伺服器網址", "部署 PocketLog 後用瀏覽器開啟網站的 HTTPS 位址，例如 https://my-pc.your-tailnet.ts.net:12446。只填來源，不含路徑；這支手機也必須連得到（使用 Tailscale 時請先登入同一個 tailnet）。")
             step(this, "2", "裝置金鑰", "用部署時產生的 owner token 登入網站，到「設定 → 連線與裝置 → 管理裝置金鑰」，權限選「日誌（手機 app）」後建立。金鑰是 64 個英數字元，只顯示一次，可單獨撤銷。owner token 也能使用，但不建議放在手機上。")
         }
+        if (!fromLocal) {
+            ui.groupLabel(body, "不想架伺服器？")
+            ui.card(body).apply {
+                ui.body(this, "本機模式只在這支手機記錄 app 使用時段，保存活動卡修正、反思、回顧與 Flow 計時，全部加密存在手機，不連網。")
+                ui.meta(this, "不包含：畫面文字與截圖、AI 摘要與 Chat、Agents、網站與跨裝置同步。之後隨時可以改為連接私人伺服器。", top = 4)
+                ui.button(this, "只在這支手機使用（本機模式）", Tone.TONAL) { startLocalMode() }.apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12) }
+            }
+        }
         ui.groupLabel(body, "連線之後")
         ui.card(body).apply {
             step(this, "1", "共用設定", "每日目標與分類在網站與手機共用；若已在網站完成，會自動略過。")
             step(this, "2", "選用：自備 AI", "可設定 OpenAI 相容、Anthropic 或 Gemini。不設定也能使用活動卡、回顧與匯出。")
             step(this, "3", "手機紀錄（另外同意）", "app 使用紀錄、畫面文字、縮圖與 AI 處理各自獨立同意，預設全部關閉。完成連線不會開始記錄；需要時到「設定 → 手機紀錄」開啟並授予 Android 權限。")
         }
+    }
+
+    private fun startLocalMode() {
+        dialog().setTitle("使用本機模式？")
+            .setMessage("日誌會用 Android Keystore 加密保存在這支手機，不會上傳，也不會有網站或其他裝置的副本。刪除 app 或清除資料會一併刪除。本機最多保留約 400 天的活動。\n\n手機紀錄仍需你另外同意，進入後不會自動開始。")
+            .setNegativeButton("取消", null).setPositiveButton("使用本機模式") { _, _ ->
+                task("建立本機日誌…", { synchronized(SyncEngine.lock) { LocalMode(this@MainActivity).enabled = true; UsageCollector(this@MainActivity).reset() } }) {
+                    clearDrafts(); credentials = null; localMode = true; SyncEngine.schedule(this@MainActivity); enterWorkspace()
+                    notice("已進入本機模式；日誌只存在這支手機。", Kind.INFO)
+                }
+            }.showSecure()
     }
 
     private fun enterWorkspace() {
@@ -593,15 +658,16 @@ class MainActivity : Activity() {
     }
 
     private fun onboarding(step: Int, exit: (() -> Unit)? = null) {
-        val body = screen("開始使用", "共用設定 ${step + 1} / 4 · 網站與手機共用", nav = false,
+        val body = screen("開始使用", if (localMode) "設定 ${step + 1} / 4 · 只存在這支手機" else "共用設定 ${step + 1} / 4 · 網站與手機共用", nav = false,
             back = if (step > 0) ({ onboarding(step - 1, exit) }) else exit)
         val dots = ui.horizontal(body, 6).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(16); contentDescription = "第 ${step + 1} 步，共 4 步"; isFocusable = true }
         repeat(4) { i -> dots.addView(View(this@MainActivity).apply { background = ui.shape(if (i <= step) Palette.ACCENT else Palette.BORDER, 3f) }, LinearLayout.LayoutParams(0, ui.dp(6), 1f)) }
         val (headline, text) = when (step) {
-            0 -> "把一天，收進口袋。" to "自動記錄、活動分類與時間軸，幫助你回看一天。這份設定在網站與手機共用，完成一次即可。"
-            1 -> "先選擇，才開始記錄。" to "• 使用紀錄、畫面文字、圖片與 AI 各自獨立同意，預設關閉。\n• 排除清單優先於允許清單；密碼、輸入欄位、鎖定畫面與安全視窗在擷取前排除。\n• 原始情境最多保留 24 小時，活動與反思最多 30 天。\n• 伺服器管理者可以讀取日誌。"
-            2 -> "為自己留一點專注。" to "目標與分類角色會同步到網站；它們用來整理你的一天，不是替你評分。"
-            else -> "帶上你自己的 AI（選用）。" to "可設定 OpenAI 相容、Anthropic 或 Gemini API 與模型，也可以先使用無 AI 的活動卡。設定模型不代表同意傳送畫面。"
+            0 -> "把一天，收進口袋。" to if (localMode) "自動記錄、活動分類與時間軸，幫助你回看一天。本機模式的設定與日誌只存在這支手機。" else "自動記錄、活動分類與時間軸，幫助你回看一天。這份設定在網站與手機共用，完成一次即可。"
+            1 -> if (localMode) "先選擇，才開始記錄。" to "• App 使用紀錄需要你另外同意，預設關閉。\n• 排除清單優先；PocketLog 自己不會被記錄。\n• 日誌加密保存在這支手機，最多約 400 天，不會上傳。\n• 刪除 app 或清除資料會一併刪除日誌。"
+                else "先選擇，才開始記錄。" to "• 使用紀錄、畫面文字、圖片與 AI 各自獨立同意，預設關閉。\n• 排除清單優先於允許清單；密碼、輸入欄位、鎖定畫面與安全視窗在擷取前排除。\n• 伺服器日誌永久保存；截圖受儲存上限約束，手機離線佇列最多 24 小時。\n• 伺服器管理者可以讀取日誌。"
+            2 -> "為自己留一點專注。" to if (localMode) "目標與分類角色只存在這支手機；它們用來整理你的一天，不是替你評分。" else "目標與分類角色會同步到網站；它們用來整理你的一天，不是替你評分。"
+            else -> if (localMode) "本機模式不使用 AI。" to "活動卡依 app 名稱與你的分類規則整理；需要 AI 摘要或 Chat 時，可以之後改為連接私人伺服器。" else "帶上你自己的 AI（選用）。" to "可設定 OpenAI 相容、Anthropic 或 Gemini API 與模型，也可以先使用無 AI 的活動卡。設定模型不代表同意傳送畫面。"
         }
         val hero = ui.card(body)
         ui.text(hero, headline, 22f, bottom = 8).isAccessibilityHeading = true
@@ -612,7 +678,11 @@ class MainActivity : Activity() {
             focus = ui.field(this, "每日專注目標（分鐘）", "270", Field.NUMBER, (workspace?.optInt("focus_minutes") ?: 270).toString())
             budget = ui.field(this, "分心預算（分鐘）", "60", Field.NUMBER, (workspace?.optInt("distraction_minutes") ?: 60).toString(), "0–1440。之後可在「設定 → 目標與分類」修改。")
         }
-        if (step == 3) {
+        if (step == 3 && localMode) ui.card(body, Palette.CANVAS).apply {
+            ui.heading(this, "下一步：手機紀錄（另外同意）")
+            ui.meta(this, "完成這裡不會開始記錄。到「設定 → 手機紀錄」同意 app 使用紀錄，並在 Android 設定授予「使用情況存取權」。")
+        }
+        if (step == 3 && !localMode) {
             ui.card(body).apply {
                 ui.heading(this, "AI 設定")
                 ui.meta(this, "金鑰保存在你的伺服器，不會讀回手機。可以現在設定，或之後到「設定 → Bring your own AI」。")
@@ -634,7 +704,7 @@ class MainActivity : Activity() {
             if (step < 3) onboarding(step + 1, exit) else {
                 val current = workspace ?: run { error.text = "共用設定尚未載入，請返回重試。"; error.visibility = View.VISIBLE; return@actions }
                 val next = JSONObject(current.toString()).put("onboarding_version", 1)
-                task("儲存共用設定…", { api().request("/v1/workspace", next, "PUT") }) {
+                task(if (localMode) "儲存設定…" else "儲存共用設定…", { api().request("/v1/workspace", next, "PUT") }) {
                     workspace = it; home(); notice("設定完成。這支手機的紀錄仍是關閉的，可到「設定 → 手機紀錄」開啟。", Kind.INFO)
                 }
             }
@@ -888,7 +958,7 @@ class MainActivity : Activity() {
             val at = minOf(day.atTime(12, 0).atZone(zone).toInstant().toEpochMilli(), System.currentTimeMillis())
             val submitted = field.text.toString()
             val body = JSONObject().put("id", "reflection-$day").put("at_ms", at).put("text", submitted)
-            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/reflections", body) }) { reflectionDrafts.removeIfUnchanged(draftKey, submitted); notice(if (submitted.isBlank()) "已排入刪除這天的反思。" else "反思已加密加入佇列。") }
+            task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/reflections", body) }) { reflectionDrafts.removeIfUnchanged(draftKey, submitted); notice(when { localMode && submitted.isBlank() -> "已刪除這天的反思。"; localMode -> "反思已加密儲存在這支手機。"; submitted.isBlank() -> "已排入刪除這天的反思。"; else -> "反思已加密加入佇列。" }) }
         }
         return ui.column(card)
     }
@@ -910,7 +980,7 @@ class MainActivity : Activity() {
         val card = ui.card(parent, padding = 8)
         ui.row(card, "每日回顧與目標", "專注、分心、你的回顧與 AI 摘要") { go(Tab.DAILY) }
         ui.row(card, "活動概覽", "本週或最近 29 天的分類、常用 app 與主題關鍵字") { overview() }
-        ui.row(card, "短期縮圖回放", "只顯示另行同意保存的縮圖") { replayPage() }
+        if (!localMode) ui.row(card, "短期縮圖回放", "只顯示另行同意保存的縮圖") { replayPage() }
         ui.row(card, "匯出這一天", "私人 JSON，含活動、感受與反思") { export() }
     }
 
@@ -1011,7 +1081,7 @@ class MainActivity : Activity() {
             saving(true); report("正在加密儲存，請稍候…")
             task("加密儲存中…", { SyncEngine.enqueue(this@MainActivity, "/v1/cards", body) }, failed = { error ->
                 if (editor.isShowing) { saving(false); report("未能完成儲存：${describe(error)}。輸入內容已保留，請重試。") }
-            }) { editor.dismiss(); go(tab); notice("已儲存修改，等待同步。") }
+            }) { editor.dismiss(); go(tab); notice(if (localMode) "已儲存修改。" else "已儲存修改，等待同步。") }
         }
     }
 
@@ -1062,7 +1132,7 @@ class MainActivity : Activity() {
             val reflections = reflectionCard(slot)
             renderReflections(reflections, data)
             ui.card(slot, padding = 8).apply {
-                ui.row(this, "每日 AI 回顧與排程", "只在你明確同意時傳送活動卡") { briefsPage(false) }
+                if (!localMode) ui.row(this, "每日 AI 回顧與排程", "只在你明確同意時傳送活動卡") { briefsPage(false) }
                 ui.row(this, "複製這天的私人時間軸", "標題與摘要；只貼到你信任的位置") {
                     val value = list.joinToString("\n\n") { "${clock(it.getLong("start_ms"))}–${clock(it.getLong("end_ms"))} ${it.optString("title")}\n${it.optString("summary")}" }
                     val clip = ClipData.newPlainText("PocketLog", value).apply { description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) } }
@@ -1118,7 +1188,7 @@ class MainActivity : Activity() {
                 }
             }
             if (all.isNotEmpty()) ui.card(slot).apply { ui.heading(this, "本週時間分配"); legend(this, totals(all)) }
-            ui.card(slot, padding = 8).apply { ui.row(this, "每週 AI 回顧與排程", "只在你明確同意時傳送活動卡") { briefsPage(true) } }
+            if (!localMode) ui.card(slot, padding = 8).apply { ui.row(this, "每週 AI 回顧與排程", "只在你明確同意時傳送活動卡") { briefsPage(true) } }
         }
     }
 
@@ -1327,7 +1397,7 @@ class MainActivity : Activity() {
     private fun recordBody(id: String, at: Long, kind: String, text: String) = JSONObject().put("id", id).put("at_ms", at).put("kind", kind).put("text", text).put("end_ms", JSONObject.NULL).put("rating", JSONObject.NULL).put("source", JSONObject.NULL)
 
     private fun flowPage() {
-        val body = screen("Flow", "私人專注計時 · 網站與手機同步", Tab.FLOW)
+        val body = screen("Flow", if (localMode) "私人專注計時 · 只存在這支手機" else "私人專注計時 · 網站與手機同步", Tab.FLOW)
         val slot = ui.column(body)
         val records = ui.column(body)
         load(slot, "讀取計時…", { api().request("/v1/focus") }) { data ->
@@ -1335,7 +1405,7 @@ class MainActivity : Activity() {
             val card = ui.card(slot)
             if (session == null) {
                 ui.heading(card, "開始一段專注")
-                ui.meta(card, "計時保存在私人伺服器，可從網站或手機接續；完成時才存為手動專注紀錄。不會開啟畫面擷取或 AI，也不代表實際使用活動。", bottom = 4)
+                ui.meta(card, if (localMode) "計時保存在這支手機；完成時才存為手動專注紀錄。不會開啟擷取或 AI，也不代表實際使用活動。" else "計時保存在私人伺服器，可從網站或手機接續；完成時才存為手動專注紀錄。不會開啟畫面擷取或 AI，也不代表實際使用活動。", bottom = 4)
                 val topic = ui.field(card, "這次想專注什麼？", "最多 300 字", Field.TEXT)
                 val minutes = ui.field(card, "預計分鐘", "1–180", Field.NUMBER, "25")
                 ui.button(card, "開始專注") {
@@ -1599,9 +1669,14 @@ class MainActivity : Activity() {
         if (s.isAuthRejected(credentials)) connectionRecoveryCallout(body)
         ui.groupLabel(body, "連線")
         ui.card(body, padding = 8).apply {
-            ui.row(this, "私人伺服器", host(), onClick = null)
-            ui.row(this, "更換伺服器或金鑰", "清除這支手機的連線與待傳資料，然後重新設定") {
-                confirmReset("更換連線？", "會停止紀錄，刪除這支手機尚未同步的資料與快取，然後重新輸入網址與金鑰。伺服器日誌不會被刪除。")
+            if (localMode) {
+                ui.row(this, "本機模式", "日誌加密保存在這支手機，不會上傳", onClick = null)
+                ui.row(this, "改為連接私人伺服器", "本機日誌保留在手機，但連線後不會顯示或上傳") { connectFromLocal() }
+            } else {
+                ui.row(this, "私人伺服器", host(), onClick = null)
+                ui.row(this, "更換伺服器或金鑰", "清除這支手機的連線與待傳資料，然後重新設定") {
+                    confirmReset("更換連線？", "會停止紀錄，刪除這支手機尚未同步的資料與快取，然後重新輸入網址與金鑰。伺服器日誌不會被刪除。")
+                }
             }
         }
 
@@ -1610,68 +1685,89 @@ class MainActivity : Activity() {
             ui.row(this, "App 使用紀錄", if (s.isAuthRejected(credentials)) "這把金鑰已被伺服器拒絕；請先處理連線" else if (s.hasUsageGrant && !s.enabled) "本機同意已保存；伺服器暫停中，點此撤回" else "記錄同意後的 app 套件名稱與前景時段；畫面情境依下方獨立同意", (if (s.isAuthRejected(credentials)) "需連線" else if (s.enabled) "開啟" else if (s.hasUsageGrant) "已保存" else "關閉") to s.enabled) { toggleUsage(s) }
             val usage = s.hasUsagePermission()
             ui.row(this, "Android 使用情況存取權", if (usage) "已授予；撤銷後會停止產生活動" else "開啟紀錄後需要在系統設定授予", (if (usage) "已授予" else "未授予") to usage) { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
-            ui.row(this, "所有裝置的收集", if (s.remotePaused) "已在伺服器暫停；恢復不會取代本機同意" else "可暫停所有裝置；離線手機要等同步才收到", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { manageRemotePause(s) }
+            if (!localMode) ui.row(this, "所有裝置的收集", if (s.remotePaused) "已在伺服器暫停；恢復不會取代本機同意" else "可暫停所有裝置；離線手機要等同步才收到", (if (s.remotePaused) "已暫停" else "運作中") to !s.remotePaused) { manageRemotePause(s) }
             ui.row(this, "排除與允許清單", "排除 ${s.exclusions.size} 個 · 畫面文字允許 ${s.allowed.size} 個 app") { appListsPage() }
-            ui.switchRow(this, "只用不限量網路上傳", "關閉後也會使用行動數據", s.wifiOnly) { checked ->
+            if (!localMode) ui.switchRow(this, "只用不限量網路上傳", "關閉後也會使用行動數據", s.wifiOnly) { checked ->
                 if (checked == s.wifiOnly) return@switchRow
                 task("更新網路設定…", { synchronized(SyncEngine.lock) { s.wifiOnly = checked }; SyncEngine.schedule(this@MainActivity) }) { notice(if (checked) "只在不限量網路上傳" else "也會使用行動網路上傳") }
             }.apply { setPadding(ui.dp(4), 0, ui.dp(4), 0) }
         }
 
-        ui.groupLabel(body, "畫面情境（進階，預設關閉）")
-        val eligible = effectiveAllowedCount(s)
-        captureAllowlistWarning(body, s, eligible)
-        ui.card(body, padding = 8).apply {
-            ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
-            val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；前景時每 10 秒及切換時擷取，仍需系統權限" }
-            ui.row(this, "畫面文字", contextDetail, (if (s.hasContextGrant && !s.contextEnabled) "已保存" else if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
-            ui.row(this, "畫面縮圖", if (s.hasImagesGrant && !s.imagesEnabled) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "隨畫面文字預設開啟；最長邊 720 px，點此可關閉" else if (s.contextEnabled) "已關閉，只擷取文字；點此重新開啟" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else if (s.hasImagesGrant) "已保存" else "關閉") to s.imagesEnabled) { toggleImages(s) }
-            ui.row(this, "短期縮圖回放", if (s.hasReplayGrant && !s.replayConsent) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else if (s.hasReplayGrant) "已保存" else "關閉") to s.replayConsent) { toggleReplay(s) }
-            ui.row(this, "文字隱私防護", "疑似金鑰、token 或長數字時跳過整個視窗", (if (s.privacyShield) "開啟" else "關閉") to s.privacyShield) { privacyShieldDialog(s) }
-            ui.row(this, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
-            ui.row(this, "系統輔助使用設定", "畫面文字需要 PocketLog 的輔助使用服務") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        if (localMode) {
+            ui.groupLabel(body, "畫面情境")
+            ui.card(body).apply { ui.meta(this, "畫面文字、截圖與 AI 摘要在私人伺服器處理，本機模式不提供。這支手機不會擷取畫面。") }
+        } else {
+            ui.groupLabel(body, "畫面情境（進階，預設關閉）")
+            val eligible = effectiveAllowedCount(s)
+            captureAllowlistWarning(body, s, eligible)
+            ui.card(body, padding = 8).apply {
+                ui.meta(this, "每一項都是獨立同意。含密碼或輸入欄位的整個視窗、鎖定畫面與安全視窗，都會在擷取前排除。", bottom = 4).setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0)
+                val contextDetail = when { s.hasContextGrant && !s.contextEnabled -> "同意已保存；目前暫停，點此撤回"; !s.enabled -> "需先開啟 App 使用紀錄"; eligible == 0 -> "沒有可擷取的 app，請調整允許與排除清單"; else -> "可擷取 $eligible 個 app；前景時每 10 秒及切換時擷取，仍需系統權限" }
+                ui.row(this, "畫面文字", contextDetail, (if (s.hasContextGrant && !s.contextEnabled) "已保存" else if (!s.contextEnabled) "關閉" else if (eligible == 0) "待設定" else "已同意") to (s.contextEnabled && eligible > 0)) { toggleContext(s) }
+                ui.row(this, "畫面縮圖", if (s.hasImagesGrant && !s.imagesEnabled) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "隨畫面文字預設開啟；最長邊 720 px，點此可關閉" else if (s.contextEnabled) "已關閉，只擷取文字；點此重新開啟" else "需先開啟畫面文字", (if (s.imagesEnabled) "開啟" else if (s.hasImagesGrant) "已保存" else "關閉") to s.imagesEnabled) { toggleImages(s) }
+                ui.row(this, "短期縮圖回放", if (s.hasReplayGrant && !s.replayConsent) "同意已保存；目前暫停，點此撤回" else if (s.imagesEnabled) "另行同意保存，最多 24 小時、256 張" else "需先開啟畫面縮圖", (if (s.replayConsent) "已同意" else if (s.hasReplayGrant) "已保存" else "關閉") to s.replayConsent) { toggleReplay(s) }
+                ui.row(this, "文字隱私防護", "疑似金鑰、token 或長數字時跳過整個視窗", (if (s.privacyShield) "開啟" else "關閉") to s.privacyShield) { privacyShieldDialog(s) }
+                ui.row(this, "最近一次擷取檢查", CaptureDiagnostics.snapshot().outcome.title) { captureDiagnostics { settings() } }
+                ui.row(this, "系統輔助使用設定", "畫面文字需要 PocketLog 的輔助使用服務") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            }
+
+            ui.groupLabel(body, "AI")
+            ui.card(body, padding = 8).apply {
+                ui.row(this, "Bring your own AI", "端點、模型與金鑰保存在你的伺服器") { aiSettings { settings() } }
+                val auto = ui.column(this)
+                load(auto, "讀取自動摘要狀態…", { api().request("/v1/ai") }) { config -> autoSummaryRow(auto, config) { settings() } }
+            }
+
+            ui.groupLabel(body, "伺服器儲存空間")
+            ui.card(body, padding = 8).apply {
+                val storage = ui.column(this)
+                load(storage, "讀取伺服器儲存空間…", { api().request("/v1/storage") }) { info -> storageRows(storage, info) }
+            }
         }
 
-        ui.groupLabel(body, "AI")
-        ui.card(body, padding = 8).apply {
-            ui.row(this, "Bring your own AI", "端點、模型與金鑰保存在你的伺服器") { aiSettings { settings() } }
-            val auto = ui.column(this)
-            load(auto, "讀取自動摘要狀態…", { api().request("/v1/ai") }) { config -> autoSummaryRow(auto, config) { settings() } }
-        }
-
-        ui.groupLabel(body, "伺服器儲存空間")
-        ui.card(body, padding = 8).apply {
-            val storage = ui.column(this)
-            load(storage, "讀取伺服器儲存空間…", { api().request("/v1/storage") }) { info -> storageRows(storage, info) }
-        }
+        ui.groupLabel(body, "提醒")
+        ui.card(body, padding = 8).apply { reminderRow(this) }
 
         ui.groupLabel(body, "共用設定")
         ui.card(body, padding = 8).apply {
-            ui.row(this, "目標與分類", "網站與手機共用的專注目標、分類與自動規則") { sharedSettings() }
+            ui.row(this, "目標與分類", if (localMode) "這支手機上的專注目標、分類與自動規則" else "網站與手機共用的專注目標、分類與自動規則") { sharedSettings() }
             ui.row(this, "重新閱讀 onboarding", null) { onboarding(0) { settings() } }
         }
 
-        ui.groupLabel(body, "同步")
-        ui.card(body, padding = 8).apply {
-            ui.row(this, "立即同步", s.status()) { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { settings(); notice(RecordingSettings(this@MainActivity).status(), Kind.INFO) } }
-            val queue = ui.column(this)
-            load(queue, "讀取離線佇列…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).counts() } }) { (pending, rejected) ->
-                ui.row(queue, "離線佇列", "待傳 $pending · 被拒絕 $rejected · 過期／損毀／超限丟棄 ${s.dropped()}", onClick = null)
-                if (rejected > 0) {
-                    ui.row(queue, "重試被拒絕的資料", "先確認連線與金鑰正確") {
-                        task("重試中…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).retryRejected(requireNotNull(credentials)); s.nextAttempt = 0 }; SyncEngine.sync(this@MainActivity) }) { settings(); notice(RecordingSettings(this@MainActivity).status(), Kind.INFO) }
-                    }
-                    ui.row(queue, "刪除被拒絕的資料", "無法復原") {
-                        dialog().setTitle("刪除被拒絕的資料？").setMessage("這些資料不會再上傳。").setNegativeButton("取消", null).setPositiveButton("刪除") { _, _ ->
-                            task("刪除中…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).clearRejected() } }) { settings(); notice("已刪除被拒絕的資料") }
-                        }.showSecure()
+        if (!localMode) {
+            ui.groupLabel(body, "同步")
+            ui.card(body, padding = 8).apply {
+                ui.row(this, "立即同步", s.status()) { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { settings(); notice(RecordingSettings(this@MainActivity).status(), Kind.INFO) } }
+                val queue = ui.column(this)
+                load(queue, "讀取離線佇列…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).counts() } }) { (pending, rejected) ->
+                    ui.row(queue, "離線佇列", "待傳 $pending · 被拒絕 $rejected · 過期／損毀／超限丟棄 ${s.dropped()}", onClick = null)
+                    if (rejected > 0) {
+                        ui.row(queue, "重試被拒絕的資料", "先確認連線與金鑰正確") {
+                            task("重試中…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).retryRejected(requireNotNull(credentials)); s.nextAttempt = 0 }; SyncEngine.sync(this@MainActivity) }) { settings(); notice(RecordingSettings(this@MainActivity).status(), Kind.INFO) }
+                        }
+                        ui.row(queue, "刪除被拒絕的資料", "無法復原") {
+                            dialog().setTitle("刪除被拒絕的資料？").setMessage("這些資料不會再上傳。").setNegativeButton("取消", null).setPositiveButton("刪除") { _, _ ->
+                                task("刪除中…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).clearRejected() } }) { settings(); notice("已刪除被拒絕的資料") }
+                            }.showSecure()
+                        }
                     }
                 }
             }
         }
 
         ui.groupLabel(body, "資料")
-        ui.card(body).apply {
+        if (localMode) ui.card(body).apply {
+            ui.meta(this, "單日匯出在時間軸頁面的「這一天」。本機日誌沒有其他副本，刪除後無法復原。", bottom = 4)
+            ui.button(this, "刪除這支手機上的全部日誌", Tone.DANGER) {
+                dialog().setTitle("永久刪除本機日誌？").setMessage("刪除活動、修正、反思、回顧與 Flow 紀錄，並停止手機紀錄。分類、規則與目標會保留。無法復原。")
+                    .setNegativeButton("取消", null).setPositiveButton("刪除全部") { _, _ ->
+                        task("刪除本機日誌…", { synchronized(SyncEngine.lock) { UsageCollector(this@MainActivity).reset(); s.enabled = false; LocalJournal(this@MainActivity).erase() } }) { clearDrafts(); settings(); notice("已刪除這支手機上的全部日誌，紀錄已停止。", Kind.INFO) }
+                    }.showSecure()
+            }
+            ui.button(this, "離開本機模式並清除所有資料", Tone.DANGER) {
+                confirmReset("離開本機模式？", "會停止紀錄，刪除這支手機上的本機日誌、分類與設定，然後回到首次設定。無法復原。")
+            }
+        } else ui.card(body).apply {
             ui.meta(this, "單日匯出在時間軸頁面的「這一天」。刪除前請確認不再需要。", bottom = 4)
             ui.button(this, "清除這支手機的資料與連線", Tone.DANGER) {
                 confirmReset("清除本機資料？", "會停止紀錄並刪除尚未傳送的資料與快取。伺服器資料仍保留。")
@@ -1685,6 +1781,41 @@ class MainActivity : Activity() {
         }
         ui.groupLabel(body, "關於")
         ui.card(body, padding = 8).apply { ui.row(this, "PocketLog ${version()}", "MIT 授權 · 自架私人日誌 · 無分析", onClick = null) }
+    }
+
+    private fun reminderRow(parent: LinearLayout) {
+        val reminder = ReflectionReminder(this@MainActivity)
+        val time = "%02d:%02d".format(reminder.minuteOfDay / 60, reminder.minuteOfDay % 60)
+        val detail = when {
+            !reminder.enabled -> "在你選的時間提醒寫每日反思；通知不含日誌內容"
+            !reminder.notificationsAllowed() -> "每天 $time · Android 通知未允許，提醒不會出現"
+            else -> "每天 $time 左右 · Android 省電時可能延後"
+        }
+        ui.row(parent, "每日反思提醒", detail, (if (reminder.enabled) "開啟" else "關閉") to reminder.enabled) {
+            if (!reminder.enabled) pickReminderTime(reminder)
+            else dialog().setTitle("每日反思提醒").setItems(arrayOf("更改時間（目前 $time）", "關閉提醒")) { _, which ->
+                if (which == 0) pickReminderTime(reminder)
+                else task("關閉提醒…", { reminder.disable() }) { settings(); notice("已關閉每日反思提醒") }
+            }.showSecure()
+        }
+    }
+
+    private fun pickReminderTime(reminder: ReflectionReminder) {
+        android.app.TimePickerDialog(this, { _, hour, minute ->
+            task("設定提醒…", { reminder.enable(hour * 60 + minute) }) {
+                if (!reminder.notificationsAllowed()) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
+                settings(); notice("每天 %02d:%02d 左右提醒寫反思".format(hour, minute))
+            }
+        }, reminder.minuteOfDay / 60, reminder.minuteOfDay % 60, true).apply { setTitle("提醒時間") }.also { it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }.show()
+    }
+
+    @Deprecated("Platform Activity callback")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        @Suppress("DEPRECATION") super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_NOTIFICATIONS || isDestroyed) return
+        if (tab == Tab.SETTINGS && !busy) settings()
+        if (grantResults.firstOrNull() != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            notice("未允許通知，提醒不會出現；可到 Android 的 app 通知設定開啟。", Kind.WARN)
     }
 
     private fun connectionRecoveryCallout(parent: ViewGroup) {

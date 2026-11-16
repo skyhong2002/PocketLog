@@ -19,7 +19,9 @@ object SyncEngine {
             OneTimeWorkRequestBuilder<JournalWorker>().setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES).build())
     }
     fun enqueue(context: Context, path: String, body: JSONObject) = synchronized(lock) {
-        val credentials = requireNotNull(CredentialStore(context).load())
+        val credentials = CredentialStore(context).load()
+        if (credentials == null && LocalMode(context).enabled) { LocalJournal(context).request(path, body); return@synchronized }
+        requireNotNull(credentials)
         JournalQueue(context).enqueue(credentials, path, body)
         schedule(context)
     }
@@ -31,7 +33,14 @@ object SyncEngine {
     }
     fun sync(context: Context): Boolean = synchronized(lock) {
         val settings = RecordingSettings(context)
-        val credentials = CredentialStore(context).load() ?: return@synchronized true
+        val credentials = CredentialStore(context).load() ?: run {
+            if (LocalMode(context).enabled) {
+                // Local-only: organize consented app sessions on this phone; nothing is uploaded.
+                if (settings.enabled) UsageCollector(context).collect(null)
+                settings.status(if (settings.enabled) "本機模式：app 使用紀錄已整理到這支手機" else "本機模式：手機紀錄未開啟")
+            }
+            return@synchronized true
+        }
         JournalQueue(context).prune()
         val manager = context.getSystemService(ConnectivityManager::class.java)
         val network = manager.getNetworkCapabilities(manager.activeNetwork)
@@ -115,7 +124,9 @@ object SyncEngine {
         PrivateFiles(context).clear()
     }
     fun readTimeline(context: Context, path: String): JSONObject = synchronized(lock) {
-        val credentials = requireNotNull(CredentialStore(context).load())
+        val credentials = CredentialStore(context).load()
+        if (credentials == null && LocalMode(context).enabled) return@synchronized LocalJournal(context).request(path)
+        requireNotNull(credentials)
         val files = PrivateFiles(context)
         val scope = TimelineCacheScope.forPath(path)
         val name = "cache_" + RecordingRules.digest(JournalQueue.destination(credentials) + scope.key)

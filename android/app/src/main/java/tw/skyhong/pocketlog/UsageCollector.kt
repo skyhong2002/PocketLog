@@ -15,7 +15,8 @@ class UsageCollector(private val context: Context) {
     private fun checkpoint(cursor: Long, app: String?, start: Long) {
         state.save(cursor, app, start, true)
     }
-    fun collect(credentials: Credentials) {
+    /** With [credentials], sessions go to the upload queue; without (local-only mode), to [LocalJournal]. */
+    fun collect(credentials: Credentials?) {
         val settings = RecordingSettings(context)
         val now = System.currentTimeMillis()
         if (!settings.enabled) return
@@ -37,9 +38,15 @@ class UsageCollector(private val context: Context) {
             }
         }
         val scan = Sessions.scan(events, saved.optString("app").takeIf { it.isNotEmpty() && it != "null" }, saved.optLong("start"), now)
+        val kept = scan.sessions.filter { !RecordingRules.excluded(it.app, settings.exclusions, context.packageName) && it.end > it.start }
+        if (credentials == null) {
+            // Journal commits before cursor, like the queue: a crash replays stable IDs.
+            if (LocalMode(context).enabled) LocalJournal(context).addSessions(kept)
+            checkpoint(now, scan.openApp, scan.openStart)
+            return
+        }
         val queue = JournalQueue(context)
-        scan.sessions.filter { !RecordingRules.excluded(it.app, settings.exclusions, context.packageName) && it.end > it.start }
-            .chunked(50).forEach { batch ->
+        kept.chunked(50).forEach { batch ->
                 val activities = JSONArray()
                 batch.forEach { a -> activities.put(JSONObject().put("id", a.id).put("start_ms", a.start).put("end_ms", a.end).put("app", a.app).put("category", "unsorted")) }
                 queue.enqueue(credentials, "/v1/activities", JSONObject().put("activities", activities), now)

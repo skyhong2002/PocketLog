@@ -6,8 +6,8 @@ import javax.net.ssl.HttpsURLConnection
 
 class ApiFailure(val status: Int, val retryMs: Long) : Exception("HTTP request failed")
 
-class PocketLogApi(private val credentials: Credentials) {
-    fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject {
+class PocketLogApi(private val credentials: Credentials) : JournalBackend {
+    override fun request(path: String, body: JSONObject?, method: String): JSONObject {
         require(path.startsWith("/v1/"))
         val endpoint = EndpointPolicy.normalize(credentials.endpoint)
         require(EndpointPolicy.validToken(credentials.token))

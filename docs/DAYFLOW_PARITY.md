@@ -26,6 +26,8 @@ capabilities and gaps; adding a navigation tab does not establish feature parity
 | Copy/export | Website clipboard + JSON; Android clipboard + daily JSON document picker; raw observations never exported |
 | Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; local diagnostics and documentation links; no automatic support messages or telemetry |
 | Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images); no desktop continuous recording/audio/transcription |
+| Local-only use | Dayflow keeps everything on the Mac. Android local-only mode keeps app sessions, corrections, categories/rules, goals, reflections, reviews and Flow timers encrypted on the phone with no server (about 400 days); screen context, models, Chat, Agents, replay and the website need a server |
+| Reminders | Optional Android daily reflection notification at a chosen time, content-free, inexact under Doze; works in both modes |
 | Storage limit | Owner-set server budget (1 GiB–1 TiB) in both clients; over the limit the oldest screenshots are removed and text is kept |
 
 ## Shared setup

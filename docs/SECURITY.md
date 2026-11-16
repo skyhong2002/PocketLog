@@ -66,6 +66,12 @@ report suspected vulnerabilities privately through the repository owner.
   when that state changes, including on app resume. A revoke-and-restore sequence
   entirely while the app is not executing is not detectable from the later
   current AppOps grant; do not treat this as continuous permission-history proof.
+- Local-only mode stores its journal (`lj_*` files) with the same AndroidKeyStore
+  AES-GCM files: app sessions sharded by day (≤ 3,000 / ≈ 560 KB per day, newest 400
+  days), card edits by ID prefix, reflections/reviews in 16-day buckets (30 kept).
+  Nothing leaves the phone and no other copy exists; uninstalling, clearing app data
+  or losing the Keystore key deletes it. Switching to a server never uploads it.
+  The reflection reminder notification contains no journal content.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
   filename AAD. Queue max 24 h / 1 GiB / 32,768 entries, including quarantine;
   screenshot entries are stored separately so reflection/edit reads never decrypt them;

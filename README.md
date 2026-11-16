@@ -57,6 +57,8 @@ to your own tools. Manual mood entry is no longer part of the app.
 | Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
 | Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |
 | Export | Private JSON + timeline clipboard; Android document picker |
+| Local-only mode | Android without a server: encrypted on-phone journal for app sessions, corrections, rules, reflections, reviews and Flow; no screen context or AI |
+| Reflection reminder | Optional daily Android notification at a chosen time; no journal content |
 | Device credentials | Owner-issued journal/collector keys, expiry and individual revocation; phone Keystore storage |
 | Short-term image replay | Independent opt-in; worker-sanitized 480 px thumbnails, 24 hours / 256 images |
 | infovore publishing | Not enabled; PocketLog operates independently |

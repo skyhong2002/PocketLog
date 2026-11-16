@@ -51,7 +51,7 @@ reflection, category overview and daily JSON export. See
 
 Still pending: physical-device permission/capture/Keystore/Doze tests and full-day
 battery measurements; physical-device pairing/revocation acceptance; encrypted backup/import/restore;
-local-only mode; reminders; independent security review; owner-approved infovore
+independent security review; owner-approved infovore
 publishing connector. Earlier milestones are product sequencing, not a claim that
 all of these remaining requirements shipped in this port.
 
@@ -71,8 +71,25 @@ not yet measured. See [INFOVORE_PORT.md](INFOVORE_PORT.md).
 capability flags, uniform JSON errors with `Retry-After` on 429/503, complete
 keyset-paged reads with bounded search (`GET /v1/activities`), a per-route
 credential scope matrix test and a standard-library example client exercised by
-the Docker smoke. Import/restore, local-only mode and reminders remain pending.
+the Docker smoke.
 See [API.md](API.md).
+
+## Local-only mode and reminders; backup dropped (2026-11-17)
+
+Android now offers a **local-only mode** without any server: consented app
+sessions, card corrections, categories/rules, goals, reflections, daily reviews
+and Flow timers are stored in Keystore-encrypted files on the phone (about 400
+days of activity, bounded per file) and answered through the same `/v1` shapes,
+so the timeline, daily and weekly pages work unchanged. Screen context, models,
+Chat, Agents, replay, the website and cross-device sync need a server and say so.
+Switching to a server later starts from fresh consent; local entries are not
+uploaded. An optional **daily reflection reminder** (both modes) posts a
+content-free notification at an owner-chosen time using inexact WorkManager
+scheduling and the Android notification permission.
+
+By owner decision, **encrypted backup/import-restore is not planned**: Dayflow
+does not offer it (its settings only export date ranges). Use encrypted host
+storage/backups for the server volume as described in SECURITY.md.
 
 ## Website and official Dayflow alignment (2026-11-14)
 
