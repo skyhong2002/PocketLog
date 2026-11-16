@@ -160,3 +160,51 @@ Both clients must use exactly these rules:
   `已儲存金鑰 ••••，貼上新的會取代`, the Ollama hint only appears for 自訂, each provider has a
   `取得 API 金鑰` link to its official key page, and the two AI switches live only on the AI page
   (設定 shows a one-line summary).
+
+## Round 2 rules (2026-11-17)
+
+- **Counts** keep a space: `AI 整理中（1 張）`.
+- **Durations under a minute** show `不到 1 分` (also when start and end round to different
+  minutes); zero-length ranges show only the start time.
+- **Card structure is identical on both clients**: row 1 `時間 · 時長` + category chip + at most
+  one exception badge; row 2 title; row 3 one-line summary. Neutral card background with a
+  left category stripe (no tinted cards). App-only cards use the summary `只知道使用了這個 app`.
+  When `pending_context` is true show only `AI 整理中` (never together with `只有 app`).
+- **Date navigation**: `‹ 日期 ›`; a `今天` button appears only when not viewing today (both).
+  When scrolled, the sticky header keeps the short date/period (e.g. `11月16日（週一）`).
+- **Time split rows**: `分類 | bar | 1 小時 · 25%` on both.
+- **Week bars**: stacked by category on both, labels `週一 … 週日`, value `4.1 時` (one decimal);
+  empty days show a faint baseline and `沒有記錄` in the accessible label.
+- **Topics** appear only when the server returns model topics (`keyword_mode` `model`/`mixed`);
+  with local-only keywords hide the section (local keywords are just card titles).
+- **問 AI**: neutral placeholder `問問這段時間…`; examples per period — day: `今天花最多時間在哪？`,
+  `今天學了什麼？`, `有哪些分心的時段？`; week: `這週花最多時間在哪？`, `這週學了什麼？`,
+  `這週有哪些分心的時段？`. Send button sits inside/next to the input.
+- **Storage**: under 1 GB show `MB` without decimals, otherwise `GB` with one decimal.
+- **Words**: use `記錄` (not `紀錄`). Section and field labels in Chinese (`App` → `應用程式` or omit).
+- **Bottom safe area**: the last item is never covered by the bottom navigation.
+- **Focus styles**: keyboard focus uses a thin ring; selected states use the soft pill
+  background, never a thick dark outline.
+- **Destructive actions** are grouped at the end of 資料, low emphasis, with an explicit
+  `無法復原` confirmation. Changing server/key is a normal row (its dialog explains effects).
+- **Recording settings** (phone): one master switch; while a permission is missing the
+  screenshot switch is disabled and its subtitle names the missing permission; Wi‑Fi-only moves to
+  進階 with one line: `截圖只在充電時上傳；開啟後其他資料也只用 Wi‑Fi`.
+- **Web settings**: `暫停所有裝置` is a switch; if the browser origin is loopback, the
+  phone-address hint says `這是本機位址；手機請用 VPN／區網位址`.
+
+## Networks and self-hosted AI (owner, 2026-11-17)
+
+- Wording never assumes Tailscale: say `VPN／私人網路（例如 Tailscale、ZeroTier、Headscale、
+  WireGuard、區網）`.
+- **Phone connection**: HTTPS anywhere; plain `http://` only for private-network hosts (same rule
+  as the server: loopback, 10/8, 172.16/12, 192.168/16, 100.64/10, IPv6 ULA/link-local,
+  `localhost`, `*.local`, `*.lan`, `*.internal`, `*.home.arpa`, single-label names). Show
+  `這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路` when http is used. Public http is refused.
+- **AI 自訂** is labelled `自訂（OpenAI 相容：CLIProxyAPI、LiteLLM、Ollama…）`; its field is
+  `API 網址` with placeholder `http://127.0.0.1:8317/v1` (base URL; the server appends
+  `/chat/completions`); the key may be empty (`代理不需要金鑰可留白`).
+- **載入模型清單** on every provider: `POST /v1/ai/models {protocol, endpoint, api_key?}` returns
+  `{models:[…]}`; show them as a pickable list, keep free text as fallback, show a short error on
+  502/429. AI page order: AI 服務 → 金鑰 → 模型 (+ 載入模型清單) → 讓 AI 看截圖 → 測試並儲存 →
+  section `自動化` with the two switches. Label `AI 服務` on both clients.
