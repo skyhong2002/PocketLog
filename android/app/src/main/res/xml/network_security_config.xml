@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted at the platform level only so that the app's own gate can decide:
+  EndpointPolicy.normalize (and PocketLogApi before every request) accepts plain http:// solely for
+  private-network hosts (VPN, LAN, loopback) and refuses public http before any connection is opened.
+  HTTPS keeps the system trust store; user-added CAs are not trusted.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
