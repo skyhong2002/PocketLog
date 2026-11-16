@@ -12,9 +12,9 @@
   const modal = () => document.querySelector('#modal');
   const button = (text, scope = document) => [...scope.querySelectorAll('button')].find(n => n.textContent === text);
   const label = () => modal().querySelector('input[type=text]');
-  const settings = async () => { document.querySelector('button[aria-label="設定"]').click(); await until(() => !!document.querySelector('[data-key=settings-devices]')); };
+  const settings = async () => { document.querySelector('button[aria-label="設定"]').click(); await until(() => !!document.querySelector('[data-key=settings-devices-manage]')); };
   const close = async () => { modal().querySelector('.close').click(); await until(() => !modal().open); await pause(); };
-  const load = async () => { await until(() => !!document.querySelector('[data-key=settings-devices]')); holdReads = true; const n = reads.length; document.querySelector('[data-key=settings-devices]').click(); await until(() => reads.length > n); holdReads = false; return reads.at(-1); };
+  const load = async () => { await until(() => !!document.querySelector('[data-key=settings-devices-manage]')); holdReads = true; const n = reads.length; document.querySelector('[data-key=settings-devices-manage]').click(); await until(() => reads.length > n); holdReads = false; return reads.at(-1); };
   const open = async () => { const pending = await load(); pending.resolve(json({ devices })); await until(() => modal().open && !!label()); };
   const create = async () => { label().value = '合成新工具'; const n = writes.length; button('建立裝置金鑰', modal()).click(); await until(() => writes.length > n); return writes.at(-1); };
   const revoke = async () => { const issued = modal().querySelector('.device-issued'); if (issued && !issued.open) issued.querySelector('summary').click(); const n = writes.length; button('撤銷這把金鑰', modal()).click(); await until(() => document.querySelector('#confirm').open); button('撤銷金鑰', document.querySelector('#confirm')).click(); await until(() => writes.length > n); assert(writes.at(-1).method === 'DELETE', 'Revoke method missing'); return writes.at(-1); };
@@ -31,8 +31,8 @@
       pending.resolve(json({ devices }, status)); await pause(); await pause();
       assert(!modal().open && document.querySelector('h1')?.textContent === '時間軸', 'Late list read changed page ' + status); await settings();
     }
-    const other = await load(); document.querySelector('[data-key=settings-goals]').click(); await until(() => modal().open); const goal = modal().querySelector('input'); goal.value = '321'; goal.focus();
-    other.resolve(json({ devices })); await pause(); await pause(); assert(modal().querySelector('input') === goal && goal.value === '321' && document.activeElement === goal, 'Late list replaced another modal'); await close();
+    const other = await load(); document.querySelector('[data-key=settings-categories-edit]').click(); await until(() => modal().open && !!modal().querySelector('[data-category-id]')); const goal = modal().querySelector('[data-category-id]'); goal.value = '321'; goal.focus();
+    other.resolve(json({ devices })); await pause(); await pause(); assert(modal().querySelector('[data-category-id]') === goal && goal.value === '321' && document.activeElement === goal, 'Late list replaced another modal'); await close();
     for (const status of [200, 503, 401]) {
       await open(); const pending = await create(); assert(label().disabled, 'Create controls stay editable'); await close(); await open();
       label().value = '合成：保留新工具草稿 ' + status; label().focus(); const count = writes.length; button('建立裝置金鑰', modal()).click(); await pause();
@@ -47,9 +47,9 @@
     }
     for (const status of [200, 401]) {
       await open(); const pending = await revoke(); holdReads = true; const n = reads.length; pending.resolve(new Response(null, { status: 204 })); await until(() => reads.length > n); holdReads = false;
-      const followup = reads.at(-1); await close(); await until(() => !!document.querySelector('[data-key=settings-goals]')); document.querySelector('[data-key=settings-goals]').click(); await until(() => modal().open);
-      const goal = modal().querySelector('input'); goal.value = '322'; goal.focus(); followup.resolve(json({ devices }, status)); await pause(); await pause();
-      assert(modal().querySelector('input') === goal && goal.value === '322' && document.activeElement === goal, 'Late revoke follow-up reopened manager ' + status); await close();
+      const followup = reads.at(-1); await close(); await until(() => !!document.querySelector('[data-key=settings-categories-edit]')); document.querySelector('[data-key=settings-categories-edit]').click(); await until(() => modal().open && !!modal().querySelector('[data-category-id]'));
+      const goal = modal().querySelector('[data-category-id]'); goal.value = '322'; goal.focus(); followup.resolve(json({ devices }, status)); await pause(); await pause();
+      assert(modal().querySelector('[data-category-id]') === goal && goal.value === '322' && document.activeElement === goal, 'Late revoke follow-up reopened manager ' + status); await close();
     }
     // Current failed create keeps fields; retry yields only a masked one-time key.
     await open(); const failed = await create(); failed.resolve(json({}, 503)); await until(() => !label().disabled && !!modal().querySelector('[role=alert]'));

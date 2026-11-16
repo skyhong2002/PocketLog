@@ -14,7 +14,7 @@
   const pick = () => [...group().querySelectorAll('button')].find(n => n.textContent === '從最近活動選擇 app');
   const edit = (node, value) => { node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); };
   const open = async () => {
-    document.querySelector('[data-key=settings-categories]').click();
+    document.querySelector('[data-key=settings-categories-edit]').click();
     await until(() => document.querySelector('#modal').open);
     if (!group()) button('新增規則').click();
     await until(group);
@@ -32,7 +32,7 @@
       return json({ apps: mode === 'empty' ? [] : Array.from({ length: 23 }, (_, i) => ({ app: 'example.synthetic.app' + i, duration_ms: 10000 })) });
     };
     document.querySelector('button[aria-label="設定"]').click();
-    await until(() => !!document.querySelector('[data-key=settings-categories]'));
+    await until(() => !!document.querySelector('[data-key=settings-categories-edit]'));
     await open();
     edit(input(), 'manual.unknown');
     const category = document.querySelector('#modal input[data-category-id]');

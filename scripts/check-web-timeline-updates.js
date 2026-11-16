@@ -38,28 +38,24 @@
   for(const state of ['hidden','offline','editing','modal']){
    if(state==='hidden')visible='hidden';if(state==='offline')connected=false;
    if(state==='editing')document.querySelector('[data-key=day-date]').focus();
-   if(state==='modal'){document.querySelector('[data-key=chip-edit]').click();await until(()=>document.querySelector('#modal').open);}
+   if(state==='modal'){document.querySelector('#modal').showModal();await until(()=>document.querySelector('#modal').open);}
    n=readCount;await tick();assert(readCount===n,'read during '+state);
    visible='visible';connected=true;document.activeElement.blur();
-   if(state==='modal'){document.querySelector('#modal .close').click();await until(()=>!document.querySelector('#modal').open);}
+   if(state==='modal'){document.querySelector('#modal').close();await until(()=>!document.querySelector('#modal').open);}
   }
   // A held check owns one request; a second tick cannot overlap it.
   hold=true;release=null;n=readCount;const first=tick();await until(()=>!!release);await tick();assert(readCount===n+1,'overlapping checks');release();await first;
   version=1;const active=document.querySelector('[data-key=chip-null]');active.focus();const focus=document.activeElement;
   const viewport=document.querySelector('.timeline-window');if(viewport)viewport.scrollTop=400;const scroll=viewport?.scrollTop;
-  await tick();assert(shown()&&document.body.textContent.includes('有新的活動或分類更新'),'update missing');assert(document.activeElement===focus,'check stole focus');if(viewport)assert(viewport.scrollTop===scroll,'check moved timeline');assert(!document.querySelector('.timeline-panel').textContent.includes('合成即時更新'),'check silently replaced snapshot');
+  await tick();assert(shown()&&document.body.textContent.includes('有新的活動卡或更新'),'update missing');assert(document.activeElement===focus,'check stole focus');if(viewport)assert(viewport.scrollTop===scroll,'check moved timeline');assert(!document.querySelector('.timeline-panel').textContent.includes('合成即時更新'),'check silently replaced snapshot');
   update().click();await until(()=>!!update()&&!shown()&&document.querySelector('.timeline-panel')?.textContent.includes('合成即時更新 1'));assert(document.activeElement.dataset.key==='timeline-content','explicit reload focus');if(viewport)assert(document.querySelector('.timeline-window').scrollTop===scroll,'explicit reload moved timeline');
-  // Explicit week reload retains both time and horizontal day position too.
-  document.querySelector('[data-key=mode-week]').click();await until(()=>!!document.querySelector('.timeline-panel .scroll')&&!!update());
-  let week=document.querySelector('.timeline-panel .scroll');week.scrollTop=600;week.scrollLeft=300;const weekPosition=[week.scrollTop,week.scrollLeft];version=2;document.activeElement.blur();await tick();assert(shown(),'week update missing');update().click();await until(()=>!!update()&&!shown()&&!!document.querySelector('.timeline-panel .scroll'));await tick();assert(!shown(),'week reload retained old baseline');week=document.querySelector('.timeline-panel .scroll');assert(week.scrollTop===weekPosition[0]&&week.scrollLeft===weekPosition[1],'explicit week reload moved viewport');
-  document.querySelector('[data-key=mode-day]').click();await until(()=>!!document.querySelector('.timeline-window')&&!!update());
-  failure=true;await tick();assert(shown()&&document.body.textContent.includes('暫時無法檢查'),'failure guidance');assert(document.querySelector('.timeline-panel').textContent.includes('合成即時更新 2'),'failure lost snapshot');failure=false;await tick();assert(!shown(),'recovery failed');
+  failure=true;await tick();assert(shown()&&document.body.textContent.includes('暫時無法檢查'),'failure guidance');assert(document.querySelector('.timeline-panel').textContent.includes('合成即時更新 1'),'failure lost snapshot');failure=false;await tick();assert(!shown(),'recovery failed');
   // Old completions cannot repopulate another page, and navigation clears timers.
-  hold=true;release=null;const pending=tick();await until(()=>!!release);const stale=watch();await nav('每日回顧');assert(!stale.active,'navigation did not clear watcher');release();await pending;assert(!update(),'late check changed other page');
+  hold=true;release=null;const pending=tick();await until(()=>!!release);const stale=watch();await nav('回顧');assert(!stale.active,'navigation did not clear watcher');release();await pending;assert(!update(),'late check changed other page');
   await nav('時間軸');const dateNow=RealDate.now();window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[dateNow+86400000]));}static now(){return dateNow+86400000;}};
-  n=readCount;await tick();assert(readCount===n&&shown()&&document.body.textContent.includes('新的一天已開始'),'rollover');window.Date=RealDate;
-  await nav('時間軸');hold=true;release=null;const logoutPending=tick();await until(()=>!!release);const logoutWatch=watch();await nav('設定');await until(()=>!!button('登出'));button('登出').click();await until(()=>document.body.textContent.includes('已登出'));assert(!logoutWatch.active,'logout did not clear watcher');release(401);await logoutPending;assert(document.body.textContent.includes('已登出')&&!update(),'stale401 changed logout');
+  n=readCount;await tick();assert(readCount===n&&shown()&&document.body.textContent.includes('新的一天開始了'),'rollover');window.Date=RealDate;
+  await nav('時間軸');hold=true;release=null;const logoutPending=tick();await until(()=>!!release);const logoutWatch=watch();await nav('設定');await until(()=>!!button('登出這個瀏覽器'));button('登出這個瀏覽器').click();await until(()=>document.body.textContent.includes('已登出'));assert(!logoutWatch.active,'logout did not clear watcher');release(401);await logoutPending;assert(document.body.textContent.includes('已登出')&&!update(),'stale401 changed logout');
   assert(document.documentElement.scrollWidth<=innerWidth,'overflow');
-  return {passed:true,width:innerWidth,checks:'120s controlled cadence,unchanged,hidden/offline/edit/modal skips,no overlap,change preserves focus/scroll/snapshot,explicit reload,failure/recovery,stale navigation,rollover,logout401'};
+  return {passed:true,width:innerWidth,checks:'120s controlled cadence,unchanged,hidden/offline/edit/modal skips,no overlap,change preserves focus/scroll/snapshot,explicit reload,failure/recovery (single-day timeline; the week grid moved to 回顧),stale navigation,rollover,logout401'};
  }finally{window.fetch=original;for(const w of watches)w.active=false;window.setInterval=interval;window.clearInterval=clear;window.Date=RealDate;restore(document,'visibilityState',visibility);restore(navigator,'onLine',online);delete window.POCKETLOG_SYNTHETIC_UPDATES_CHECK;}
 })()
