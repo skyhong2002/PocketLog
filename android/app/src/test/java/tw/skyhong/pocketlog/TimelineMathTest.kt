@@ -128,4 +128,11 @@ class TimelineMathTest {
         assertEquals("01:26 · 不到 1 分", TimelineMath.rangeLabel("01:26", "01:27", 40_000))
         assertEquals("16:00–16:14 · 14 分", TimelineMath.rangeLabel("16:00", "16:14", 14 * 60_000L))
     }
+    @Test fun consecutiveAppOnlyCardsOfOneAppCollapse() {
+        val m = 60_000L
+        fun s(app: String, start: Long, end: Long, appOnly: Boolean = true) = TimelineMath.Slot(app, start * m, end * m, appOnly)
+        val slots = listOf(s("a", 0, 0), s("a", 3, 4), s("a", 9, 9), s("a", 20, 21), s("b", 22, 22), s("b", 23, 24, appOnly = false), s("b", 25, 26), s("", 27, 27), s("", 28, 28))
+        assertEquals(listOf(listOf(0, 1, 2), listOf(3), listOf(4), listOf(5), listOf(6), listOf(7), listOf(8)), TimelineMath.collapse(slots))
+        assertEquals(emptyList<List<Int>>(), TimelineMath.collapse(emptyList()))
+    }
 }
