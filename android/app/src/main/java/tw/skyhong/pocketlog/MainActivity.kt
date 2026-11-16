@@ -77,6 +77,9 @@ class MainActivity : Activity() {
     private lateinit var navRow: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
+    /** Update checks and downloads never wait behind journal reads. */
+    private val updateExecutor = Executors.newSingleThreadExecutor()
+    private var updateChecking = false
     private val appNames = LocalAppNames()
     private var busy = false
     private var generation = 0
@@ -159,6 +162,7 @@ class MainActivity : Activity() {
         super.onStart()
         visible = true
         timelineWatch?.resume()
+        autoUpdateCheck()
     }
 
     override fun onStop() {
@@ -190,6 +194,7 @@ class MainActivity : Activity() {
     private fun buildShell() {
         shell = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Palette.CANVAS) }
         header = LinearLayout(this@MainActivity).apply {
+            setBackgroundColor(Palette.CANVAS)
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; minimumHeight = ui.dp(64)
             setPadding(ui.dp(8), ui.dp(6), ui.dp(12), ui.dp(6))
         }
@@ -200,6 +205,7 @@ class MainActivity : Activity() {
         scroll = ScrollView(this@MainActivity).apply { isFillViewport = true; isNestedScrollingEnabled = true; clipToPadding = false }
         scroll.setOnScrollChangeListener { _, _, y, _, _ ->
             headerDivider.visibility = if (y > 0) View.VISIBLE else View.INVISIBLE
+            header.elevation = if (y > 0) ui.dp(3).toFloat() else 0f
             stickyPeriod?.let { period -> headerSubtitle?.apply { text = period; visibility = if (y > ui.dp(48)) View.VISIBLE else View.GONE } }
         }
         // Generous bottom room so the last row always clears the bottom navigation and gesture bar.
@@ -432,13 +438,14 @@ class MainActivity : Activity() {
         else -> when (card.optString("source")) { "user" -> "你改過"; "ai" -> null; "local_excerpt" -> "畫面文字"; else -> "只有 app" }
     }
     /** At most one exception badge; while AI is still working only `AI 整理中` shows. */
+    private fun badgeKind(text: String) = when (text) { "AI 整理中" -> Ui.Badge.ACCENT; "受保護畫面" -> Ui.Badge.AMBER; else -> Ui.Badge.NEUTRAL }
     private fun badges(card: JSONObject): List<String> = listOfNotNull(when {
         card.optBoolean("pending_context") -> "AI 整理中"
         card.optBoolean("protected_screen") -> "受保護畫面"
         else -> sourceException(card)
     })
     private fun cardSummary(card: JSONObject): String =
-        card.optString("summary").ifBlank { if (card.optString("source") == "app_only") "只知道使用了這個 app" else "" }
+        card.optString("summary").ifBlank { if (card.optString("source") == "app_only" && !card.optBoolean("pending_context")) "只知道使用了這個 app" else "" }
     /** `01:26–01:40 · 14 分`, or `01:26 · 不到 1 分` for a zero-length range. */
     private fun timeRange(start: Long, end: Long): String = TimelineMath.rangeLabel(clock(start), clock(end), end - start)
     private fun lastSyncText(ms: Long): String = when {
@@ -468,7 +475,7 @@ class MainActivity : Activity() {
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
         override fun afterTextChanged(s: Editable?) = after(s?.toString().orEmpty())
     }
-    private fun version(): String = runCatching { packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0)).versionName }.getOrNull() ?: "?"
+    private fun version(): String = BuildConfig.VERSION_NAME.removeSuffix("-sandbox")
     private fun wrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     private fun step(parent: ViewGroup, number: String, title: String, detail: String) {
@@ -492,16 +499,18 @@ class MainActivity : Activity() {
         }
     }
 
-    /** One line per category: label | bar (share of the total) | `1 小時 · 25%`, numbers right-aligned. */
+    /** `● 分類 | bar (≥ 40% width) | 1 小時 · 25%`, one line on every width, numbers right-aligned. */
     private fun categoryBars(parent: ViewGroup, totals: List<Pair<String, Long>>) {
         val sum = totals.sumOf { it.second }.coerceAtLeast(1)
         totals.forEach { (id, ms) ->
             val percent = (ms.toDouble() / sum * 100).roundToInt()
-            val row = ui.horizontal(parent, 10).apply { minimumHeight = ui.dp(36); isScreenReaderFocusable = true; contentDescription = "${label(id)}，${TimelineMath.duration(ms)}，$percent%" }
-            row.addView(ui.swatch(colorFor(id), 10))
-            ui.text(row, label(id), 15f).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }.layoutParams = LinearLayout.LayoutParams(ui.dp(76), ViewGroup.LayoutParams.WRAP_CONTENT)
-            row.addView(bar(ms.toFloat() / sum, colorFor(id)), ui.lp(0, ui.dp(8), weight = 1f))
-            ui.text(row, "${TimelineMath.duration(ms)} · $percent%", 14f, Palette.INK).apply { gravity = Gravity.END; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }.layoutParams = LinearLayout.LayoutParams(ui.dp(116), ViewGroup.LayoutParams.WRAP_CONTENT)
+            val row = ui.horizontal(parent, 8).apply { minimumHeight = ui.dp(36); isScreenReaderFocusable = true; contentDescription = "${label(id)}，${TimelineMath.duration(ms)}，$percent%" }
+            ui.text(row, label(id), 14f).apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(6)
+            }.layoutParams = ui.lp(0, weight = .22f)
+            row.addView(bar(ms.toFloat() / sum, colorFor(id)), ui.lp(0, ui.dp(8), weight = .42f))
+            ui.text(row, "${TimelineMath.duration(ms)} · $percent%", 12f, Palette.INK).apply { gravity = Gravity.END; isSingleLine = true; ellipsize = TextUtils.TruncateAt.START; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }.layoutParams = ui.lp(0, weight = .36f)
         }
     }
 
@@ -578,17 +587,16 @@ class MainActivity : Activity() {
         return row
     }
 
-    /** Previous / date picker / next, plus 今天 when another period is shown. */
-    /** ‹ date ›, plus 今天 when another period is shown. The date opens a picker. */
+    /** ‹ date › grouped together, plus a compact 今天 when another period is shown. The date opens a picker. */
     private fun dateNav(parent: ViewGroup, step: Long = 1, label: String = dateTitle(day), onChange: (LocalDate) -> Unit) {
         val today = journalDay(); val earliest = today.minusDays(TimelineMath.HISTORY_DAYS)
         fun target(delta: Long) = day.plusDays(delta).coerceIn(earliest, today)
         fun samePeriod(d: LocalDate) = if (step == 7L) TimelineMath.weekStart(d) == TimelineMath.weekStart(day) else d == day
-        val row = ui.horizontal(parent, 4).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(8) }
+        val row = ui.horizontal(parent, 0).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(8) }
         val prev = target(-step); val next = target(step)
         val unit = if (step == 7L) "週" else "天"
         row.addView(iconButton(R.drawable.ic_back, "前一$unit") { onChange(prev) }.apply { if (samePeriod(prev)) { isEnabled = false; alpha = .35f; contentDescription = "前一$unit（已到最早日期）" } })
-        ui.button(row, label, Tone.TEXT, 1f) {
+        ui.button(row, label, Tone.TEXT) {
             DatePickerDialog(this@MainActivity, { _, y, m, d ->
                 val picked = LocalDate.of(y, m + 1, d)
                 if (TimelineMath.inHistory(picked, today)) onChange(picked) else notice("只能查看最近 10 年", Kind.WARN)
@@ -596,9 +604,12 @@ class MainActivity : Activity() {
                 datePicker.minDate = earliest.atStartOfDay(zone).toInstant().toEpochMilli()
                 datePicker.maxDate = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
             }.show()
-        }.apply { setTextColor(Palette.INK); textSize = 17f; typeface = android.graphics.Typeface.DEFAULT_BOLD; contentDescription = "$label，選擇日期" }
+        }.apply { layoutParams = wrap(); setPadding(ui.dp(6), 0, ui.dp(6), 0); setTextColor(Palette.INK); textSize = 17f; typeface = android.graphics.Typeface.DEFAULT_BOLD; contentDescription = "$label，選擇日期" }
         row.addView(iconButton(R.drawable.ic_chevron, "後一$unit") { onChange(next) }.apply { if (samePeriod(next)) { isEnabled = false; alpha = .35f; contentDescription = "後一$unit（已是最新）" } })
-        if (!samePeriod(today)) ui.button(row, if (step == 7L) "本週" else "今天", Tone.OUTLINE) { onChange(today) }.layoutParams = wrap()
+        row.addView(View(this), ui.lp(0, 1, weight = 1f))
+        if (!samePeriod(today)) ui.button(row, if (step == 7L) "本週" else "今天", Tone.TEXT) { onChange(today) }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(48)); setPadding(ui.dp(12), 0, ui.dp(12), 0); textSize = 14f
+        }
     }
 
     // ---------------------------------------------------------------- first run, connection and onboarding
@@ -743,13 +754,9 @@ class MainActivity : Activity() {
 
     private fun home() {
         loaded = null
-        val body = screen("時間軸", null, Tab.TIMELINE, logo = true, refresh = null)
+        val body = screen("時間軸", null, Tab.TIMELINE, logo = true, refresh = null,
+            action = Triple(R.drawable.ic_sync, "重新整理") { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { home() } })
         stickyPeriod = dateTitle(day)
-        // A labelled action instead of a bare icon.
-        header.addView(ui.button(null, "同步", Tone.TEXT) { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { home() } }.apply {
-            layoutParams = wrap(); contentDescription = "同步並重新整理"
-            setCompoundDrawablesRelativeWithIntrinsicBounds(getDrawable(R.drawable.ic_sync)?.mutate()?.apply { setTint(Palette.ACCENT_DARK) }, null, null, null); compoundDrawablePadding = ui.dp(6)
-        })
         dateNav(body) { day = it; home() }
         val status = ui.column(body)
         val slot = ui.column(body)
@@ -919,7 +926,7 @@ class MainActivity : Activity() {
         val head = ui.horizontal(slot, 8)
         val count = ui.text(head, "", 16f, bold = true).apply { layoutParams = ui.lp(0, weight = 1f) }
         lateinit var filter: Button
-        val holder = ui.card(slot, padding = 8)
+        val holder = ui.column(slot)
         fun draw() {
             val shown = list.filter { categoryFilter == null || it.getString("category") == categoryFilter }
             count.text = if (categoryFilter == null) "${list.size} 張活動卡" else "${shown.size} / ${list.size} 張活動卡"
@@ -930,8 +937,11 @@ class MainActivity : Activity() {
                 val late = TimelineMath.afterMidnight(day, zone, card.getLong("start_ms"))
                 if (late && !pastMidnight) {
                     pastMidnight = true
-                    ui.text(holder, "隔天凌晨", 13f, Palette.ACCENT_DARK, bold = true, top = if (i > 0) 8 else 0).apply { setPadding(ui.dp(6), ui.dp(8), ui.dp(6), ui.dp(4)); isAccessibilityHeading = true }
-                } else if (i > 0) holder.addView(View(this@MainActivity).apply { setBackgroundColor(Palette.HAIRLINE) }, ui.lp(height = 1))
+                    // Neutral grey divider before cards after midnight.
+                    val divider = ui.horizontal(holder, 8).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = ui.dp(if (i > 0) 4 else 0); bottomMargin = ui.dp(8) } }
+                    ui.text(divider, "隔天凌晨", 13f, Palette.MUTED).apply { isAccessibilityHeading = true }.layoutParams = wrap()
+                    divider.addView(View(this@MainActivity).apply { setBackgroundColor(Palette.BORDER) }, ui.lp(0, 1, weight = 1f))
+                }
                 cardRow(holder, card)
             }
         }
@@ -967,34 +977,35 @@ class MainActivity : Activity() {
         }
     }
 
+    /** A separate card: neutral background, 4 dp left category stripe, time row, title, summary. */
     private fun cardRow(parent: LinearLayout, c: JSONObject) {
         val start = c.getLong("start_ms"); val end = c.getLong("end_ms")
         val title = cardTitle(c)
         val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; minimumHeight = ui.dp(56); setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12))
-            isClickable = true; isFocusable = true; background = ui.ripple(null, 12f); setOnClickListener { if (!busy) cardDetail(c) }
+            orientation = LinearLayout.HORIZONTAL; minimumHeight = ui.dp(56)
+            isClickable = true; isFocusable = true; clipToOutline = true
+            background = ui.ripple(ui.shape(Palette.PAPER, 14f, Palette.BORDER), 14f); setOnClickListener { if (!busy) cardDetail(c) }
         }
-        row.addView(View(this).apply { background = ui.shape(colorFor(c.getString("category")), 2f) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginEnd = ui.dp(12) })
-        val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f) }
-        // Row 1: time · duration, a quiet category chip and at most one exception badge.
+        row.addView(View(this).apply { setBackgroundColor(colorFor(c.getString("category"))) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
+        val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f); setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(12)) }
+        // Row 1: time · duration, soft category chip and at most one badge.
         val meta = ui.flow(column, 6).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0; bottomMargin = ui.dp(4) } }
         val time = timeRange(start, end)
         ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         categoryChip(meta, c.getString("category"))
         val badges = badges(c)
-        badges.forEach { ui.badge(meta, it) }
-        // Row 2 title, row 3 one-line summary, with a clear size and colour step between them.
+        badges.forEach { ui.badge(meta, it, badgeKind(it)) }
         ui.text(column, title, 17f, Palette.INK, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         val summary = cardSummary(c)
         if (summary.isNotBlank()) ui.text(column, summary, 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         row.contentDescription = (listOf(title, time, label(c.getString("category"))) + badges + summary).filter { it.isNotBlank() }.joinToString("，")
-        parent.addView(row, ui.lp())
+        parent.addView(row, ui.lp(bottom = 8))
     }
 
-    /** Quiet category label: the colour lives in the card's left stripe and this small dot. */
+    /** Soft category chip with a colour dot. */
     private fun categoryChip(parent: ViewGroup, id: String): TextView = TextView(this).apply {
-        text = label(id); textSize = 12f; setTextColor(Palette.MUTED)
-        background = ui.shape(Palette.CANVAS, 10f); setPadding(ui.dp(8), ui.dp(2), ui.dp(8), ui.dp(2))
+        text = label(id); textSize = 12f; setTextColor(Palette.INK)
+        background = ui.shape(Palette.tint(colorFor(id), .22f), 10f); setPadding(ui.dp(8), ui.dp(2), ui.dp(8), ui.dp(2))
         setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 6), null, null, null); compoundDrawablePadding = ui.dp(4)
         parent.addView(this, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
@@ -1003,43 +1014,50 @@ class MainActivity : Activity() {
         shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(color); setSize(ui.dp(size), ui.dp(size))
     }
 
-    /** Card detail as a bottom sheet: what happened, its state, one-tap category, and 修改文字. */
+    /**
+     * Card detail sheet, spec order: title → App · 時間 · 時長 → summary → one disclaimer line
+     * (ai/local_excerpt only) → category chips → 修改文字.
+     */
     private fun cardDetail(card: JSONObject) {
         val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
         val start = card.getLong("start_ms"); val end = card.getLong("end_ms")
         val app = card.optString("app")
         ui.text(content, cardTitle(card), 19f, bold = true)
         ui.text(content, listOfNotNull(appNames.name(app).takeIf { app.isNotBlank() }, timeRange(start, end)).joinToString(" · "), 14f, Palette.INK, top = 4)
-        // Source/state in the same words as the cards.
-        val state = when {
-            card.optBoolean("pending_context") -> "AI 整理中"
-            card.optBoolean("protected_screen") -> "受保護畫面"
-            else -> sourceLabel(card)
-        }
-        ui.flow(content, 6).also { flow -> ui.badge(flow, state) }
         val summary = card.optString("summary")
-        cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
-        if (card.optBoolean("protected_screen")) ui.text(content, "這段時間的畫面受系統保護，沒有截圖；只依 app 名稱與畫面文字整理。", 14f, Palette.MUTED, top = 8)
-        if (card.optBoolean("pending_context")) ui.text(content, "還有新的截圖或文字等 AI 整理，稍後再看。", 14f, Palette.MUTED, top = 8)
-        if (card.optString("source") == "ai") ui.text(content, "AI 整理，可能有誤，請核對。", 14f, Palette.MUTED, top = 8)
+        cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 10) }
+        val note = when {
+            card.optBoolean("pending_context") -> "AI 整理中：還有新的截圖或文字等 AI 整理，稍後再看。"
+            card.optBoolean("protected_screen") -> "受保護畫面：沒有截圖，只依 app 名稱與畫面文字整理。"
+            card.optString("source") in setOf("ai", "local_excerpt") -> "AI 整理，可能有誤，請核對。"
+            else -> null
+        }
+        note?.let { ui.text(content, it, 13f, Palette.MUTED, top = 8) }
         ui.heading(content, "分類", top = 16)
-        ui.text(content, "點一下就會儲存，你選的分類會優先。", 14f, Palette.MUTED)
+        ui.text(content, "點一下就會儲存，你選的分類會優先。", 13f, Palette.MUTED)
         lateinit var detail: android.app.Dialog
         val current = card.getString("category")
-        val chips = ui.flow(content, 8)
+        val chips = ui.flow(content, 6)
         (listOf(current) + categories).distinct().forEach { id ->
             val on = id == current
-            ui.button(chips, label(id), if (on) Tone.TONAL else Tone.CHIP) {
+            ui.button(chips, label(id), Tone.CHIP) {
                 if (!on) saveCard(card, cardTitleForSave(card), summary, id) { detail.dismiss() }
             }.apply {
                 layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                textSize = 13f; setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4))
+                // Small visible chip (about 32 dp) inside a 48 dp touch target.
+                textSize = 13f; setPadding(ui.dp(10), 0, ui.dp(12), 0)
+                background = ui.ripple(android.graphics.drawable.InsetDrawable(ui.shape(if (on) Palette.ACCENT_SOFT else Palette.PAPER, 16f, if (on) Palette.ACCENT else Palette.BORDER), 0, ui.dp(8), 0, ui.dp(8)), 16f)
+                setTextColor(if (on) Palette.ACCENT_DARK else Palette.INK)
+                if (on) typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(6)
                 isSelected = on; contentDescription = "${label(id)}，${if (on) "目前分類" else "改成這個分類"}"
             }
         }
         val actions = ui.horizontal(content, 4).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(8); gravity = Gravity.START or Gravity.CENTER_VERTICAL }
-        quietAction(actions, "修改文字", Palette.ACCENT_DARK) { detail.dismiss(); editCardText(card) }
+        ui.button(actions, "修改文字", Tone.OUTLINE) { detail.dismiss(); editCardText(card) }.apply {
+            layoutParams = wrap(); setCompoundDrawablesRelativeWithIntrinsicBounds(getDrawable(R.drawable.ic_edit)?.mutate()?.apply { setTint(Palette.ACCENT_DARK); setBounds(0, 0, ui.dp(18), ui.dp(18)) }, null, null, null)
+            compoundDrawablePadding = ui.dp(6); setTextColor(Palette.ACCENT_DARK)
+        }
         if (RecordingSettings(this).replayConsent) quietAction(actions, "看截圖", Palette.ACCENT_DARK) { replayForCard(card) }
         detail = sheet(content)
     }
@@ -1223,7 +1241,7 @@ class MainActivity : Activity() {
                     val brief = (0 until rows.length()).map { rows.getJSONObject(it) }.lastOrNull { it.optString("kind") == kind }
                     if (brief != null) {
                         ui.body(this, brief.getString("text"), top = 4)
-                        ui.text(this, "AI 產生，可能有誤，請核對。", 13f, Palette.MUTED, top = 8)
+                        ui.text(this, "AI 產生，可能有誤，請對照時間軸。", 13f, Palette.MUTED, top = 8)
                         val actions = ui.horizontal(this, 8).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(8) }
                         ui.button(actions, "重新產生", Tone.OUTLINE) { generateBrief(weekly, ai, from, to, fresh = true) }.layoutParams = wrap()
                         quietAction(actions, "刪除") {
@@ -1245,7 +1263,7 @@ class MainActivity : Activity() {
         // Average over the days of this week that have started (today counts).
         data.days?.let { days ->
             val started = days.filter { it.first <= journalDay() }
-            if (started.isNotEmpty()) ui.text((slot.getChildAt(slot.childCount - 1) as LinearLayout), "平均每天 ${TimelineMath.duration(started.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) } / started.size)}", 14f, Palette.INK, top = 8)
+            if (started.isNotEmpty()) ui.text((slot.getChildAt(slot.childCount - 1) as LinearLayout), "平均每天 ${TimelineMath.duration(started.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) } / started.size)}（已過 ${started.size} 天）", 14f, Palette.INK, top = 8)
         }
 
         // 時間分配
@@ -1282,44 +1300,59 @@ class MainActivity : Activity() {
             val answers = ui.column(this)
             val turns = data.conversation?.optJSONArray("turns") ?: JSONArray()
             for (i in 0 until turns.length()) turns.getJSONObject(i).let { bubble(answers, it.getString("question"), true); bubble(answers, it.getString("answer"), false) }
-            val input = ui.horizontal(this, 8).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(4) }
-            val question = ui.field(input, null, "問問這段時間…", Field.MULTILINE, questionDrafts[key] ?: "").apply { minLines = 1; maxLines = 5; layoutParams = ui.lp(0, weight = 1f) }
+            // The send icon sits inside the input.
+            val input = FrameLayout(this@MainActivity)
+            addView(input, ui.lp(top = 4))
+            val question = ui.field(input, null, "問問這段時間…", Field.MULTILINE, questionDrafts[key] ?: "").apply {
+                minLines = 1; maxLines = 5; setPadding(ui.dp(14), ui.dp(12), ui.dp(52), ui.dp(12))
+                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
             question.filters = arrayOf(android.text.InputFilter.LengthFilter(1000))
             question.addTextChangedListener(watcher { questionDrafts.put(key, it) })
-            ui.button(input, "送出", Tone.PRIMARY) { ask(question, answers, ai, from, to, key) }.apply { layoutParams = wrap(); contentDescription = "問 AI" }
-            val examples = ui.flow(this, 8)
+            input.addView(iconButton(R.drawable.ic_send, "問 AI") { ask(question, answers, ai, from, to, key) }.apply { imageTintList = ColorStateList.valueOf(Palette.ACCENT_DARK) },
+                FrameLayout.LayoutParams(ui.dp(48), ui.dp(48), Gravity.END or Gravity.CENTER_VERTICAL))
+            // Example chips in one horizontally scrollable row, smaller than the input.
+            val examples = chipRow(this)
             (if (weekly) listOf("這週花最多時間在哪？", "這週學了什麼？", "這週有哪些分心的時段？") else listOf("今天花最多時間在哪？", "今天學了什麼？", "有哪些分心的時段？")).forEach { sample ->
-                ui.button(examples, sample, Tone.CHIP) { question.setText(sample); ask(question, answers, ai, from, to, key) }.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                ui.button(examples, sample, Tone.CHIP) { question.setText(sample); ask(question, answers, ai, from, to, key) }.apply {
+                    layoutParams = wrap(); textSize = 13f; setPadding(ui.dp(12), 0, ui.dp(12), 0)
+                    background = ui.ripple(android.graphics.drawable.InsetDrawable(ui.shape(Palette.PAPER, 16f, Palette.BORDER), 0, ui.dp(8), 0, ui.dp(8)), 16f)
+                }
             }
-            ui.text(this, "問題和這段時間的活動卡會送到 $aiHost", 13f, Palette.MUTED, top = 2).apply { isSingleLine = true; ellipsize = TextUtils.TruncateAt.END }
+            ui.text(this, "會把問題和這段時間的活動卡送到 $aiHost（不含截圖）。", 13f, Palette.MUTED, top = 2)
             if (turns.length() > 0) quietAction(this, "開始新的對話", Palette.ACCENT_DARK) { conversations.remove(key); review() }
         }
     }
 
-    /** Seven bars stacked by category, value above (`4.1 時`), faint baseline; tap opens the day. */
+    /** Seven equal full-width columns (~160 dp), value above each stacked bar, `—` and a baseline when empty. */
     private fun weekBars(parent: LinearLayout, days: List<Pair<LocalDate, JSONObject?>>) {
         val split = days.map { (_, data) -> totals(cardsOf(data)) }
         val covered = days.map { (_, data) -> TimelineMath.covered(intervals(cardsOf(data))) }
         val max = split.maxOfOrNull { parts -> parts.sumOf { it.second } }?.coerceAtLeast(1) ?: 1
-        val barHeight = ui.dp(72)
-        val row = ui.horizontal(parent, 4).apply { gravity = Gravity.BOTTOM; (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(8) }
+        val barHeight = ui.dp(124)
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
+        parent.addView(row, ui.lp(top = 8))
         days.forEachIndexed { i, (date, _) ->
             val ms = covered[i]
+            val total = split[i].sumOf { it.second }
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM; isClickable = true; isFocusable = true; minimumHeight = ui.dp(48)
                 background = ui.ripple(null, 8f)
                 contentDescription = "${TimelineMath.weekdayShort(date)}，${if (ms <= 0) "沒有記錄" else TimelineMath.duration(ms)}，開啟這一天"
                 setOnClickListener { if (!busy) { day = date; reviewWeekly = false; review() } }
             }
-            ui.text(cell, if (ms <= 0) " " else TimelineMath.hours(ms), 11f, Palette.INK).apply { gravity = Gravity.CENTER; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
-            val track = FrameLayout(this)
-            val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM }
-            split[i].reversed().forEach { (id, part) ->
-                stack.addView(View(this).apply { setBackgroundColor(colorFor(id)) }, LinearLayout.LayoutParams(ui.dp(18), (barHeight * part.toFloat() / max).toInt().coerceAtLeast(1)))
+            // Value sits right above its bar inside a fixed-height track.
+            val track = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL }
+            ui.text(track, if (ms <= 0) "—" else TimelineMath.hours(ms), 11f, if (ms <= 0) Palette.MUTED else Palette.INK, bottom = 2).apply {
+                gravity = Gravity.CENTER; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ui.dp(2) }
             }
-            track.addView(stack, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
-            track.addView(View(this).apply { setBackgroundColor(Palette.BORDER) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(1), Gravity.BOTTOM))
-            cell.addView(track, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, barHeight).apply { topMargin = ui.dp(2) })
+            split[i].reversed().forEach { (id, part) ->
+                track.addView(View(this).apply { setBackgroundColor(colorFor(id)) }, LinearLayout.LayoutParams(ui.dp(20), (barHeight * part.toFloat() / max).toInt().coerceAtLeast(1)))
+            }
+            if (total <= 0) track.addView(View(this).apply { setBackgroundColor(Palette.BORDER) }, LinearLayout.LayoutParams(ui.dp(20), ui.dp(2)))
+            cell.addView(track, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, barHeight + ui.dp(20)))
+            cell.addView(View(this).apply { setBackgroundColor(Palette.BORDER) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(1)))
             ui.text(cell, TimelineMath.weekdayShort(date), 12f, if (date == day) Palette.ACCENT_DARK else Palette.MUTED, bold = date == day, top = 4).apply { gravity = Gravity.CENTER; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
             row.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
@@ -1397,6 +1430,7 @@ class MainActivity : Activity() {
                 if (busy) { settings(); return@switchRow }
                 if (on) autoRecordFlow(0) { settings() } else confirm("停止自動記錄？", "之後不再記錄 app 使用時段、畫面文字和截圖。還沒上傳的截圖會刪除；已上傳的記錄保留。", "停止", { settings() }) { stopRecording(s) }
             }.also(::pad)
+            if (!s.hasUsageGrant && !s.remotePaused) ui.button(this, "開始記錄") { autoRecordFlow(0) { settings() } }.apply { layoutParams = ui.lp(top = 4, bottom = 8).apply { marginStart = ui.dp(4); marginEnd = ui.dp(4) } }
             if (s.remotePaused) ui.row(this, "所有裝置已暫停", "到「進階」恢復記錄") { recordingAdvanced() }.also { warnTitle(it) }
             else if (s.hasUsageGrant) {
                 val missing = nextStep(s)
@@ -1410,6 +1444,7 @@ class MainActivity : Activity() {
                 ui.row(this, "記錄哪些 app", "記錄 ${effectiveAllowedCount(s)} 個 · 排除 ${s.exclusions.size} 個") { appListsPage() }
             }
             ui.row(this, "進階", "畫面文字、Wi‑Fi、暫停所有裝置、權限") { recordingAdvanced() }
+            ui.text(this, "截圖在充電時上傳，平常只記錄、不耗流量", 13f, Palette.MUTED, top = 4, bottom = 6).setPadding(ui.dp(4), 0, ui.dp(4), 0)
         }
 
         ui.groupLabel(body, "AI")
@@ -1436,7 +1471,12 @@ class MainActivity : Activity() {
             server = ui.row(this, "已連線到你的伺服器", "點一下顯示位址") {
                 ((server.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = host()
             }
-            if (EndpointPolicy.isPlainHttp(credentials?.endpoint)) ui.text(this, "這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路。", 13f, Palette.WARN_INK, bottom = 8).setPadding(ui.dp(4), 0, ui.dp(4), 0)
+            if (EndpointPolicy.isPlainHttp(credentials?.endpoint)) {
+                // Its own row with a warning icon.
+                val warning = ui.horizontal(this, 10).apply { minimumHeight = ui.dp(48); setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8)) }
+                warning.addView(ui.icon(R.drawable.ic_warning, Palette.WARN_INK, 20))
+                ui.text(warning, "這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路", 14f, Palette.WARN_INK).layoutParams = ui.lp(0, weight = 1f)
+            }
             val sync = ui.column(this)
             load(sync, "讀取同步狀態…", { synchronized(SyncEngine.lock) { val q = JournalQueue(this@MainActivity); Triple(q.counts().second, q.observationBacklog().first, SyncEngine.charging(this@MainActivity)) } }) { (rejected, captures, charging) ->
                 val waiting = if (captures > 0) " · $captures 張截圖${if (charging) "正在上傳" else "等充電時上傳"}" else ""
@@ -1461,11 +1501,13 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply {
             val storage = ui.column(this)
             load(storage, "讀取儲存空間…", { api().request("/v1/storage") }) { info -> storageRows(storage, info) }
-            ui.switchRow(this, "防止截圖這個 app", "開啟後，PocketLog 的畫面無法被截圖或錄影", s.protectAppScreen) { on ->
-                task("更新…", { s.protectAppScreen = on }) { applyScreenProtection(); notice(if (on) "已防止截圖這個 app" else "已允許截圖這個 app") }
+            ui.switchRow(this, "防止截圖這個應用程式", "開啟後，PocketLog 的畫面無法被截圖或錄影", s.protectAppScreen) { on ->
+                task("更新…", { s.protectAppScreen = on }) { applyScreenProtection(); notice(if (on) "已防止截圖這個應用程式" else "已允許截圖這個應用程式") }
             }.also(::pad)
-            ui.row(this, "匯出這一天", "${md(day)} 的活動卡，存成檔案") { export() }
-            // Destructive actions last, low emphasis, each behind a 無法復原 confirmation.
+            ui.row(this, "匯出這一天", "${md(day)}的活動卡，存成檔案") { export() }
+            // Destructive actions last, separated, low emphasis, each behind a 無法復原 confirmation.
+            addView(View(this@MainActivity).apply { setBackgroundColor(Palette.HAIRLINE) }, ui.lp(height = 1, top = 8))
+            ui.text(this, "刪除", 12f, Palette.MUTED, bold = true, top = 8).setPadding(ui.dp(4), 0, ui.dp(4), 0)
             quietAction(this, "清除這支手機的資料", Palette.DANGER) {
                 confirmReset("清除這支手機的資料？", "會停止記錄並刪除這支手機還沒上傳的資料。伺服器上的記錄仍保留。無法復原。")
             }
@@ -1480,8 +1522,19 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply {
             ui.row(this, "使用說明", "沒有活動時怎麼辦、目前限制") { helpPage() }
             ui.row(this, "重新看一次介紹", null) { onboarding(0) { settings() } }
+            updateRows(this)
         }
-        ui.text(body, "PocketLog ${version()} · MIT 授權 · 不做分析追蹤", 12f, Palette.MUTED, top = 8).gravity = Gravity.CENTER
+        ui.text(body, "PocketLog ${version()}", 12f, Palette.MUTED, top = 8).gravity = Gravity.CENTER
+    }
+
+    /** 設定 › 說明: 檢查更新 (current version + last result) and 自動檢查更新; test builds never contact GitHub. */
+    private fun updateRows(parent: LinearLayout) {
+        if (!BuildConfig.UPDATE_CHECK) { ui.row(parent, "檢查更新", "目前版本 ${version()} · 測試版不會自動更新", onClick = null); return }
+        val updater = AppUpdater(this)
+        val result = updater.lastResult.ifBlank { "還沒檢查" }
+        ui.row(parent, "檢查更新", "目前版本 ${version()} · $result") { manualUpdateCheck() }
+        ui.switchRow(parent, "自動檢查更新", "開啟 app 時檢查，最多每 12 小時一次；只連到 GitHub", updater.autoCheck) { on -> updater.autoCheck = on }
+            .setPadding(ui.dp(4), 0, ui.dp(4), 0)
     }
 
     private fun warnTitle(row: LinearLayout) = ((row.getChildAt(0) as LinearLayout).getChildAt(0) as TextView).setTextColor(Palette.WARN_INK)
@@ -1790,13 +1843,13 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- AI settings
 
     private fun aiSettings(back: () -> Unit) {
-        val body = screen("AI 服務", "整理截圖、產生回顧、回答問題", tab = null, back = back, nav = false)
+        val body = screen("AI", "整理截圖、產生回顧、回答問題", tab = null, back = back, nav = false)
         val slot = ui.column(body)
         load(slot, "讀取 AI 設定…", { api().request("/v1/ai") }) { config -> renderAiForm(slot, config, back) }
     }
 
     private fun aiState(config: JSONObject): String =
-        if (config.optBoolean("enabled")) "已連接 ${AiProviders.detect(config.optString("protocol"), config.optString("endpoint")).short} · ${config.optString("model")}" else "尚未設定 AI"
+        if (config.optBoolean("enabled")) "已連接：${AiProviders.detect(config.optString("protocol"), config.optString("endpoint")).short} · ${config.optString("model")}" else "尚未設定 AI"
 
     /**
      * Order: AI 服務 → (API 網址 for 自訂) → 金鑰 → 模型 + 載入模型清單 → 讓 AI 看截圖 → 測試並儲存 → 自動化.
@@ -1818,15 +1871,19 @@ class MainActivity : Activity() {
             help = "填到 /v1 就好，伺服器會自動加上 /chat/completions。公開網路要用 https。")
         val endpointViews = (endpointStart until form.childCount).map { form.getChildAt(it) }
         val key = ui.field(form, "API 金鑰", "", Field.SECRET)
-        val keyLink = quietAction(form, "", Palette.ACCENT_DARK) { current.keyUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it))) } }
+        val keyLink = quietAction(form, "", Palette.ACCENT_DARK) { current.keyUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it))) } }.apply { setPadding(0, ui.dp(8), ui.dp(12), ui.dp(8)) }
         val model = ui.field(form, "模型", "", Field.TEXT, if (enabled) config.optString("model") else saved.suggestedModel)
         fun requestBase(preset: AiProviders.Preset): JSONObject? {
             val url = runCatching { preset.endpoint(model.text.toString().ifBlank { preset.suggestedModel.ifBlank { "model" } }, endpoint.text.toString()) }.getOrNull() ?: return null
             return JSONObject().put("protocol", preset.protocol).put("endpoint", url).also { if (key.text.isNotBlank()) it.put("api_key", key.text.toString().trim()) }
         }
-        quietAction(form, "載入模型清單", Palette.ACCENT_DARK) {
-            val request = requestBase(current) ?: run { notice("請先檢查 API 網址。", Kind.WARN); return@quietAction }
+        lateinit var loadModels: Button
+        loadModels = ui.button(form, "載入模型清單", Tone.OUTLINE) {
+            val request = requestBase(current) ?: run { notice("請先檢查 API 網址。", Kind.WARN); return@button }
+            loadModels.isEnabled = false; loadModels.text = "載入中…"
+            fun restore() { loadModels.isEnabled = true; loadModels.text = "載入模型清單" }
             task("讀取模型清單…", { try { api().request("/v1/ai/models", request) } finally { request.remove("api_key") } }, failed = { error ->
+                restore()
                 notice(when ((error as? ApiFailure)?.status) {
                     429 -> "伺服器正在測試 AI，請稍後再試。"
                     502 -> "讀不到模型清單，請確認網址與金鑰；也可以直接輸入模型名稱。"
@@ -1834,12 +1891,13 @@ class MainActivity : Activity() {
                     else -> describe(error)
                 }, Kind.WARN)
             }) { response ->
+                restore()
                 val list = response.optJSONArray("models") ?: JSONArray()
                 val ids = (0 until list.length()).map { list.getString(it) }
                 if (ids.isEmpty()) { notice("沒有找到模型，請直接輸入模型名稱。", Kind.WARN); return@task }
                 dialog().setTitle("選擇模型").setItems(ids.toTypedArray()) { _, which -> model.setText(ids[which]) }.setNegativeButton("取消", null).showSecure()
             }
-        }
+        }.apply { layoutParams = wrap().apply { topMargin = ui.dp(4) } }
         val images = ui.switchRow(form, "讓 AI 看截圖", "關閉後只送畫面文字", if (enabled) config.optBoolean("image_support") else saved.vision) {}
         val buttons = mutableListOf<Button>()
         fun paint() {
@@ -1921,7 +1979,7 @@ class MainActivity : Activity() {
     private fun aiSwitches(parent: LinearLayout, config: JSONObject, after: () -> Unit) {
         val target = AiProviders.host(config.optString("endpoint"))
         val auto = config.optBoolean("auto_summarize")
-        ui.switchRow(parent, "自動整理新截圖", "新的畫面文字${if (config.optBoolean("image_support")) "與截圖" else ""}會自動送到 $target", auto) { on ->
+        ui.switchRow(parent, "自動整理新截圖", "新截圖會自動送到你的 AI 整理\n$target", auto) { on ->
             if (busy) { after(); return@switchRow }
             fun commit() = task(if (on) "開啟中…" else "關閉中…", {
                 api().request("/v1/ai/auto", JSONObject().put("provider_id", config.getString("provider_id")).put("enabled", on), "PUT")
@@ -1938,7 +1996,7 @@ class MainActivity : Activity() {
         val schedule = ui.column(parent)
         load(schedule, "讀取回顧排程…", { api().request("/v1/briefs/schedule") }) { current ->
             val on = current.optBoolean("enabled") && current.optString("provider_id") == config.optString("provider_id") && (current.optBoolean("daily") || current.optBoolean("weekly"))
-            ui.switchRow(schedule, "每天自動產生回顧", "每天 ${"%02d:%02d".format(Locale.ROOT, current.optInt("minute_of_day") / 60, current.optInt("minute_of_day") % 60)} 整理前一天，週一另外整理上一週", on) { enable ->
+            ui.switchRow(schedule, "每天自動產生回顧", if (on) "每天 ${"%02d:%02d".format(Locale.ROOT, current.optInt("minute_of_day") / 60, current.optInt("minute_of_day") % 60)} 產生前一天的回顧" else "關閉中：可在「回顧」手動產生", on) { enable ->
                 if (busy) { after(); return@switchRow }
                 val request = JSONObject(current.toString()).put("enabled", enable).put("provider_id", config.optString("provider_id"))
                     .put("timezone", current.optString("timezone").ifBlank { zone.id })
@@ -1960,7 +2018,7 @@ class MainActivity : Activity() {
         fun size(bytes: Long) = if (bytes >= gib) "%.1f GB".format(Locale.ROOT, bytes / gib) else "%.0f MB".format(Locale.ROOT, bytes / (1024.0 * 1024))
         val used = info.optLong("used_bytes"); val limit = info.optLong("limit_bytes")
         val textOnly = if (info.isNull("text_only_before_ms")) null else info.optLong("text_only_before_ms")
-        ui.row(parent, "伺服器空間", "已用 ${size(used)} / ${size(limit)} · 截圖 ${info.optLong("image_count")} 張", onClick = null)
+        ui.row(parent, "伺服器空間", "已用 ${size(used)} / ${size(limit)}", onClick = null)
         if (textOnly != null) ui.meta(parent, "${dateTitle(Instant.ofEpochMilli(textOnly).atZone(ZoneId.systemDefault()).toLocalDate())} 以前的截圖已因空間上限刪除，文字保留。", top = 4, bottom = 4).setPadding(ui.dp(4), 0, ui.dp(4), 0)
         ui.row(parent, "空間上限", "超過時從最舊的截圖開始刪除，文字永久保留") { storageLimitDialog(info) }
     }
@@ -1996,6 +2054,79 @@ class MainActivity : Activity() {
                     @Suppress("DEPRECATION")
                     startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type = "application/json"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE, "pocketlog-$day.json") }, 20)
                 }.showSecure()
+        }
+    }
+
+    // ---------------------------------------------------------------- in-app updates (release builds only)
+
+    /** On foreground, at most every 12 h, when enabled; never on sandbox/debug builds. */
+    private fun autoUpdateCheck() {
+        if (!BuildConfig.UPDATE_CHECK || updateChecking) return
+        val updater = AppUpdater(this)
+        if (!Updates.due(updater.autoCheck, System.currentTimeMillis(), updater.lastCheck)) return
+        updateChecking = true
+        updateExecutor.execute {
+            val release = runCatching { updater.check() }.getOrNull()
+            runOnUiThread {
+                updateChecking = false
+                if (release != null && release.versionCode != updater.skippedCode && visible && !busy && !isFinishing) offerUpdate(release)
+            }
+        }
+    }
+
+    private fun manualUpdateCheck() {
+        if (!BuildConfig.UPDATE_CHECK) return
+        task("檢查更新…", { AppUpdater(this).check() }, failed = { error -> AppUpdater(this).lastResult = error.message ?: "檢查沒有完成"; notice(error.message ?: "檢查沒有完成", Kind.WARN) }) { release ->
+            if (release == null) { notice("已是最新版", Kind.INFO); if (tab == Tab.SETTINGS) settings() } else offerUpdate(release)
+        }
+    }
+
+    /** 有新版本 dialog: plain-text notes (never HTML or links), 稍後 / 略過這個版本 / 更新. */
+    private fun offerUpdate(release: Updates.Release) {
+        val notes = TextView(this).apply {
+            text = release.notes.ifBlank { "這個版本沒有附說明。" }; textSize = 14f; setTextColor(Palette.INK); setTextIsSelectable(false)
+            autoLinkMask = 0; linksClickable = false; setPadding(ui.dp(24), ui.dp(8), ui.dp(24), ui.dp(8))
+        }
+        dialog().setTitle("有新版本 ${release.version}").setView(ScrollView(this).apply { addView(notes) })
+            .setNegativeButton("稍後", null)
+            .setNeutralButton("略過這個版本") { _, _ -> AppUpdater(this).skippedCode = release.versionCode }
+            .setPositiveButton("更新") { _, _ -> startUpdate(release) }.showSecure()
+    }
+
+    private fun startUpdate(release: Updates.Release) {
+        if (!packageManager.canRequestPackageInstalls()) {
+            dialog().setTitle("允許安裝更新").setMessage("Android 需要你允許 PocketLog 安裝更新。接下來的畫面打開「允許這個來源」，返回後再按一次更新。")
+                .setNegativeButton("取消", null).setPositiveButton("前往設定") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:$packageName")))
+                }.showSecure()
+            return
+        }
+        val updater = AppUpdater(this)
+        var cancelled = false
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 1000; isIndeterminate = true }
+        val label = ui.text(null, "下載中…", 14f, Palette.INK)
+        val box = ui.column(null).apply { setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0); addView(label); addView(bar, ui.lp(top = 8)) }
+        val progress = dialog().setTitle("更新 ${release.version}").setView(box).setCancelable(false)
+            .setNegativeButton("取消") { _, _ -> cancelled = true }.showSecure()
+        updateExecutor.execute {
+            val result = runCatching {
+                val file = updater.download(release, { cancelled }) { done, total ->
+                    runOnUiThread {
+                        if (total > 0) { bar.isIndeterminate = false; bar.progress = (done * 1000 / total).toInt() }
+                        val shown = "下載中… ${done / (1024 * 1024)} / ${if (total > 0) "${total / (1024 * 1024)} MB" else "? MB"}"
+                        label.text = shown
+                    }
+                }
+                updater.install(file)
+            }
+            runOnUiThread {
+                if (progress.isShowing) progress.dismiss()
+                result.exceptionOrNull()?.let { error ->
+                    val message = (error as? UpdateFailure)?.message ?: "更新沒有完成，請稍後再試"
+                    updater.lastResult = message; updater.cleanup()
+                    if (!isFinishing) notice(message, if (message == AppUpdater.CANCELLED) Kind.INFO else Kind.ERROR)
+                } ?: notice("檢查碼正確，請在 Android 的畫面確認安裝。", Kind.INFO)
+            }
         }
     }
 
@@ -2277,7 +2408,7 @@ class MainActivity : Activity() {
         replayDialog?.dismiss(); replayDialog = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
-        executor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
+        executor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
         super.onDestroy()
     }
 }

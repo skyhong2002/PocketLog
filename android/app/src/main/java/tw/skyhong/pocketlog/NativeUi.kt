@@ -44,6 +44,8 @@ object Palette {
     const val WARN_SOFT = 0xFFFAF0D9.toInt()
     const val WARN_INK = 0xFF684C12.toInt()
     const val FALLBACK_CATEGORY = 0xFFB1A797.toInt()
+    /** Off-state switch outline/thumb: 4.6:1 against paper. */
+    const val SWITCH_OFF = 0xFF6B776D.toInt()
 
     /** Mixes a category color toward paper for readable dark text on a tinted card. */
     fun tint(color: Int, amount: Float): Int {
@@ -154,9 +156,12 @@ class Ui(val context: Context) {
     }
 
     /** Quiet outlined label for exceptions on cards (畫面文字, AI 整理中, 受保護畫面…). */
-    fun badge(parent: ViewGroup?, value: String): TextView = TextView(context).apply {
-        text = value; textSize = 12f; setTextColor(Palette.MUTED)
-        background = shape(Color.TRANSPARENT, 10f, Palette.BORDER); setPadding(dp(8), dp(2), dp(8), dp(2))
+    enum class Badge { ACCENT, AMBER, NEUTRAL }
+    /** Soft-filled card badge: `AI 整理中` accent, `受保護畫面` amber, everything else neutral. */
+    fun badge(parent: ViewGroup?, value: String, kind: Badge = Badge.NEUTRAL): TextView = TextView(context).apply {
+        text = value; textSize = 12f
+        val (fill, ink) = when (kind) { Badge.ACCENT -> Palette.ACCENT_SOFT to Palette.ACCENT_DARK; Badge.AMBER -> Palette.WARN_SOFT to Palette.WARN_INK; Badge.NEUTRAL -> Palette.HAIRLINE to Palette.MUTED }
+        setTextColor(ink); background = shape(fill, 10f); setPadding(dp(8), dp(2), dp(8), dp(2))
         parent?.addView(this, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
@@ -237,8 +242,19 @@ class Ui(val context: Context) {
     @Suppress("UseSwitchCompatOrMaterialCode") // Platform widget on purpose: no AppCompat/Material dependency.
     fun switchRow(parent: ViewGroup, label: String, detail: String?, checked: Boolean, onChange: (Boolean) -> Unit): Switch = Switch(context).apply {
         text = if (detail == null) label else "$label\n$detail"; textSize = 15f; setTextColor(Palette.INK); isChecked = checked; minHeight = dp(56)
-        thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Palette.ACCENT, Color.WHITE))
-        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Palette.ACCENT_SOFT, Palette.BORDER))
+        // Off: outlined track and grey thumb (>= 3:1 against paper). On: filled accent track, white thumb.
+        thumbTintList = null; trackTintList = null
+        trackDrawable = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), shape(Palette.HAIRLINE, 14f, Palette.BORDER, 2f).apply { setSize(dp(48), dp(28)) })
+            addState(intArrayOf(android.R.attr.state_checked), shape(Palette.ACCENT, 14f).apply { setSize(dp(48), dp(28)) })
+            addState(intArrayOf(), shape(Palette.PAPER, 14f, Palette.SWITCH_OFF, 2f).apply { setSize(dp(48), dp(28)) })
+        }
+        fun knob(color: Int) = android.graphics.drawable.InsetDrawable(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setSize(dp(18), dp(18)) }, dp(5))
+        thumbDrawable = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), knob(Palette.BORDER))
+            addState(intArrayOf(android.R.attr.state_checked), knob(Color.WHITE))
+            addState(intArrayOf(), knob(Palette.SWITCH_OFF))
+        }
         setOnCheckedChangeListener { _, value -> onChange(value) }
         parent.addView(this, lp())
     }
@@ -259,9 +275,10 @@ class Ui(val context: Context) {
         }
         fun paint() = segments.forEachIndexed { index, view ->
             val on = index == current
-            view.setTextColor(if (on) Color.WHITE else Palette.INK)
+            // Soft style: the selected segment is a white pill on the muted track.
+            view.setTextColor(if (on) Palette.INK else Palette.MUTED)
             view.typeface = Typeface.create(Typeface.DEFAULT, if (on) Typeface.BOLD else Typeface.NORMAL)
-            view.background = ripple(if (on) shape(Palette.ACCENT, 20f) else null, 20f)
+            view.background = ripple(if (on) shape(Palette.PAPER, 20f, Palette.BORDER) else null, 20f)
             view.isSelected = on
             view.contentDescription = "$description：${options[index]}${if (on) "，已選取" else ""}"
         }
