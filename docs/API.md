@@ -226,6 +226,15 @@ API routes below; creating a browser session itself requires the owner key.
   and resets `auto_summarize` to false.
   Omitted key retains it only on same enabled endpoint and protocol; empty explicitly clears.
 - `DELETE /v1/ai`: removes key, writes disabled tombstone, invalidates analysis.
+- `POST /v1/ai/models`: `{protocol,endpoint,api_key?}` → `{models:[id…],journal_data_sent:false}`.
+  Reads the provider's or OpenAI-compatible proxy's model list (OpenAI-style `/models`,
+  Anthropic `/v1/models`, Gemini `/models` filtered to generateContent), at most 300 IDs.
+  Omitted key reuses the saved one only for the same endpoint and protocol. Shares the single
+  test slot (429 while busy); 502 if the list cannot be read. No journal data is sent.
+- AI endpoints must be HTTPS, or plain HTTP to a private-network host (loopback, RFC 1918,
+  100.64/10, IPv6 ULA/link-local, `localhost`, `*.local`, `*.lan`, `*.internal`,
+  `*.home.arpa`, single-label names). For protocol `openai` a base URL ending in `/v1` (or
+  with no path) is stored with `/chat/completions` appended.
 - `POST /v1/ai/test`: fixed synthetic prompt only; no journal; one concurrent
   test/chat request, eight-second model timeout; returns `{ok,journal_data_sent:false}`.
 - `POST /v1/ask`: `{question,from_ms,to_ms,provider_id,consent:true}`; question

@@ -142,6 +142,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/v1/ai", get(read).put(update).delete(clear))
         .route("/v1/ai/test", post(probe))
         .route("/v1/ai/auto", axum::routing::put(automatic))
+        .route("/v1/ai/models", post(models))
 }
 async fn read(State(state): State<AppState>) -> Result<Json<serde_json::Value>> {
     let Some(store) = state.ai_settings.clone() else {
@@ -158,8 +159,11 @@ async fn read(State(state): State<AppState>) -> Result<Json<serde_json::Value>> 
 }
 async fn update(
     State(state): State<AppState>,
-    Json(change): Json<Update>,
+    Json(mut change): Json<Update>,
 ) -> Result<Json<serde_json::Value>> {
+    if change.protocol == Protocol::Openai {
+        change.endpoint = analysis::openai_chat_endpoint(&change.endpoint);
+    }
     let store = state.ai_settings.clone().ok_or(ApiError(
         StatusCode::SERVICE_UNAVAILABLE,
         "AI settings unavailable",
@@ -274,6 +278,56 @@ async fn automatic(
             Ok(Json(redacted(Some(&settings))))
         })
         .await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelsRequest {
+    protocol: Protocol,
+    endpoint: String,
+    /// Omitted: reuse the saved key when the endpoint and protocol are unchanged.
+    #[serde(default)]
+    api_key: Option<String>,
+}
+/// Lists the models a provider or OpenAI-compatible proxy offers, so the owner can pick one.
+/// Shares the single test slot; sends no journal data.
+async fn models(
+    State(state): State<AppState>,
+    Json(request): Json<ModelsRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let store = state.ai_settings.clone().ok_or(ApiError(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "AI settings unavailable",
+    ))?;
+    let permit = state
+        .ai_probe_slot
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError(StatusCode::TOO_MANY_REQUESTS, "test already running"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let endpoint = if request.protocol == Protocol::Openai {
+            analysis::openai_chat_endpoint(&request.endpoint)
+        } else {
+            request.endpoint.clone()
+        };
+        let key = match request.api_key {
+            Some(key) => key,
+            None => store
+                .load()
+                .map_err(storage_error)?
+                .filter(|s| s.enabled && s.endpoint == endpoint && s.protocol == request.protocol)
+                .map(|s| s.key)
+                .unwrap_or_default(),
+        };
+        analysis::validate_configuration(&endpoint, "models", &key).map_err(|_| invalid())?;
+        let models = analysis::list_models(request.protocol, &endpoint, &key)
+            .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "model list unavailable"))?;
+        Ok(Json(
+            serde_json::json!({"models":models,"journal_data_sent":false}),
+        ))
+    })
+    .await
+    .map_err(storage_error)?
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

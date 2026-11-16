@@ -27,7 +27,12 @@ report suspected vulnerabilities privately through the repository owner.
 - Container runs as UID/GID 10001, drops all capabilities, has a read-only root
   filesystem and bounded resources. The journal and dedicated AI settings volumes are writable/persistent for the API;
   the worker mounts AI settings read-only.
-  The HTTP host port binds to loopback, for a TLS proxy or Tailscale Serve.
+  The HTTP host port binds to loopback, for a TLS proxy (Caddy, nginx, Tailscale Serve…).
+  Plain HTTP is supported only on private-network addresses for owners whose VPN
+  (ZeroTier, WireGuard, a LAN) has no trusted certificate: the phone refuses public `http://`
+  origins, the website needs the explicit `POCKETLOG_PRIVATE_HTTP=true` (non-`__Host-`,
+  non-`Secure` session cookie), and confidentiality then depends on the VPN. AI endpoints
+  follow the same rule so self-hosted OpenAI-compatible proxies (CLIProxyAPI, Ollama) work.
 
 ## Trust and known limitations
 
@@ -44,7 +49,7 @@ report suspected vulnerabilities privately through the repository owner.
   does not establish upload/capture success. It survives journal deletion with
   device configuration and is removed when the key is revoked/pruned or rotated.
 - No built-in TLS termination or public-internet abuse protection. Keep behind
-  Tailscale ACLs or an authenticated/private HTTPS ingress. Do not expose raw
+  VPN ACLs (Tailscale, Headscale, ZeroTier, WireGuard…) or an authenticated/private ingress. Do not expose raw
   container networking as a public service. Host firewall and proxy request/header,
   connection and rate limits remain necessary. Docker is not a VM security boundary.
 - SQLite is plaintext inside the host volume. Use full-disk/volume encryption,

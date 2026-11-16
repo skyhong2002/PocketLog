@@ -7,14 +7,29 @@ pub(super) struct Session {
     expires: i64,
 }
 const COOKIE: &str = "__Host-pocketlog";
+/// Used only when the owner sets `POCKETLOG_PRIVATE_HTTP=true` because the website is reached
+/// over plain HTTP inside a private network/VPN (ZeroTier, WireGuard, a LAN) without HTTPS.
+/// Browsers drop `Secure` and `__Host-` cookies on plain HTTP, so login would otherwise fail.
+const PLAIN_COOKIE: &str = "pocketlog-session";
+fn plain_http() -> bool {
+    std::env::var("POCKETLOG_PRIVATE_HTTP").as_deref() == Ok("true")
+}
+fn session_cookie(value: &str, max_age: u32) -> String {
+    if plain_http() {
+        format!("{PLAIN_COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}")
+    } else {
+        format!("{COOKIE}={value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age={max_age}")
+    }
+}
 fn cookie(req: &Request) -> Option<&str> {
+    let name = if plain_http() { PLAIN_COOKIE } else { COOKIE };
     req.headers()
         .get(header::COOKIE)?
         .to_str()
         .ok()?
         .split(';')
         .filter_map(|s| s.trim().split_once('='))
-        .find_map(|(k, v)| (k == COOKIE).then_some(v))
+        .find_map(|(k, v)| (k == name).then_some(v))
 }
 pub(super) fn authorized(state: &AppState, req: &Request) -> bool {
     // A non-simple header prevents cross-origin forms and fetches from mutating journals.
@@ -157,7 +172,7 @@ async fn login(
     let mut response = StatusCode::NO_CONTENT.into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        format!("{COOKIE}={value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=28800")
+        session_cookie(&value, 28800)
             .parse()
             .map_err(storage_error)?,
     );
@@ -178,9 +193,7 @@ async fn logout(State(state): State<AppState>, req: Request) -> Result<Response>
     let mut response = StatusCode::NO_CONTENT.into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        format!("{COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0")
-            .parse()
-            .map_err(storage_error)?,
+        session_cookie("", 0).parse().map_err(storage_error)?,
     );
     Ok(response)
 }

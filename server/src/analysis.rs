@@ -992,14 +992,142 @@ mod image_tests {
     }
 }
 
+/// Plain HTTP is allowed only to hosts that cannot be on the public internet: loopback,
+/// RFC 1918/6598 (private and VPN/CGNAT such as Tailscale, Headscale, ZeroTier ranges), IPv6
+/// unique-local/link-local, and local-only names (`localhost`, `*.local`, `*.lan`,
+/// `*.internal`, `*.home.arpa`, single-label container/service names such as `cliproxyapi`).
+/// This lets self-hosted OpenAI-compatible proxies (e.g. CLIProxyAPI, Ollama) be used.
+pub(crate) fn private_network_host(url: &reqwest::Url) -> bool {
+    use std::net::IpAddr;
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => {
+            let [a, b, ..] = ip.octets();
+            ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || (a == 100 && (64..128).contains(&b))
+        }
+        Ok(IpAddr::V6(ip)) => {
+            ip.is_loopback()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
+        }
+        Err(_) => {
+            let name = host.trim_end_matches('.').to_ascii_lowercase();
+            name == "localhost"
+                || !name.contains('.')
+                || [".localhost", ".local", ".lan", ".internal", ".home.arpa"]
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+        }
+    }
+}
+
+/// Accepts an OpenAI-compatible base URL (`…/v1`) as well as the full chat path.
+pub(crate) fn openai_chat_endpoint(endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    match reqwest::Url::parse(trimmed) {
+        Ok(url) if url.path().is_empty() || url.path() == "/" || url.path().ends_with("/v1") => {
+            format!("{trimmed}/chat/completions")
+        }
+        _ => endpoint.trim().to_owned(),
+    }
+}
+
+/// Lists model IDs the configured provider or proxy offers. Read-only, bounded, no journal data.
+pub(crate) fn list_models(
+    protocol: crate::ai_settings::Protocol,
+    endpoint: &str,
+    key: &str,
+) -> std::result::Result<Vec<String>, ()> {
+    use crate::ai_settings::Protocol;
+    let mut url = validate_configuration(endpoint, "models", key).map_err(|_| ())?;
+    let path = url.path().to_owned();
+    let models_path = match protocol {
+        Protocol::Openai => format!(
+            "{}/models",
+            path.trim_end_matches('/')
+                .trim_end_matches("/chat/completions")
+        ),
+        Protocol::Anthropic => path
+            .strip_suffix("/messages")
+            .map(|base| format!("{base}/models"))
+            .ok_or(())?,
+        Protocol::Gemini => {
+            let at = path.find("/models/").ok_or(())?;
+            format!("{}/models", &path[..at])
+        }
+    };
+    url.set_path(&models_path);
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|_| ())?;
+    let mut request = client.get(url);
+    if !key.is_empty() {
+        request = match protocol {
+            Protocol::Openai => request.bearer_auth(key),
+            Protocol::Anthropic => request.header("x-api-key", key),
+            Protocol::Gemini => request.header("x-goog-api-key", key),
+        };
+    }
+    if protocol == Protocol::Anthropic {
+        request = request.header("anthropic-version", "2023-06-01");
+    }
+    let response = request.send().map_err(|_| ())?;
+    if !response.status().is_success() {
+        return Err(());
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(1_048_577)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ())?;
+    if bytes.len() > 1_048_576 {
+        return Err(());
+    }
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ())?;
+    let mut ids: Vec<String> = match protocol {
+        Protocol::Gemini => value["models"]
+            .as_array()
+            .ok_or(())?
+            .iter()
+            .filter(|m| {
+                m["supportedGenerationMethods"]
+                    .as_array()
+                    .is_none_or(|methods| methods.iter().any(|x| x == "generateContent"))
+            })
+            .filter_map(|m| m["name"].as_str())
+            .map(|n| n.trim_start_matches("models/").to_owned())
+            .collect(),
+        _ => value["data"]
+            .as_array()
+            .ok_or(())?
+            .iter()
+            .filter_map(|m| m["id"].as_str().map(str::to_owned))
+            .collect(),
+    };
+    ids.retain(|id| !id.is_empty() && id.len() <= 200 && !id.chars().any(char::is_control));
+    ids.sort();
+    ids.dedup();
+    ids.truncate(300);
+    Ok(ids)
+}
+
 pub(crate) fn validate_configuration(
     url: &str,
     model: &str,
     key: &str,
 ) -> std::result::Result<reqwest::Url, &'static str> {
     let url = reqwest::Url::parse(url).map_err(|_| "invalid AI URL")?;
-    let loopback = matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "::1"));
-    if (url.scheme() != "https" && !(url.scheme() == "http" && loopback))
+    if (url.scheme() != "https" && !(url.scheme() == "http" && private_network_host(&url)))
         || !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
@@ -1126,5 +1254,97 @@ mod protocol_tests {
         ] {
             assert!(native_response(Protocol::Gemini, &response).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::*;
+    fn private(u: &str) -> bool {
+        private_network_host(&reqwest::Url::parse(u).unwrap())
+    }
+    #[test]
+    fn plain_http_is_limited_to_local_and_private_networks() {
+        for ok in [
+            "http://127.0.0.1:8317/v1",
+            "http://localhost:8317/v1",
+            "http://cliproxyapi:8317/v1",
+            "http://192.168.1.20:11434/v1",
+            "http://10.0.0.5/v1",
+            "http://172.20.0.3/v1",
+            "http://100.101.102.103:8317/v1",
+            "http://[fd12:3456::1]:8317/v1",
+            "http://[::1]/v1",
+            "http://mybox.local/v1",
+            "http://nas.lan/v1",
+            "http://host.docker.internal:8317/v1",
+        ] {
+            assert!(private(ok), "{ok}");
+            assert!(validate_configuration(ok, "m", "").is_ok(), "{ok}");
+        }
+        for public in [
+            "http://api.openai.com/v1",
+            "http://8.8.8.8/v1",
+            "http://100.128.0.1/v1",
+            "http://172.32.0.1/v1",
+            "http://[2001:db8::1]/v1",
+        ] {
+            assert!(!private(public), "{public}");
+            assert!(validate_configuration(public, "m", "").is_err(), "{public}");
+        }
+        assert!(
+            validate_configuration("https://api.openai.com/v1/chat/completions", "m", "k").is_ok()
+        );
+    }
+    #[test]
+    fn openai_base_urls_gain_the_chat_path() {
+        assert_eq!(
+            openai_chat_endpoint("http://127.0.0.1:8317/v1"),
+            "http://127.0.0.1:8317/v1/chat/completions"
+        );
+        assert_eq!(
+            openai_chat_endpoint("http://127.0.0.1:8317/v1/"),
+            "http://127.0.0.1:8317/v1/chat/completions"
+        );
+        assert_eq!(
+            openai_chat_endpoint("http://127.0.0.1:8317"),
+            "http://127.0.0.1:8317/chat/completions"
+        );
+        assert_eq!(
+            openai_chat_endpoint("https://api.openai.com/v1/chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            openai_chat_endpoint("https://example.com/openai/deployments/x/chat/completions"),
+            "https://example.com/openai/deployments/x/chat/completions"
+        );
+    }
+    #[test]
+    fn model_lists_are_read_from_an_openai_compatible_proxy() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            use std::io::Write;
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let n = stream.read(&mut request).unwrap();
+            let head = String::from_utf8_lossy(&request[..n]).to_string();
+            let body = r#"{"data":[{"id":"gpt-5"},{"id":"claude-sonnet-4-5"},{"id":"gpt-5"}]}"#;
+            write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).unwrap();
+            head
+        });
+        let models = list_models(
+            crate::ai_settings::Protocol::Openai,
+            &openai_chat_endpoint(&format!("http://127.0.0.1:{port}/v1")),
+            "proxy-key",
+        )
+        .unwrap();
+        assert_eq!(models, ["claude-sonnet-4-5", "gpt-5"]);
+        let head = server.join().unwrap();
+        assert!(head.starts_with("GET /v1/models "), "{head}");
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("authorization: bearer proxy-key")
+        );
     }
 }

@@ -30,8 +30,9 @@ readiness and prints next steps without reading or revealing your key. Use
 
 # Run the development server
 
-Prerequisites: Docker Compose, OpenSSL, and a trusted HTTPS reverse proxy or
-Tailscale Serve. One instance currently belongs to **one person**. This is not a
+Prerequisites: Docker Compose, OpenSSL, and a way for your phone to reach the server
+privately: a VPN / private network (Tailscale, Headscale, ZeroTier, WireGuard, NetBird, a home
+LAN…) and, ideally, a trusted HTTPS reverse proxy (Caddy, nginx, Tailscale Serve…). One instance currently belongs to **one person**. This is not a
 multi-user hosted service and should stay behind your private network/ACLs.
 
 ```sh
@@ -40,9 +41,10 @@ docker compose up --build -d
 curl --fail http://127.0.0.1:18748/healthz
 ```
 
-Expose loopback port 18748 through your existing HTTPS proxy or Tailscale Serve.
-The Android client requires valid HTTPS, including on Tailscale. Do not publish the
-HTTP port to the internet. The token is in `.secrets/owner_token` (not printed by
+Expose loopback port 18748 through your HTTPS proxy, or publish it only on your VPN/private
+network address. The Android client accepts trusted HTTPS anywhere and plain HTTP only for
+private-network addresses (see [private network without HTTPS](#private-network-without-https)).
+Do not publish the HTTP port to the internet. The token is in `.secrets/owner_token` (not printed by
 initialization). Transfer it to the app through a private channel; never a URL,
 public QR code, screenshot, log, or Git commit. QR/device pairing is future work.
 The secret's parent directory is mode 0700; the bind-mounted file is readable by
@@ -51,6 +53,33 @@ the container's non-root UID. Protect copies of this directory just like the DB.
 The default server does not call any AI provider. No captures or existing journal
 records are copied during setup. Stop with `docker compose down`; this preserves
 the journal volume. `docker compose down -v` permanently removes that volume.
+
+## Private network without HTTPS
+
+Some VPNs (ZeroTier, plain WireGuard, a LAN) give you a private address but no certificate
+your phone trusts. PocketLog then works over plain HTTP **only on private addresses**:
+loopback, 10.x, 172.16–31.x, 192.168.x, 100.64–127.x (CGNAT ranges used by Tailscale,
+Headscale and others), IPv6 unique-local/link-local, and local names (`*.local`, `*.lan`,
+`*.internal`, `*.home.arpa`, single-label names). The VPN must provide the encryption.
+
+1. Publish the API on the private address, e.g. `ports: ["10.147.17.5:18748:8080"]` (never
+   `0.0.0.0` on a machine with a public interface).
+2. Set `POCKETLOG_PRIVATE_HTTP=true` on the API service so the website's login cookie works
+   over plain HTTP (browsers refuse `Secure` cookies there).
+3. In the app use `http://10.147.17.5:18748`; it shows a reminder that the connection relies on
+   your VPN. Public `http://` addresses are always refused.
+
+## AI providers and self-hosted proxies
+
+設定 › AI offers OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek and 自訂. 自訂
+takes any OpenAI-compatible base URL, such as a CLIProxyAPI, LiteLLM, one-api, vLLM or Ollama
+instance (`http://127.0.0.1:8317/v1`, `http://cliproxyapi:8317/v1`, `http://192.168.1.20:11434/v1`).
+`/chat/completions` is appended for you, the key may be left empty if the proxy needs none,
+and 載入模型清單 reads the proxy's `/models`. Plain HTTP is accepted only for the private
+addresses listed above; anything else must be HTTPS. When the API runs in Docker,
+`127.0.0.1` means the container itself: use the proxy's service name on a shared Compose
+network, `host.docker.internal` (with `extra_hosts: ["host.docker.internal:host-gateway"]`), or
+the host's LAN/VPN address.
 
 ## Personal production instance
 
@@ -66,6 +95,8 @@ curl --fail http://127.0.0.1:18748/healthz
 tailscale serve --bg --https=12446 http://127.0.0.1:18748
 ```
 
+The `tailscale serve` line is one example of private HTTPS; any VPN plus HTTPS proxy works
+(Caddy with a certificate your phone trusts, Headscale with MagicDNS certificates, etc.).
 Choose an unused Tailscale HTTPS port. In the app, use
 `https://YOUR-MACHINE.YOUR-TAILNET.ts.net:12446` and the token stored in
 `.secrets/production_owner_token`. Keep the token out of URLs, public files and
