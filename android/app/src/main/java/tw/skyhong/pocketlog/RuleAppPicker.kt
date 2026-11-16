@@ -140,8 +140,8 @@ internal object RuleAppPicker {
         return AlertDialog.Builder(activity).setTitle("選擇規則 app").setView(content)
             .setNegativeButton("取消", null)
             .create().also { dialog ->
-                // Dialog windows have independent flags. Protect this window before its first frame.
-                dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                // Dialog windows have independent flags. Follow the app's optional screen protection.
+                if (RecordingSettings(activity).protectAppScreen) dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
                 picker = dialog
                 dialog.show()

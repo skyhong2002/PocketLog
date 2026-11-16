@@ -7,7 +7,7 @@ import org.junit.Test
 class CaptureDiagnosticsTest {
     @Before fun reset() { CaptureDiagnostics.clear() }
     @Test fun failuresNeverBecomeQueueSuccess() {
-        for (outcome in listOf(CaptureDiagnostics.Outcome.WINDOW_REJECTED, CaptureDiagnostics.Outcome.SYSTEM_SECURE,
+        for (outcome in listOf(CaptureDiagnostics.Outcome.WINDOW_REJECTED, CaptureDiagnostics.Outcome.UNCHANGED,
             CaptureDiagnostics.Outcome.SYSTEM_FAILED, CaptureDiagnostics.Outcome.IMAGE_FAILED,
             CaptureDiagnostics.Outcome.PROCESSING_FAILED, CaptureDiagnostics.Outcome.CANCELED)) {
             CaptureDiagnostics.complete(CaptureDiagnostics.begin(10), outcome, 20)
@@ -35,7 +35,7 @@ class CaptureDiagnosticsTest {
         assertNull(CaptureDiagnostics.snapshot().atMs)
     }
     @Test fun partialImageAndScheduleFailuresStillRecordSuccessfulQueueWrite() {
-        for (outcome in listOf(CaptureDiagnostics.Outcome.QUEUED_IMAGE, CaptureDiagnostics.Outcome.QUEUED_TEXT_IMAGE_FAILED,
+        for (outcome in listOf(CaptureDiagnostics.Outcome.QUEUED_IMAGE, CaptureDiagnostics.Outcome.QUEUED_PROTECTED, CaptureDiagnostics.Outcome.QUEUED_TEXT_IMAGE_FAILED,
             CaptureDiagnostics.Outcome.QUEUED_SCHEDULE_FAILED)) {
             CaptureDiagnostics.complete(CaptureDiagnostics.begin(10), outcome, 20)
             assertEquals(20L, CaptureDiagnostics.snapshot().lastQueuedMs)

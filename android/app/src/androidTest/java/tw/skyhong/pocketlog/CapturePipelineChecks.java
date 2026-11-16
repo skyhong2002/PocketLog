@@ -54,7 +54,7 @@ final class CapturePipelineChecks {
             while(System.currentTimeMillis()<until) {
                 CaptureDiagnostics.Outcome outcome=CaptureDiagnostics.INSTANCE.snapshot().getOutcome();
                 if(outcome==CaptureDiagnostics.Outcome.QUEUED_IMAGE) break;
-                if(outcome==CaptureDiagnostics.Outcome.SYSTEM_FAILED || outcome==CaptureDiagnostics.Outcome.SYSTEM_SECURE || outcome==CaptureDiagnostics.Outcome.PROCESSING_FAILED)
+                if(outcome==CaptureDiagnostics.Outcome.SYSTEM_FAILED || outcome==CaptureDiagnostics.Outcome.PROCESSING_FAILED)
                     throw new IllegalStateException("Real screenshot result: "+outcome.name());
                 Thread.sleep(100);
             }

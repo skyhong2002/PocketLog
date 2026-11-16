@@ -61,6 +61,11 @@ class RecordingSettings(private val context: Context) {
     var replayConsent: Boolean
         get() = imagesEnabled && hasReplayGrant
         set(value) = update(prefs.edit().putBoolean("replay", value))
+    // PocketLog's own FLAG_SECURE: an explicit display preference, off by default (owner, 2026-11-17).
+    // Not a capture consent, so it does not bump [revision].
+    var protectAppScreen: Boolean
+        get() = prefs.getBoolean("protect_app_screen", false)
+        set(value) { check(prefs.edit().putBoolean("protect_app_screen", value).commit()) }
     var wifiOnly: Boolean
         get() = prefs.getBoolean("wifi", true)
         set(value) { check(prefs.edit().putBoolean("wifi", value).commit()) }

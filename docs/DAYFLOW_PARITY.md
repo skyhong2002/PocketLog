@@ -8,30 +8,28 @@ no real journal entries or screenshots are included in this repository.
 PocketLog is independent Android + Rust software. The table records working
 capabilities and gaps; adding a navigation tab does not establish feature parity.
 
-Since 2026-11-17 the website follows the [simplified product](ux/SIMPLIFIED_IA.md):
-only 時間軸, 回顧 and 設定. Rows below say "website" where the web differs from
-Android, which keeps its older tabs until its own simplification. Server APIs and
-stored data for removed web features (reflections, ratings, goals, Flow, Agents,
-saved Chat threads) are unchanged.
+Since 2026-11-17 both clients follow the [simplified product](ux/SIMPLIFIED_IA.md):
+only 時間軸, 回顧 and 設定. Server APIs and stored data for removed features
+(reflections, ratings, goals, Flow, Agents, saved Chat threads) are unchanged.
 
 | Official Dayflow area | PocketLog status |
 | --- | --- |
-| Onboarding: explain capture/privacy/provider | Shared server completion and category settings; website onboarding is three skippable steps (promise, connect AI, connect phone) with no goal step; OS permissions and capture/model consent remain device-specific |
-| Day timeline, date navigation and calendar | Both clients show actual interval cards on an hourly 04:00–04:00 timeline; missing time stays blank; desktop web selection opens a read-only side inspector, with explicit editing; web activity corrections retain newer unsaved edits and ignore closed-editor responses; visible current-day native and web views check activity changes at most once every two minutes and offer an explicit update without silently rebuilding the reader |
-| Week timeline | Website: a seven-day bar row in 回顧 › 週 (the seven-column week grid was removed); native compact seven-column overview with per-day rows; any past journal date (the journal is retained permanently) |
-| Category filtering and editing | Both clients filter categories and edit ten built-ins plus up to 30 custom categories; up to 32 ordered app/title rules, with manual corrections taking priority; both clients test unsaved rules through the private server classifier; Android can search local launcher apps for a rule, while web offers up to 20 recorded packages from the last 29 days. Selection fills an unsaved draft only |
-| Targets, distraction budget, longest focus | Android daily review only; removed from the website (no goals or meters); category roles stay stored |
-| Daily | Website 回顧 › 日: AI 回顧 first (saved or one-tap generate), category time with percentages, top five apps and topics; no reflection or rating on the website. Android keeps its reflection and focus review. Manual mood/energy entry removed earlier (legacy records/API retained) |
-| Weekly | Website 回顧 › 週: the same cards plus a seven-day bar row; Android week timeline and category/app overview; both show model-labeled topic keywords (local fallback); opt-in daily/weekly recap schedule (website: one 每天自動產生回顧 switch); no generated artwork |
-| BYO AI | Website: pick OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek or a custom OpenAI-compatible endpoint (e.g. Ollama); the endpoint and protocol are filled in, then key, model, 讓 AI 看截圖 and 測試並儲存 (save + bound probe). Android configures URL/protocol/model/key directly. Both have the provider-bound automatic-summary switch; no CLI execution |
-| Chat | Website: 問 AI inside 回顧 for the selected day/week, answers stacked as one conversation per period (no thread list). Android keeps its Chat tab with saved threads. Both send up to 100 derived cards only after an explicit send; no tools or desktop CLI |
-| Flow | Android only; removed from the website (API kept). **Not** the official authenticated remote Flow web app, distraction agent or cloud account service |
-| Agents | Android only; the website's JSONL import and replay were removed (API kept). No background filesystem scanning, Fable, or opening desktop tools |
-| Privacy shield | Pre-capture exclusions/allowlist, password/editable-field/secure-window checks and default-on suspected-secret/long-number text gate before pixels on Android; **not** OCR/image redaction or a promise to remove all visual secrets |
-| Pause | Local pause plus shared server stop switch, immediate rejection/clearing of pending context, phone propagation on existing sync cadence; offline phones cannot receive an immediate stop; saved local capture grants stay visible and revocable while paused, and upstream resume discloses retained downstream choices without granting OS permissions |
-| Copy/export | Website JSON export in 設定 › 資料 (today / 7 / 30 days; the copy-timeline action was removed); Android clipboard + daily JSON document picker; raw observations never exported |
-| Support/settings | First-run owner-key guidance, device/API credential creation and scope-specific once-only setup; website help is condensed into 設定 › 說明; exact-destination known credential rejection stops saved capture grants and offers explicit recovery while preserving cached journal/reflection until reset; no automatic support messages or telemetry |
-| Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px), retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images), shown on the website only inside a card's detail (the replay page was removed); protected/DRM screens are recorded as text only and labelled 受保護畫面（無截圖）; no desktop continuous recording/audio/transcription |
+| Onboarding: explain capture/privacy/provider | Three skippable steps on both clients: what is and is never captured → connect AI (Mika-style form) → start recording through the guided 自動記錄 flow (phone) or connect the Android app (web). No goal step. OS permissions and capture consent remain device-specific |
+| Day timeline, date navigation and calendar | Both: previous/next/今天 and a date picker, one tappable status line, a day summary (recorded time + one stacked category bar) and cards with AI title or app name, one-line summary, category chip, source label, `AI 整理中` and `受保護畫面（無截圖）`. Website desktop keeps an hourly 04:00–04:00 grid with a side inspector; phones show a chronological list. Missing time stays blank |
+| Week timeline | 回顧 › 週 on both clients: a seven-day bar row (tap a day) with category/app/topic totals; the seven-column week grids were removed |
+| Category filtering and editing | Both edit ten built-ins plus up to 30 custom categories and up to 32 ordered app/title rules, with manual corrections taking priority, and test unsaved rules through the private server classifier. A one-tap category picker in the card detail saves immediately; title/summary edits sit behind 修改文字 |
+| Targets, distraction budget, longest focus | Removed from both clients on 2026-11-17; stored goals and category roles are kept |
+| Daily | 回顧 › 日 on both clients: AI recap first (saved or one-tap generate with a one-line disclosure of the provider host), category time with percentages, top five apps, topics and 問 AI. Reflection, check-ins and the daily rating were removed from both UIs (APIs and stored data kept) |
+| Weekly | 回顧 › 週: the same cards for the week plus the seven-day bar row; model-labeled topic keywords (local fallback); automatic daily/weekly recaps are one 每天自動產生回顧 switch in 設定 › AI; no generated artwork |
+| BYO AI | Both clients: pick OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek or a custom OpenAI-compatible endpoint (e.g. Ollama); endpoint and protocol are filled in, then key, prefilled editable model, 讓 AI 看截圖 and 測試並儲存 (save + provider-bound probe); then the automatic-summary switch. No CLI execution |
+| Chat | 問 AI inside 回顧 for the selected day/week on both clients, one conversation per period, no thread list; up to 100 derived cards only after an explicit send; no tools or desktop CLI |
+| Flow | Removed from both clients on 2026-11-17 (API kept). **Not** the official authenticated remote Flow web app |
+| Agents | Removed from both clients on 2026-11-17 (API and stored sessions kept); no background filesystem scanning |
+| Privacy shield | Pre-capture exclusions/allowlist, password/editable-field window exclusion, lock-screen exclusion and the default-on suspected-secret/long-number text gate on Android. Secure/DRM windows are recorded as app + visible text without a screenshot (`protected_screen`); black frames are never kept. PocketLog's own screen protection is an opt-in setting. **Not** OCR/image redaction or a promise to remove all visual secrets |
+| Pause | Local pause plus shared server stop switch, immediate rejection/clearing of pending context, phone propagation on existing sync cadence; offline phones cannot receive an immediate stop; saved local capture grants stay visible and revocable while paused |
+| Copy/export | JSON export in 設定 › 資料 on both clients; copy-timeline removed; raw observations never exported |
+| Support/settings | 設定 has 記錄 / AI / 分類 / 連線（與裝置） / 資料 / 說明 on both clients; the old 支援 page is condensed into 說明; first-run owner-key guidance and scope-specific device keys; known credential rejection stops capture and offers explicit recovery; no automatic support messages or telemetry |
+| Recording and replay | Opt-in Android text with default-on screenshots every 10 seconds and on app switches (720 px); unchanged screens skipped; captures upload while charging, or on an unmetered network once more than 256 MB wait, and stay queued up to 72 h; retained on the server under a 10 GiB default storage budget; separate opt-in sanitized thumbnail replay (24 hours/256 images) shown only inside a card's detail; no desktop continuous recording/audio/transcription |
 | Storage limit | Owner-set server budget (1 GiB–1 TiB) in both clients; over the limit the oldest screenshots are removed and text is kept |
 
 ## Shared setup
@@ -104,5 +102,5 @@ audio, OCR pixel redaction, CLI model execution, automatic filesystem integratio
 generated brief artwork and Dayflow's separate authenticated Flow cloud service
 remain outside these implemented private mobile/web equivalents. The public Dayflow
 repository does not provide that cloud backend. Physical-device permission/capture,
-Keystore/Doze and full-day battery acceptance remain unverified. No increased mobile
+Keystore/Doze, charging-only upload behaviour and full-day battery acceptance remain unverified. No increased mobile
 sampling or on-device inference has been introduced to approximate desktop recording.
