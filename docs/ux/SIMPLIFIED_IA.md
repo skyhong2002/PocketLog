@@ -208,3 +208,42 @@ Both clients must use exactly these rules:
   `{models:[…]}`; show them as a pickable list, keep free text as fallback, show a short error on
   502/429. AI page order: AI 服務 → 金鑰 → 模型 (+ 載入模型清單) → 讓 AI 看截圖 → 測試並儲存 →
   section `自動化` with the two switches. Label `AI 服務` on both clients.
+
+## Round 3 rules (2026-11-17)
+
+- **Cards** are separate cards (not rows in one container) with a neutral background and a 4 px
+  left category stripe, on both clients and in the web desktop grid blocks too. Row 1:
+  `時間 · 時長` + category chip (soft, with dot) + at most one badge. Badge styles: `AI 整理中`
+  accent soft fill, `受保護畫面` amber soft fill, `只有 app` / `你改過` / `畫面文字` neutral soft
+  fill. `隔天凌晨` is a neutral grey divider.
+- **Card detail order** (both): title → `App 名稱 · 時間 · 時長` → summary → one disclaimer line
+  `AI 整理，可能有誤，請核對。` (only for ai/local_excerpt) → category chips → `修改文字` (icon +
+  text button). No separate normal-source label.
+- **Copy**: AI recap note `AI 產生，可能有誤，請對照時間軸。`; ask disclosure
+  `會把問題和這段時間的活動卡送到 <host>（不含截圖）。`; use `…` never `...`; `已連接：`; field
+  `API 金鑰`; page/dialog title `AI`; `防止截圖這個應用程式`; storage `已用 0 MB / 10.0 GB`.
+- **Segmented 日/週**: soft style (selected = white pill on muted track), never a saturated block.
+- **Week chart**: seven equal columns across the full card width, ~160 px tall, value above each
+  bar (`4.1 時`), empty days a faint baseline with `—` and accessible `沒有記錄`; `平均每天 X（已過 N 天）`.
+- **Time split**: one line per category on every width (`● 分類 | bar (flexible, ≥ 40% width) | 值`).
+- **Ask AI**: example chips in one horizontally scrollable row (smaller than the input); send is an
+  icon button inside the input.
+- **Switches**: off state must be visible (outlined track, ≥ 3:1 contrast); on state filled.
+- **Selection vs focus (web)**: programmatic focus restoration must not show a focus ring (use
+  `focus({focusVisible:false})` or pointer-modality tracking); the current nav item uses the soft pill.
+- **Web recording status** never claims `記錄中` from last-seen alone: say `最後連線 11/17 03:17`.
+- **http origins**: whenever the site or phone uses `http://`, show the no-HTTPS warning row (in
+  addition to the loopback hint where applicable).
+
+## In-app updates (Android, owner 2026-11-17)
+
+Release builds check `https://api.github.com/repos/skyhong2002/PocketLog/releases/latest` when the
+app comes to the foreground, at most every 12 hours (setting `自動檢查更新`, on by default; a
+manual `檢查更新` row in 設定 › 說明 shows the current version). A newer release has an asset
+`PocketLog-<version>-<versionCode>.apk` with a higher versionCode. Dialog: `有新版本 <version>` +
+short release notes + `稍後` / `略過這個版本` / `更新`. 更新 downloads the APK (HTTPS, GitHub
+hosts only, size-capped), verifies its SHA-256 against the asset `digest` (or the `.sha256`
+asset), then installs through `PackageInstaller`; Android shows its own confirmation, and the first
+time asks to allow installs from PocketLog. Updates only succeed when the release is signed with
+the same key as the installed app. Only GitHub is contacted; no journal data is sent. Sandbox and
+debug builds never check.
