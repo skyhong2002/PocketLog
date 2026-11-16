@@ -351,7 +351,7 @@ console.log('Journal exports retain activity/review completeness without changin
   // Compact rows show one exception; AI 整理中 never appears with 只有 app.
   assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true, protected_screen: true }), ['AI 整理中']);
   assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true }, false), ['AI 整理中']);
-  assert.deepEqual(cardBadges({ source: 'app_only' }), ['只有 app']);
+  assert.deepEqual(cardBadges({ source: 'app_only' }), ['只有應用程式']);
   assert.deepEqual(cardBadges({ source: 'user', protected_screen: true }, false), ['受保護畫面（無截圖）', '你改過']);
   // 08:10–08:28 and 08:32 do not overlap, so they share one column.
   const t = (h, m) => new Date(`2026-11-16T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
@@ -371,8 +371,8 @@ console.log('Journal exports retain activity/review completeness without changin
   // Cards 5–6h and 12–13h (09:00 and 16:00): 0–5 empty (gap), 6–12 empty (gap), 13–24 empty (gap).
   let axis = m.timeAxis(bounds, [card(5, 6), card(12, 13)]);
   assert.deepEqual(axis.segments.map(s => [s.kind, s.from / H, s.to / H]), [['gap', 0, 5], ['time', 5, 6], ['gap', 6, 12], ['time', 12, 13], ['gap', 13, 24]]);
-  assert.equal(axis.height, 3 * 34 + 2 * 64);
-  assert.equal(axis.y(5.5 * H), 34 + 32, 'times map inside their hour');
+  assert.equal(axis.height, 3 * 18 + 2 * 96);
+  assert.equal(axis.y(5.5 * H), 18 + 48, 'times map inside their hour');
   assert.ok(axis.y(12 * H) > axis.y(6 * H), 'later times stay below earlier ones');
   // Every empty hour collapses consistently (even a single one); zero-length cards keep their hour; now keeps its hour.
   axis = m.timeAxis(bounds, [card(5, 6), card(7, 7), card(9, 10)], { now: 20.5 * H });
@@ -414,7 +414,7 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(m.topicsVisible({ keyword_mode: 'mixed', title_keywords: [] }), false);
   assert.deepEqual(m.askExamples('day'), ['今天花最多時間在哪？', '今天學了什麼？', '有哪些分心的時段？']);
   assert.deepEqual(m.askExamples('week'), ['這週花最多時間在哪？', '這週學了什麼？', '這週有哪些分心的時段？']);
-  assert.equal(m.cardSummary({ source: 'app_only', summary: '' }), '只知道使用了這個 app');
+  assert.equal(m.cardSummary({ source: 'app_only', summary: '' }), '只知道使用了這個應用程式');
   assert.equal(m.cardSummary({ source: 'ai', summary: '寫報告' }), '寫報告');
   console.log('Collapsed empty hours, private-network hosts, model lists, storage units and review rules');
 }
@@ -427,18 +427,19 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(m.cardLength({ start_ms: at, end_ms: at + 20000 }), '不到 1 分');
   const now = new Date('2026-11-17T03:30:00').getTime();
   const phone = last => ({ scope: 'journal', expires_ms: now + 1, last_authenticated_ms: last });
-  assert.equal(m.recordState(null, [], now), '暫時讀不到記錄狀態');
-  assert.equal(m.recordState({ paused: true }, [phone(now)], now), '已暫停：伺服器不接受新的記錄');
-  assert.equal(m.recordState({ paused: false }, [], now), '還沒有連接手機');
-  assert.equal(m.recordState({ paused: false }, [phone(null)], now), '手機還沒連線過');
-  assert.equal(m.recordState({ paused: false }, [phone(new Date('2026-11-17T03:17:00').getTime())], now), '最後連線 11/17 03:17', 'never 記錄中 from last-seen alone');
-  assert.equal(m.recordState({ paused: false }, [phone(now - 2 * 86400000)], now), '手機超過一天沒有連線');
+  assert.equal(m.recordState(null, []), '暫時讀不到記錄狀態');
+  assert.equal(m.recordState({ paused: true }, [phone(now)]), '已暫停：伺服器不接受新的記錄');
+  assert.equal(m.recordState({ paused: false }, []), '還沒有連接手機');
+  assert.equal(m.recordState({ paused: false }, [phone(now)]), '', 'never 記錄中 from last-seen alone; the device row says it');
+  assert.equal(m.deviceStatus(phone(null), now), '還沒連線過');
+  assert.equal(m.deviceStatus(phone(new Date('2026-11-17T03:17:00').getTime()), now), '最後連線 11/17 03:17');
+  assert.equal(m.deviceStatus(phone(new Date('2026-11-15T03:17:00').getTime()), now), '超過一天沒有連線（最後 11/15 03:17）');
   assert.equal(m.storageLine({ used_bytes: 0, limit_bytes: 10 * 1024 ** 3 }), '已用 0 MB / 10.0 GB');
   assert.equal(m.weekAverage(3 * 3600000, 2), '平均每天 1 小時 30 分（已過 2 天）');
   assert.equal(m.askDisclosure('api.example.com'), '會把問題和這段時間的活動卡送到 api.example.com（不含截圖）。');
   assert.equal(m.badgeClass('AI 整理中'), 'badge pending');
   assert.equal(m.badgeClass('受保護畫面'), 'badge protected');
-  assert.equal(m.badgeClass('只有 app'), 'badge');
+  assert.equal(m.badgeClass('只有應用程式'), 'badge');
   console.log('Same-minute ranges, recording status from last contact, storage, week average and copy');
 }
 
@@ -452,4 +453,30 @@ console.log('Journal exports retain activity/review completeness without changin
   assert.equal(m.cardSummary({ source: 'app_only', pending_context: true, summary: '' }), '正在整理這段活動…');
   assert.equal(m.cardSummary({ source: 'ai', pending_context: true, summary: '寫週報' }), '寫週報');
   console.log('Gaps split at midnight; pending summary placeholder');
+}
+
+// Round 5: app-only collapsing, AI summary wording, and no ASCII "..." in user-facing strings.
+{
+  const m = require('../server/web/app.js');
+  const M = 60000;
+  const card = (id, app, start, end, extra = {}) => ({ id, app, start_ms: start * M, end_ms: end * M, source: 'app_only', category: 'work', ...extra });
+  const cards = [card('a', 'x', 0, 0), card('b', 'x', 3, 3), card('c', 'x', 7, 8), card('d', 'y', 9, 10), card('e', 'x', 11, 12), card('f', 'x', 30, 31)];
+  const before = JSON.stringify(cards);
+  const out = m.collapseAppOnly(cards);
+  assert.equal(JSON.stringify(cards), before, 'collapsing never mutates the journal');
+  assert.deepEqual(out.map(c => c.members ? c.members.map(x => x.id).join('+') : c.id), ['a+b+c', 'd', 'e', 'f'], 'only consecutive same-app cards ≤ 5 min apart join');
+  assert.equal(m.cardLength(out[0]), '3 次 · 1 分');
+  assert.equal(m.cardLength(m.collapseAppOnly([card('a', 'x', 0, 0), card('b', 'x', 1, 1)])[0]), '2 次 · 不到 1 分');
+  assert.equal(out[0].start_ms, 0); assert.equal(out[0].end_ms, 8 * M);
+  assert.equal(m.collapseAppOnly([card('a', 'x', 0, 1), card('b', 'x', 2, 3, { source: 'ai' })]).length, 2, 'AI cards never collapse');
+  assert.equal(m.collapseAppOnly([card('a', 'x', 0, 1), card('b', 'x', 2, 3, { pending_context: true })]).length, 2, 'pending cards never collapse');
+  assert.equal(m.aiSummary('claude-haiku-4-5', true, false), 'claude-haiku-4-5 · 自動整理開啟 · 每日回顧關閉');
+  assert.equal(m.providerName({ protocol: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', model: 'x' }), 'Anthropic');
+  // Typography: user-facing strings never contain ASCII "..." (code spreads are not strings).
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../server/web/app.js'), 'utf8');
+  const strings = source.match(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g) || [];
+  const offenders = strings.map(s => s.replace(/\$\{[^}]*\}/g, '')).filter(s => s.includes('...'));
+  assert.deepEqual(offenders, [], 'use the ellipsis character … in UI text, never ASCII ...');
+  console.log('App-only collapsing, AI summary wording and no ASCII ... in UI strings');
 }

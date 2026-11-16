@@ -209,6 +209,40 @@ Follows "Round 4 rules" in SIMPLIFIED_IA.md:
   disclosure, a single divider before `停用並刪除金鑰`, and delete confirmations that state the
   scope and `無法復原`.
 
+### UX round 5 (2026-11-17)
+
+Follows "Round 5 rules" in SIMPLIFIED_IA.md plus the round 5 web findings and addendum:
+
+- 問 AI is one soft pill field; the circular send button is a flex item centred on its
+  trailing edge (an older absolute rule had pushed it onto the top border). On desktop 問 AI
+  sits under the AI recap in the left column; `產生 AI 回顧` is a pill.
+- 時間表: a 96 px hour scale with blocks up to 40 px tall when the next block allows (true
+  times kept); short blocks show the badge with its label, `title` and `aria-label`, plus the
+  category chip when they have the full width; pending blocks show only `AI 整理中`; empty
+  stretches are faint dotted markers (the 04:00 tick stays visible); the intro sentence is
+  gone; the selected block has a tonal fill and bold title; the inspector column matches the
+  grid height with its content kept in view.
+- Consecutive app-only cards of one app at most five minutes apart collapse into one
+  `N 次 · 時長` card whose detail lists every visit (`collapseAppOnly()`).
+- Words: `只有應用程式`, `只知道使用了這個應用程式`, `常用應用程式`, `空間上限`, `分類與規則`.
+- Text sizes: mobile card title 16 px / summary 14 px, nav labels 13 px, time split and
+  desktop grid 14 px. Time split rows use a fixed label column, flexible 9 px bar and a fixed
+  right-aligned value column.
+- Inspector: semibold larger title, `分類` heading with `你選的分類會優先於自動分類。`, ✓ on the
+  selected category.
+- 設定: the AI and 分類與規則 card headers are the navigable rows; AI shows the provider with
+  `model · 自動整理開啟 · 每日回顧關閉`; `最後連線` is each device's own status; `登出這個瀏覽器` is
+  an underlined text button; section tabs only on phones (one scrolling row with an edge fade);
+  the no-HTTPS notice is a calm one-line row with an icon; the storage bar is an empty track at
+  0 MB.
+- AI dialog: semibold title, ✓ on the selected tile, 3/2-column equal tiles with a wider 自訂
+  tile so its subtitle fits, tighter spacing, a divider before `讓 AI 看截圖`, no redundant
+  `已連接` sentence.
+- 回顧 uses the calendar icon; week-chart layers are at least 2 px and every label shares one
+  baseline. Mobile timeline header has the refresh icon; the legend wraps in even columns; the
+  filter select and search button share one height.
+- A node test fails if any string literal in `app.js` contains ASCII `...`.
+
 ## History (before 2026-11-17)
 
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues

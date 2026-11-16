@@ -2961,3 +2961,381 @@ button.switch.on:hover {
     grid-template-columns: 5.2em minmax(0, 1fr) auto;
   }
 }
+
+/* ---- UX round 5 ---- */
+/* 問 AI: one soft field; the send circle is a flex item centred on the trailing edge. */
+.ask-form {
+  position: static;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 4px 4px 4px 16px;
+  border: 1px solid var(--edge);
+  border-radius: 26px;
+  background: #ffffff;
+}
+.ask-form:focus-within {
+  border-color: var(--accent);
+}
+.ask-form input,
+.ask-form input:focus-visible {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  outline: none;
+}
+.ask-form button.send-btn,
+.ask-form button.send-btn[type="submit"] {
+  position: static;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  transform: none;
+  border-radius: 50%;
+}
+/* 回顧 desktop: AI 回顧 and 問 AI share the left column; the generate button is a pill. */
+.review-layout + .ask-card {
+  margin-top: 0;
+}
+.brief-card .primary,
+.brief-card .generate {
+  border-radius: 24px;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+.chart-row {
+  grid-template-columns: 5em minmax(0, 1fr) 8.5em;
+  min-height: 44px;
+  margin: 0;
+  font-size: 14px;
+}
+.chart-row small {
+  font-size: 14px;
+}
+.bar {
+  height: 9px;
+}
+/* 時間表 */
+.axis-gap {
+  border-top: 1px dotted #b9c4b6;
+  height: var(--h);
+}
+.axis-gap span {
+  display: none;
+}
+.badge-icon.labelled {
+  width: auto;
+  border-radius: 20px;
+  padding: 0 8px 0 4px;
+  gap: 3px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.badge-icon.plain {
+  width: auto;
+  border-radius: 20px;
+  padding: 0 8px;
+  background: #eef1ec;
+  color: #3d4a40;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.event,
+.event strong,
+.event small,
+.event-head {
+  font-size: 14px;
+}
+.event.compact .cat-chip {
+  flex: none;
+  font-size: 13px;
+}
+.inspector-hint {
+  border: 0;
+  padding: 8px 4px;
+}
+.inspector-hint p {
+  font-size: 14px;
+  color: #6b766d;
+}
+.visit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  display: grid;
+  gap: 6px;
+}
+.visit-list li {
+  margin: 0;
+}
+.visit {
+  width: 100%;
+  text-align: left;
+  background: var(--panel);
+  font-variant-numeric: tabular-nums;
+}
+/* Mobile cards: title 16 px, summary 14 px. */
+.activity-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.activity-summary {
+  font-size: 14px;
+}
+nav button {
+  font-size: 13px;
+}
+/* Inspector */
+.detail-head h2 {
+  font-size: 21px;
+  font-weight: 600;
+}
+.picker-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 14px 0 0;
+}
+.picker-help {
+  margin: 0 0 8px;
+}
+.chip-check {
+  display: inline-grid;
+  place-items: center;
+}
+.chip-check .icon {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.4;
+}
+/* Dialog titles are semibold. */
+#modal-title,
+#confirm-title {
+  font-weight: 600;
+}
+/* AI tiles: equal grid (3 desktop / 2 phone); the wider 自訂 tile keeps its subtitle short. */
+.provider-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.provider.wide-tile {
+  grid-column: span 2;
+}
+.provider-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.provider small {
+  font-size: 12px;
+}
+.ai-form label {
+  margin-top: 10px;
+}
+.ai-form .row {
+  margin-top: 12px;
+}
+.ai-form .check {
+  margin-top: 8px;
+}
+/* 設定 */
+.section-jump {
+  display: none;
+}
+.settings-section.linked h2 {
+  margin: -6px -10px 2px;
+}
+.section-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 21px;
+  font-weight: 600;
+  text-align: left;
+  border-radius: 10px;
+}
+.section-link:hover {
+  background: var(--wash);
+}
+.row-title {
+  font-weight: 500;
+  margin: 0;
+}
+.row-subtitle {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 2px 0 0;
+}
+.link-btn {
+  background: transparent;
+  border: 0;
+  padding: 8px 0;
+  color: var(--accent-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 500;
+}
+.link-btn:hover {
+  background: transparent;
+  color: #2f4a39;
+}
+.notice-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  color: #5d4513;
+  margin: 4px 0 10px;
+}
+.notice-row .icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 2px;
+}
+.http-note.notice-row {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+/* Week chart: every label and baseline on one line. */
+.week-bars {
+  align-items: end;
+}
+.week-day-bar,
+.week-day-bar.future {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-height: 0;
+  line-height: 1.3;
+  font: inherit;
+  margin: 0;
+}
+.week-label,
+.week-label.today {
+  display: block;
+  height: 20px;
+  line-height: 20px;
+}
+@media (max-width: 860px) {
+  .section-jump {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -14px 14px;
+    padding: 2px 40px 6px 14px;
+    -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
+    mask-image: linear-gradient(to right, #000 85%, transparent);
+    scrollbar-width: none;
+  }
+  .section-jump button {
+    flex: none;
+  }
+  .provider-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .chart-row {
+    grid-template-columns: 4.6em minmax(0, 1fr) 8.6em;
+    font-size: 14px;
+    gap: 8px;
+  }
+  .chart-row small {
+    font-size: 14px;
+  }
+  .section-link {
+    font-size: 19px;
+  }
+}
+
+/* ---- UX round 5 addendum ---- */
+.event.is-selected strong {
+  font-weight: 700;
+}
+/* The inspector column matches the grid height; its content stays in view. */
+.dashboard {
+  align-items: stretch;
+}
+.dashboard aside,
+.dashboard aside.inspecting {
+  position: static;
+  max-height: none;
+  overflow: visible;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+}
+.dashboard aside > * {
+  position: sticky;
+  top: 96px;
+}
+.dashboard aside .activity-inspector {
+  border: 0;
+  background: transparent;
+  margin: 0;
+  max-height: calc(100dvh - 112px);
+  overflow-y: auto;
+}
+.stack-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 14px;
+}
+.week-fill i {
+  min-height: 2px;
+}
+.ai-form .check {
+  border-top: 1px solid var(--edge);
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.device-list small.stale {
+  color: #6c4a0e;
+}
+@media (max-width: 860px) {
+  .main-timeline .refresh-btn {
+    display: inline-grid;
+  }
+  .main-timeline .top-controls .date-nav {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .stack-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  select.category-filter {
+    min-height: 44px;
+  }
+  .dashboard aside {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
+  [data-key="day-today"] {
+    white-space: nowrap;
+    flex: none;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .main-timeline .date-button {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}

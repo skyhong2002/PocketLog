@@ -77,7 +77,7 @@
     await until(() => !modal().open && !!document.querySelector('.page-settings')?.textContent.includes('synthetic-authoritative-result'));
     assert(document.body.textContent.includes('已連接：OpenAI · synthetic-authoritative-result'), 'Connected state missing');
     assert(aiReads === reads, 'Redundant provider read after save');
-    assert(document.querySelector('.page-settings').textContent.includes('自動整理 關'), 'Auto switch must stay off after a new save');
+    assert(document.querySelector('.page-settings').textContent.includes('自動整理關閉'), 'Auto switch must stay off after a new save');
     assert(document.documentElement.scrollWidth <= innerWidth, 'Document overflow');
     // A current unauthorized save must still expire the actual UI session.
     await open(); const expired = await save(); expired.resolve(json({}, 401)); await until(() => !modal().open && document.body.textContent.includes('工作階段已結束'));

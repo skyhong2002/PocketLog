@@ -45,7 +45,9 @@ const titles = {
 };
 const icons = {
   timeline: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
-  review: "M5 19.5V12M10 19.5V5M15 19.5v-8M20 19.5V9M3.5 19.5h17",
+  review: "M4 6h16v14H4zM4 10.5h16M8 3.5v4M16 3.5v4",
+  info: "M12 4.5a7.5 7.5 0 1 0 0 15a7.5 7.5 0 1 0 0-15zM12 11v5M12 8h.01",
+  check: "M5 12.5l4.5 4.5L19 7.5",
   settings: "M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5",
   search: "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13zM15.3 15.3L20 20",
   refresh: "M19.5 11a7.5 7.5 0 1 0-2.2 5.6M19.5 4.5V11H13",
@@ -366,7 +368,7 @@ function timelineTicks(date) {
 /* Vertical axis for one journal day. Hours with any card (or the current
    moment) keep HOUR_PX; every run of empty hours collapses into one
    thin 沒有記錄 gap. Returns the segments and y(ms), the pixel offset of a time. */
-const HOUR_PX = 64, GAP_PX = 34;
+const HOUR_PX = 96, GAP_PX = 18;
 function timeAxis(bounds, cards, { minEmpty = 1, now = null, hourPx = HOUR_PX, gapPx = GAP_PX, splitAt = [] } = {}) {
   const splits = new Set(splitAt);
   const busy = bounds.slice(0, -1).map((from, i) => {
@@ -450,8 +452,9 @@ function dayTitle(date) {
 function stamp(ms) {
   return `${shortDate(dateKey(new Date(ms)), false)} ${time(ms)}`;
 }
-/* A zero-length card reads 01:26 · 不到 1 分. */
+/* A zero-length card reads 01:26 · 不到 1 分; a collapsed group reads 3 次 · 不到 1 分. */
 function cardLength(c) {
+  if (c.members) return `${c.members.length} 次 · ${duration(Math.max(1, c.members.reduce((n, m) => n + Math.max(0, m.end_ms - m.start_ms), 0)))}`;
   return duration(Math.max(1, c.end_ms - c.start_ms));
 }
 function cardTimes(c) {
@@ -792,7 +795,7 @@ function login(reason) {
     add(card, status);
   }
   if (location.protocol === "http:" && isPrivateHost(location.hostname))
-    add(card, httpNote("callout"));
+    add(card, httpNote("http-note"));
   else if (!window.isSecureContext)
     add(
       card,
@@ -966,7 +969,7 @@ function onboard(step) {
         ])),
         add(el("div"), el("h2", "不會記下"), listOf(false, [
           "密碼、正在輸入的欄位和鎖定畫面",
-          "你排除的 app",
+          "你排除的應用程式",
           "受保護畫面（例如影音或銀行 app）的截圖，只留文字",
           "這台電腦的畫面：網站不會擷取任何東西",
         ])),
@@ -1454,9 +1457,8 @@ async function timelinePage(parent, seq) {
   } else if (currentView() === "list") {
     // Separate cards, not rows inside one panel.
     left.classList.add("list-mode");
-    activityList(left, shown);
+    activityList(left, collapseAppOnly(shown));
   } else {
-    add(left, el("p", "一天從 04:00 開始。空白時段代表沒有記錄。", "muted"));
     const viewport = el("div", null, "timeline-window");
     viewport.tabIndex = 0;
     viewport.setAttribute("role", "group");
@@ -1476,7 +1478,7 @@ async function timelinePage(parent, seq) {
         (viewport.scrollTop = Math.max(0, lane.axis.y(Math.max(start, Math.min(end - 1, anchor))) - 48)),
     );
   }
-  installTimelineInspector(aside, left, cards);
+  installTimelineInspector(aside, left, collapseAppOnly(cards.filter((c) => !filter || c.category === filter)));
 }
 /* Recorded time and one stacked category bar; the labels are the legend. */
 function daySummary(cards) {
@@ -1507,6 +1509,30 @@ function daySummary(cards) {
   }
   add(box, bar, legend);
   return box;
+}
+/* Consecutive app-only cards of one app with at most five minutes between them become
+   one card `N 次 · 時長`; the detail lists every visit. Never mutates the input. */
+function collapseAppOnly(cards, gapMs = 300000) {
+  const out = [];
+  for (const c of [...cards].sort((a, b) => a.start_ms - b.start_ms)) {
+    const last = out.at(-1);
+    const lastCard = last?.members ? last.members.at(-1) : last;
+    const joinable = (x) => x && x.source === "app_only" && x.pending_context !== true;
+    if (joinable(c) && joinable(lastCard) && lastCard.app === c.app && c.start_ms - Math.max(lastCard.end_ms, lastCard.start_ms) <= gapMs) {
+      if (last.members) {
+        last.members.push(c);
+        last.end_ms = Math.max(last.end_ms, c.end_ms);
+      } else {
+        out[out.length - 1] = {
+          ...last, members: [last, c], end_ms: Math.max(last.end_ms, c.end_ms),
+          protected_screen: last.protected_screen === true || c.protected_screen === true,
+        };
+      }
+      continue;
+    }
+    out.push(c);
+  }
+  return out;
 }
 function cardKey(c) {
   return `card-${c.id}-${c.start_ms}`;
@@ -1576,7 +1602,7 @@ function contentSource(source) {
     case "user": return { label: "你改過", detail: "這是你改過的內容；之後的自動整理不會蓋掉它。" };
     case "ai": return { label: "AI 整理", detail: "AI 根據截圖和畫面文字整理，可能有誤，可以直接改。" };
     case "local_excerpt": return { label: "畫面文字", detail: "從畫面文字摘錄，沒有經過 AI。" };
-    case "app_only": return { label: "只有 app", detail: "只知道用了哪個 app、用了多久。" };
+    case "app_only": return { label: "只有應用程式", detail: "只知道用了哪個應用程式、用了多久。" };
     default: return { label: "來源不明", detail: "這張卡片沒有標示來源；請自行核對。" };
   }
 }
@@ -1597,7 +1623,7 @@ function cardBadges(c, compact = true) {
 function badgeClass(label) {
   return label === PENDING_LABEL ? "badge pending" : label.startsWith("受保護畫面") ? "badge protected" : "badge";
 }
-const APP_ONLY_SUMMARY = "只知道使用了這個 app";
+const APP_ONLY_SUMMARY = "只知道使用了這個應用程式";
 function catChip(category) {
   const chip = add(el("span", null, "cat-chip"), el("i", null, "dot"), document.createTextNode(category.name));
   chip.style.setProperty("--cat", category.color);
@@ -1616,7 +1642,7 @@ function track(data) {
   const [start, end] = fullDayBounds(data.date);
   const ticks = timelineTicks(data.date);
   const today = data.date === journalDate();
-  const visible = data.cards.filter((c) => !filter || c.category === filter);
+  const visible = collapseAppOnly(data.cards.filter((c) => !filter || c.category === filter));
   const midnight = new Date(data.date + "T12:00:00");
   midnight.setDate(midnight.getDate() + 1);
   midnight.setHours(0, 0, 0, 0);
@@ -1634,11 +1660,18 @@ function track(data) {
     if (tick.offset) add(hour, el("small", tick.offset));
     add(lane, rule, hour);
   }
+  if (axis.segments[0]?.kind === "gap") {
+    const first = el("span", ticks[0].label, "hour");
+    first.style.setProperty("--y", "0px");
+    add(lane, first);
+  }
   for (const seg of axis.segments.filter((x) => x.kind === "gap")) {
     const gap = el("div", null, "axis-gap");
     gap.style.setProperty("--y", `${seg.top}px`);
     gap.style.setProperty("--h", `${seg.height}px`);
-    add(gap, el("span", `${time(seg.from)}–${time(seg.to)} 沒有記錄`));
+    gap.title = `${time(seg.from)}–${time(seg.to)} 沒有記錄`;
+    gap.setAttribute("role", "img");
+    gap.setAttribute("aria-label", gap.title);
     add(lane, gap);
   }
   // Mark where the next calendar day begins inside the 04:00–04:00 journal day.
@@ -1679,7 +1712,7 @@ function track(data) {
       const b = keyed(btn("", () => openCard(c), "event"), cardKey(c));
       const top = axis.y(c.start_ms);
       const room = following === undefined ? Infinity : axis.y(following) - top;
-      const height = Math.max(axis.y(c.end_ms) - top, Math.max(12, Math.min(26, room)));
+      const height = Math.max(axis.y(c.end_ms) - top, Math.max(18, Math.min(40, room)));
       const category = styleFor(c.category);
       b.style.setProperty("--top", `${top}px`);
       b.style.setProperty("--height", `${height}px`);
@@ -1691,19 +1724,26 @@ function track(data) {
       if (height >= 46) {
         add(b, add(el("span", null, "event-head"),
           el("span", `${cardTimes(c)} · ${cardLength(c)}`, "event-time"),
-          catChip(category),
+          c.pending_context === true ? null : catChip(category),
           ...cardBadges(c).map((x) => el("span", x, badgeClass(x)))));
         add(b, el("strong", cardTitle(c)));
         if (height >= 80 && cardSummary(c)) add(b, el("span", cardSummary(c), "event-summary"));
       } else {
         b.classList.add("compact");
+        const wide = lanes === 1;
         const badge = cardBadges(c)[0];
-        if (badge === PENDING_LABEL || badge?.startsWith("受保護畫面")) {
-          const mark = add(el("span", null, `badge-icon ${badge === PENDING_LABEL ? "pending" : "protected"}`), icon(badge === PENDING_LABEL ? "clock" : "shield"));
+        if (badge) {
+          const kind = badge === PENDING_LABEL ? "pending" : badge.startsWith("受保護畫面") ? "protected" : "plain";
+          const mark = el("span", null, `badge-icon ${kind}${wide ? " labelled" : ""}`);
+          if (kind !== "plain") add(mark, icon(kind === "pending" ? "clock" : "shield"));
+          if (wide || kind === "plain") add(mark, el("span", badge));
           mark.title = badge;
+          mark.setAttribute("aria-label", badge);
+          mark.setAttribute("role", "img");
           add(b, mark);
         }
         add(b, el("strong", cardTitle(c)));
+        if (wide && c.pending_context !== true) add(b, catChip(category));
         if (height >= 18) add(b, el("small", `${cardTimes(c)} · ${cardLength(c)}`));
       }
       add(lane, b);
@@ -1880,7 +1920,7 @@ function activityList(parent, cards) {
       add(
         el("span", null, "activity-head"),
         el("span", `${cardTimes(c)} · ${cardLength(c)}`, "activity-time"),
-        catChip(category),
+        c.pending_context === true ? null : catChip(category),
         ...cardBadges(c).map((x) => el("span", x, badgeClass(x))),
       ),
       el("strong", cardTitle(c), "activity-title"),
@@ -1926,6 +1966,19 @@ function cardDetail(box, c, { current, saved, heading = true, closer = null }) {
   add(box, meta);
   const badges = cardBadges(c, false);
   if (badges.length) add(box, add(el("div", null, "badges"), ...badges.map((x) => el("span", x, badgeClass(x)))));
+  if (c.members) {
+    // A collapsed group lists every visit; each opens its own detail.
+    const visits = el("ol", null, "visit-list");
+    visits.setAttribute("aria-label", "每一次使用");
+    c.members.forEach((m) => {
+      const v = keyed(btn(`${cardTimes(m)} · ${cardLength(m)}`, () => {
+        if (page === "timeline" && inspectorMedia.matches && timelineInspector) timelineInspector.open(m, true);
+        else editCard(m);
+      }, "visit"), `visit-${m.id}`);
+      add(visits, add(el("li"), v));
+    });
+    add(box, visits);
+  }
   add(box, el("p", cardSummary(c) || "這張卡片還沒有摘要。", c.summary ? "detail-summary" : "detail-summary muted"));
   if (c.source === "ai" || c.source === "local_excerpt") add(box, el("p", DISCLAIMER, "hint"));
   if (c.protected_screen === true) add(box, el("p", PROTECTED_HELP, "hint"));
@@ -1937,15 +1990,18 @@ function cardDetail(box, c, { current, saved, heading = true, closer = null }) {
     const chosen = cat.id === c.category;
     const b = keyed(btn(cat.name, async () => {
       if (cat.id === c.category) return;
-      if (!(await saveCard(c, { category: cat.id }, current)) || !current()) return;
+      // A collapsed group recategorises every visit.
+      for (const target of c.members || [c])
+        if (!(await saveCard(target, { category: cat.id }, current)) || !current()) return;
+      if (c.members) c.category = cat.id;
       await saved(`pick-${cat.id}`);
     }, chosen ? "chip active" : "chip"), `pick-${cat.id}`);
     b.setAttribute("aria-pressed", String(chosen));
-    b.prepend(el("i", null, "dot"));
+    b.prepend(chosen ? add(el("span", null, "chip-check"), icon("check")) : el("i", null, "dot"));
     b.style.setProperty("--cat", cat.color);
     add(picker, b);
   });
-  add(box, el("p", "分類 · 點一下就會儲存", "picker-label"), picker);
+  add(box, el("h3", "分類", "picker-title"), el("p", "你選的分類會優先於自動分類。點一下就會儲存。", "hint picker-help"), picker);
   const editor = el("div", null, "text-editor");
   const toggle = keyed(btn("", () => {
     toggle.hidden = true;
@@ -1977,7 +2033,8 @@ function cardDetail(box, c, { current, saved, heading = true, closer = null }) {
     t.focus();
   }, "icon-text"), "edit-text");
   add(toggle, icon("edit"), el("span", "修改文字"));
-  add(box, toggle, editor);
+  // A collapsed group has no single text to edit; each visit opens its own detail.
+  if (!c.members) add(box, toggle, editor);
   const thumbs = el("div", null, "thumbs");
   add(box, thumbs);
   cardThumbs(thumbs, c, current).catch(() => {});
@@ -2049,7 +2106,7 @@ async function reviewPage(parent, seq) {
   timeSplit(side, overview);
   topApps(side, overview);
   topics(side, overview);
-  askPanel(parent, from, to);
+  askPanel(main, from, to);
 }
 function askDisclosure(host) {
   return `會把問題和這段時間的活動卡送到 ${host}（不含截圖）。`;
@@ -2149,9 +2206,9 @@ function timeSplit(parent, overview) {
   add(box, chart);
 }
 function topApps(parent, overview) {
-  const box = panel("常用 app", "apps-card");
+  const box = panel("常用應用程式", "apps-card");
   add(parent, box);
-  if (!overview) return failed(box, "常用 app");
+  if (!overview) return failed(box, "常用應用程式");
   const apps = overview.apps.filter((a) => a.duration_ms > 0).slice(0, 5);
   if (!apps.length) return add(box, el("p", "這段時間沒有 app 記錄。", "muted"));
   const list = el("ol", null, "app-list");
@@ -2545,13 +2602,14 @@ async function devicesDialog() {
 function failed(parent, what) {
   add(parent, el("p", `暫時讀不到${what}；請重新整理。`, "callout warn"));
 }
-function settingsSection(parent, id, title, state, stateClass = "") {
-  const s = el("section", null, "settings-section");
+function settingsSection(parent, id, title, state, stateClass = "", open = null) {
+  const s = el("section", null, open ? "settings-section linked" : "settings-section");
   s.dataset.section = id;
   s.setAttribute("aria-labelledby", `settings-${id}-title`);
-  const h = keyed(el("h2", title), `settings-${id}`);
+  const h = keyed(el("h2", open ? null : title), `settings-${id}`);
   h.id = `settings-${id}-title`;
   h.tabIndex = -1;
+  if (open) add(h, add(keyed(btn("", open.action, "section-link"), open.key), el("span", title), el("span", "›", "chevron")));
   add(s, h);
   if (state) add(s, el("p", state, `state-line ${stateClass}`.trim()));
   add(parent, s);
@@ -2570,20 +2628,20 @@ function phoneStale(phones, now) {
   return last > 0 && now - last > 86400000;
 }
 /* The web never claims 記錄中 from last-seen alone. */
-function recordState(control, phones, now) {
+/* The section line only covers what is not a device's own status. */
+function recordState(control, phones) {
   if (!control) return "暫時讀不到記錄狀態";
   if (control.paused) return "已暫停：伺服器不接受新的記錄";
   if (!phones) return "暫時讀不到手機狀態";
   if (!phones.length) return "還沒有連接手機";
-  const last = latestContact(phones);
-  if (!last) return "手機還沒連線過";
-  return phoneStale(phones, now) ? "手機超過一天沒有連線" : `最後連線 ${shortStamp(last)}`;
+  return "";
 }
-function lastSeen(device) {
+/* Each device's own status: 最後連線 11/17 03:17, stale or never connected. */
+function deviceStatus(device, now) {
   if (!Object.hasOwn(device, "last_authenticated_ms")) return "伺服器沒有提供連線時間";
-  return Number.isFinite(device.last_authenticated_ms) && device.last_authenticated_ms > 0
-    ? `最後連線 ${shortStamp(device.last_authenticated_ms)}`
-    : "還沒連線過";
+  const last = device.last_authenticated_ms;
+  if (!(Number.isFinite(last) && last > 0)) return "還沒連線過";
+  return now - last > 86400000 ? `超過一天沒有連線（最後 ${shortStamp(last)}）` : `最後連線 ${shortStamp(last)}`;
 }
 /* A navigation row: one line of state, a chevron, opens a dialog. */
 function navRow(text, key, open, primary = false) {
@@ -2639,7 +2697,7 @@ async function settingsPage(parent, seq) {
     parent,
     "record",
     "記錄",
-    recordState(control, devices ? activePhones : null, now),
+    recordState(control, devices ? activePhones : null),
     control?.paused || (activePhones.length && phoneStale(activePhones, now)) ? "warn" : "",
   );
   if (!devices) failed(record, "裝置");
@@ -2648,10 +2706,13 @@ async function settingsPage(parent, seq) {
   else {
     const list = el("ul", null, "device-list");
     // With one phone the state line already says 最後連線; repeat it per phone only when there are several.
-    activePhones.forEach((d) => add(list, add(el("li"), el("strong", d.label), activePhones.length > 1 ? el("small", lastSeen(d)) : null)));
+    activePhones.forEach((d) => {
+      const stale = now - (d.last_authenticated_ms || 0) > 86400000 && d.last_authenticated_ms > 0;
+      add(list, add(el("li"), el("strong", d.label), el("small", deviceStatus(d, now), stale ? "stale" : "")));
+    });
     add(record, list);
   }
-  add(record, el("p", "記錄開關、截圖和排除的 app 在 Android app 的設定裡調整。", "hint"));
+  add(record, el("p", "記錄開關、截圖和排除的應用程式在 Android 手機上調整。", "hint"));
   if (control)
     add(record, toggleSwitch(
       "暫停所有裝置",
@@ -2676,31 +2737,36 @@ async function settingsPage(parent, seq) {
       },
     ));
 
-  /* 2. AI — one summary line; the switches live on the AI page (dialog). */
+  /* 2. AI — the card header opens the AI page; title = provider, subtitle = model and automation. */
   const model = settingsSection(
     parent,
     "ai",
     "AI",
     ai.enabled
-      ? `已連接：${aiLabel(ai)}`
+      ? null
       : ai.available === false
         ? "這台伺服器還沒有地方保存 AI 設定"
-        : "尚未設定 · 活動卡只顯示 app 名稱和畫面文字",
-    ai.enabled ? "ok" : "",
+        : "尚未設定 · 活動卡只顯示應用程式名稱和畫面文字",
+    "",
+    { key: "settings-ai-setup", action: () => providerDialog(shell) },
   );
   if (ai.enabled) {
     const brief = schedule ? schedule.enabled && schedule.provider_id === ai.provider_id : null;
-    const chip = (name, on) => el("span", `${name} ${on === null ? "—" : on ? "開" : "關"}`, on ? "status-chip on" : "status-chip");
-    add(model, add(el("div", null, "status-chips"), chip("自動整理", !!ai.auto_summarize), chip("每日回顧", brief)));
-  }
-  add(model, navRow(ai.enabled ? "AI 設定" : "設定 AI", "settings-ai-setup", () => providerDialog(shell), !ai.enabled));
+    add(
+      model,
+      el("p", providerName(ai), "row-title"),
+      el("p", aiSummary(ai.model, !!ai.auto_summarize, brief), "row-subtitle"),
+    );
+  } else add(model, row(keyed(btn("設定 AI", () => providerDialog(shell), "primary"), "settings-ai-start")));
 
   /* 3. 分類 */
   const sorting = settingsSection(
     parent,
     "categories",
-    "分類",
+    "分類與規則",
     `${prefs.categories.length} 個分類 · ${(prefs.rules || []).length} 條自動規則`,
+    "",
+    { key: "settings-categories-edit", action: categoriesDialog },
   );
   const swatches = el("ul", null, "swatches");
   swatches.setAttribute("aria-label", "目前的分類");
@@ -2710,7 +2776,7 @@ async function settingsPage(parent, seq) {
     add(item, el("i", null, "dot"), el("span", c.name));
     add(swatches, item);
   });
-  add(sorting, swatches, navRow("編輯分類與規則", "settings-categories-edit", categoriesDialog));
+  add(sorting, swatches);
 
   /* 4. 連線與裝置 */
   const link1 = settingsSection(
@@ -2730,12 +2796,12 @@ async function settingsPage(parent, seq) {
         notice("已複製伺服器網址");
       }), "settings-copy-origin"),
     ),
-    ...originHints(location).map((text) => text === HTTP_NOTE ? httpNote("callout warn http-note") : el("p", text, "hint")),
+    ...originHints(location).map((text) => text === HTTP_NOTE ? httpNote("http-note") : el("p", text, "hint")),
     navRow("管理裝置金鑰", "settings-devices-manage", devicesDialog, !!devices && !devices.devices.length),
     row(keyed(btn("登出這個瀏覽器", async () => {
       await api("/session", null, "DELETE");
       login("signedout");
-    }, "text-btn"), "settings-logout")),
+    }, "link-btn"), "settings-logout")),
   );
 
   /* 5. 資料 */
@@ -2749,8 +2815,7 @@ async function settingsPage(parent, seq) {
   if (storage) {
     const used = el("progress");
     used.max = storage.limit_bytes;
-    // A minimum sliver keeps a nearly empty budget visible.
-    used.value = Math.min(storage.limit_bytes, Math.max(storage.used_bytes, storage.limit_bytes * 0.015));
+    used.value = Math.min(storage.limit_bytes, storage.used_bytes);
     used.setAttribute("aria-label", `儲存空間：已使用 ${gib(storage.used_bytes)}，上限 ${gib(storage.limit_bytes)}`);
     add(
       data,
@@ -2759,7 +2824,7 @@ async function settingsPage(parent, seq) {
     );
     if (storage.text_only_before_ms)
       add(data, el("p", `${stamp(storage.text_only_before_ms)} 以前只剩文字。`, "hint"));
-    add(data, navRow("調整容量上限", "settings-storage", () => storageDialog(storage)));
+    add(data, navRow("空間上限", "settings-storage", () => storageDialog(storage)));
   }
   const range = el("select");
   range.id = "export-range";
@@ -2884,7 +2949,9 @@ function originHints(loc) {
 const HTTP_NOTE = "這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路";
 /* The warning row, kept from breaking inside VPN／私人網路. */
 function httpNote(cls) {
-  return add(el("p", null, cls), document.createTextNode("這個連線沒有 HTTPS，資料保護依賴你的 "), el("span", "VPN／私人網路", "nowrap"));
+  const row = add(el("p", null, `${cls} notice-row`), icon("info"));
+  add(row, add(el("span"), document.createTextNode("這個連線沒有 HTTPS，資料保護依賴你的 "), el("span", "VPN／私人網路", "nowrap")));
+  return row;
 }
 const PRIVATE_NETWORKS = "VPN／私人網路（例如 Tailscale、ZeroTier、Headscale、WireGuard、區網）";
 
@@ -2958,6 +3025,14 @@ function presetFor(config) {
   }
   return protocol === "openai" ? "custom" : null;
 }
+function providerName(config) {
+  const preset = AI_PROVIDERS.find((p) => p.id === presetFor(config));
+  return preset ? preset.name : providerHost(config);
+}
+/* claude-haiku-4-5 · 自動整理開啟 · 每日回顧關閉 */
+function aiSummary(model, auto, brief) {
+  return `${model} · 自動整理${auto ? "開啟" : "關閉"} · 每日回顧${brief === null ? "—" : brief ? "開啟" : "關閉"}`;
+}
 function aiLabel(config) {
   const preset = AI_PROVIDERS.find((p) => p.id === presetFor(config));
   const name = preset ? preset.name : providerHost(config);
@@ -3004,7 +3079,9 @@ function aiForm(p, saved) {
         renderForm();
         picker.querySelector(`[data-key="provider-${preset.id}"]`)?.focus({ focusVisible: false });
       }, chosen === preset.id ? "provider active" : "provider"), `provider-${preset.id}`);
-      add(b, el("span", preset.name), preset.note ? el("small", preset.note) : null);
+      add(b, add(el("span", null, "provider-name"), chosen === preset.id ? add(el("span", null, "chip-check"), icon("check")) : null, el("span", preset.name)),
+        preset.note ? el("small", preset.note) : null);
+      if (preset.note) b.classList.add("wide-tile");
       b.setAttribute("aria-pressed", String(chosen === preset.id));
       return b;
     }));
@@ -3164,8 +3241,7 @@ function providerDialog(done) {
       close();
       await done();
     };
-    if (ai.enabled) add(p, el("p", `已連接：${aiLabel(ai)}`, "state-line ok"));
-    else add(p, el("p", "AI 會看截圖和畫面文字，替每段時間寫標題和摘要。", "hint"));
+    if (!ai.enabled) add(p, el("p", "AI 會看截圖和畫面文字，替每段時間寫標題和摘要。", "hint"));
     const formBox = el("div");
     add(p, formBox);
     aiForm(formBox, finish);
@@ -3670,7 +3746,7 @@ function gib(bytes) {
 }
 function storageDialog(storage) {
   const seq = renderSeq;
-  modal("容量上限", (p) => {
+  modal("空間上限", (p) => {
     const current = () => p.isConnected && seq === renderSeq;
     add(
       p,
@@ -3707,7 +3783,7 @@ function storageDialog(storage) {
             }
             if (!current()) return;
             close();
-            notice("容量上限已儲存");
+            notice("空間上限已儲存");
             await shell();
           },
           "primary",
@@ -3770,7 +3846,7 @@ if (typeof module !== "undefined")
     searchActivities, timelineGroups, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds,
     timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot,
     captureStatus, providerSettings, presetFor, aiLabel, appName, cardTitle, AI_PROVIDERS,
-    timeAxis, isPrivateHost, originHints, proxyBase, recordState, storageLine, weekAverage, askDisclosure, badgeClass, modelsRequest, parseModels, topicsVisible,
+    timeAxis, isPrivateHost, originHints, proxyBase, collapseAppOnly, aiSummary, providerName, recordState, deviceStatus, storageLine, weekAverage, askDisclosure, badgeClass, modelsRequest, parseModels, topicsVisible,
     askExamples, weekHours, gib, cardSummary,
     shortDate, weekRange, cardLength, cardTimes, cardBadges,
   };
