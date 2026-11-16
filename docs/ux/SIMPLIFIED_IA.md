@@ -283,3 +283,23 @@ debug builds never check.
 - **Web controls**: native selects and date-nav buttons use the soft pill style; on narrow screens
   the 時間表/清單 toggle is hidden (list only); settings section tabs wrap to two rows on mobile
   instead of clipping.
+
+## Round 5 rules (2026-11-17)
+
+- **Typography**: never ASCII `...` in user-facing text (use `…`); full-width `（）` in Chinese
+  copy. A unit/node test fails the build on `...` in UI strings.
+- **"app" in labels** becomes `應用程式`: `常用應用程式`, `排除的應用程式`, badge `只有應用程式`,
+  summary `只知道使用了這個應用程式`. (Package/brand names stay as they are.)
+- **No-HTTPS warning** is exactly `這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路` on both.
+- **Settings wording** on both: `空間上限`, `分類與規則`, `N 條自動規則`; storage bar shows an empty
+  track at 0 MB on both.
+- **Pending cards** hide the category chip (only `AI 整理中`).
+- **Consecutive app-only cards** of the same app with ≤ 5 min between them collapse into one card
+  `N 次 · 不到 1 分`/total duration (tap expands the list in the detail).
+- **Time split** rows: fixed label column (~5 em), flexible bar, fixed-width right-aligned value
+  column, so every track ends on the same line; bar 8–10 px/dp; rows 44–48.
+- **自訂 provider tile**: `自訂` + `OpenAI 相容（CLIProxyAPI、LiteLLM、Ollama…）`, left aligned
+  like the others; provider tiles are an equal-width grid (2 columns phone, 3 desktop); the
+  selected tile shows ✓ on both.
+- **AI row in 設定**: title = provider (`Anthropic`), subtitle = model and automation state.
+- **Review icon** in navigation is the calendar on both clients.
