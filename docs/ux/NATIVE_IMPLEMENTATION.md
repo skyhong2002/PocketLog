@@ -47,6 +47,15 @@ Server APIs and stored data for those features are unchanged.
   next-step row and an 進階 page, `上次同步 HH:mm`, the AI page with a visible provider
   list, saved-key hint, `取得 API 金鑰` links, a visible test result and AI switches only
   there. Secondary text colour was darkened for ≥ 4.5:1 contrast.
+- **UX round 2 + networks (2026-11-17)**: SIMPLIFIED_IA "Round 2 rules" and "Networks and
+  self-hosted AI": at most one card badge (`AI 整理中` wins), `只知道使用了這個 app`, ranges under a
+  minute show only the start, non-breaking legend items with dots, outlined filter, labelled
+  同步 action, sticky date/period in the header, stacked week bars (`週一`, `4.1 時`, 平均每天),
+  time split `1 小時 · 25%`, topics only for model keywords, inline 問 AI send with the spec's
+  examples, a shorter 設定 › 記錄 (Wi‑Fi and 暫停所有裝置 in 進階), destructive actions last and
+  quiet, AI page order with 載入模型清單 (`POST /v1/ai/models`) and an 自動化 section, and
+  private-network `http://` connections (`EndpointPolicy.privateNetworkHost`, same rule as the
+  server) with the VPN warning.
 - **Instrumentation**: checks for removed pages were deleted; `UiSnapshotInstrumentation`
   renders 設定, a synthetic 時間軸 and a synthetic 回顧. No device or emulator run was
   made for this change; the new UI has unit-tested logic only.

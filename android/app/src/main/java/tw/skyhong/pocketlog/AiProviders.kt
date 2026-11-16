@@ -14,7 +14,7 @@ object AiProviders {
         GEMINI("Google Gemini", "gemini", "gemini-2.5-flash", true, "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", "https://aistudio.google.com/apikey"),
         OPENROUTER("OpenRouter", "openai", "openai/gpt-5-mini", true, "https://openrouter.ai/api/v1/chat/completions", "https://openrouter.ai/keys"),
         DEEPSEEK("DeepSeek", "openai", "deepseek-chat", false, "https://api.deepseek.com/chat/completions", "https://platform.deepseek.com/api_keys"),
-        CUSTOM("自訂（OpenAI 相容，例如 Ollama）", "openai", "", true, null, null);
+        CUSTOM("自訂（OpenAI 相容：CLIProxyAPI、LiteLLM、Ollama…）", "openai", "", true, null, null);
 
         /** Short name for the provider grid. */
         val short: String get() = if (this == CUSTOM) "自訂" else label

@@ -18,7 +18,13 @@ report suspected vulnerabilities privately through the repository owner.
   bounded query results, 10-second API timeout, eight outstanding DB operations.
   Blocking SQLite work stays off Tokio runtime threads. A timed-out write might
   still finish; stable request IDs make activity retries safe.
-- Android requires HTTPS and system certificate verification, refuses redirects,
+- Android uses HTTPS with system certificate verification anywhere; plain `http://` is
+  accepted only for private-network hosts (the server's `private_network_host` rule:
+  loopback, RFC 1918, 100.64/10, IPv6 ULA/link-local, `localhost`, `*.local`, `*.lan`,
+  `*.internal`, `*.home.arpa`, single-label names), checked before every request so the
+  device key is never sent over public HTTP. The network security config permits
+  cleartext only so that this app check can decide; user-added CAs are not trusted.
+  An http connection shows 「這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路」. It refuses redirects,
   stores endpoint+token together using Android Keystore AES-GCM, excludes app
   data from backups/device transfer. Blocking screenshots of PocketLog itself
   (`FLAG_SECURE` on the activity and every dialog) is an explicit setting,

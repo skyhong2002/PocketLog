@@ -2,19 +2,22 @@ package tw.skyhong.pocketlog
 
 import org.json.JSONObject
 import java.net.URL
-import javax.net.ssl.HttpsURLConnection
+import java.net.HttpURLConnection
 
 class ApiFailure(val status: Int, val retryMs: Long) : Exception("HTTP request failed")
 
 class PocketLogApi(private val credentials: Credentials) {
     fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject {
         require(path.startsWith("/v1/"))
+        // Refuses public plain HTTP before any connection exists, so the key never leaves over it.
         val endpoint = EndpointPolicy.normalize(credentials.endpoint)
         require(EndpointPolicy.validToken(credentials.token))
-        val connection = URL(endpoint + path).openConnection() as HttpsURLConnection
+        val connection = URL(endpoint + path).openConnection() as HttpURLConnection
         try {
-            // Keep the platform TLS verifier. Redirects must never carry an owner credential elsewhere.
+            // HTTPS keeps the platform TLS verifier; plain HTTP is private-network only (EndpointPolicy).
+            // Redirects must never carry an owner credential elsewhere.
             connection.instanceFollowRedirects = false
+            connection.useCaches = false
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
             connection.setRequestProperty("Authorization", "Bearer ${credentials.token}")

@@ -7,7 +7,8 @@ object AiEndpoint {
     fun normalize(value: String, openAi: Boolean = true): String {
         val raw = value.trim().trimEnd('/')
         val uri = URI(raw)
-        require(uri.scheme == "https" || (uri.scheme == "http" && uri.host in setOf("127.0.0.1", "[::1]", "::1")))
+        // Same rule as the server: plain HTTP only to a private-network host (local proxy, VPN, LAN).
+        require(uri.scheme == "https" || (uri.scheme == "http" && uri.host != null && EndpointPolicy.privateNetworkHost(uri.host)))
         require(!uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null)
         require(raw.length <= 2048)
         if (!openAi) return raw

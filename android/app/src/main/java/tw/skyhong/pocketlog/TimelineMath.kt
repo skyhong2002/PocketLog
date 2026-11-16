@@ -43,7 +43,12 @@ object TimelineMath {
         val last = first.plusDays(6)
         return "${first.monthValue}月${first.dayOfMonth}日 – " + (if (last.monthValue == first.monthValue) "" else "${last.monthValue}月") + "${last.dayOfMonth}日"
     }
-    fun weekdayShort(day: LocalDate): String = WEEKDAYS[day.dayOfWeek.value - 1].removePrefix("週")
+    fun weekdayShort(day: LocalDate): String = WEEKDAYS[day.dayOfWeek.value - 1]
+    /** `16:00–16:14 · 14 分`; a range inside one minute shows only its start: `01:26 · 不到 1 分`. */
+    fun rangeLabel(startClock: String, endClock: String, ms: Long): String =
+        (if (ms < 60_000 || startClock == endClock) startClock else "$startClock–$endClock") + " · " + duration(ms)
+    /** Compact hours for the week bars: `4.1 時`. */
+    fun hours(ms: Long): String = "%.1f 時".format(java.util.Locale.ROOT, ms.coerceAtLeast(0) / 3_600_000.0)
     private val WEEKDAYS = listOf("週一", "週二", "週三", "週四", "週五", "週六", "週日")
     /** True when a card of this 04:00 journal [day] starts after midnight (shown under 隔天凌晨). */
     fun afterMidnight(day: LocalDate, zone: ZoneId, startMs: Long): Boolean =
@@ -103,7 +108,7 @@ object TimelineMath {
     fun duration(ms: Long): String {
         val minutes = (ms.coerceAtLeast(0) + 30_000) / 60_000
         return when {
-            ms < 30_000 -> "不到 1 分"
+            ms < 60_000 -> "不到 1 分"
             minutes < 60 -> "$minutes 分"
             minutes % 60 == 0L -> "${minutes / 60} 小時"
             else -> "${minutes / 60} 小時 ${minutes % 60} 分"

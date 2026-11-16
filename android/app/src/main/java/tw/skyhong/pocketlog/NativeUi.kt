@@ -172,7 +172,7 @@ class Ui(val context: Context) {
      * Tappable navigation row: title, optional description and status pill, chevron. The whole row is
      * one accessible button with a combined label.
      */
-    fun row(parent: ViewGroup, title: String, detail: String? = null, state: Pair<String, Boolean>? = null, divider: Boolean = true, onClick: (() -> Unit)?): LinearLayout {
+    fun row(parent: ViewGroup, title: String, detail: String? = null, state: Pair<String, Boolean>? = null, divider: Boolean = true, chevron: Boolean = true, onClick: (() -> Unit)?): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(56)
             setPadding(dp(4), dp(10), dp(4), dp(10))
@@ -182,7 +182,7 @@ class Ui(val context: Context) {
         text(texts, title, 16f)
         if (detail != null) meta(texts, detail, top = 2)
         if (state != null) pill(row, state.first, state.second).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(8) }
-        if (onClick != null) row.addView(icon(R.drawable.ic_chevron, Palette.MUTED, 20).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(6) })
+        if (onClick != null && chevron) row.addView(icon(R.drawable.ic_chevron, Palette.MUTED, 20).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(6) })
         row.contentDescription = listOfNotNull(title, state?.first, detail).joinToString("，")
         if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag == ROW_TAG) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
         row.tag = ROW_TAG
