@@ -241,7 +241,11 @@ class Ui(val context: Context) {
 
     @Suppress("UseSwitchCompatOrMaterialCode") // Platform widget on purpose: no AppCompat/Material dependency.
     fun switchRow(parent: ViewGroup, label: String, detail: String?, checked: Boolean, onChange: (Boolean) -> Unit): Switch = Switch(context).apply {
-        text = if (detail == null) label else "$label\n$detail"; textSize = 15f; setTextColor(Palette.INK); isChecked = checked; minHeight = dp(56)
+        text = if (detail == null) label else android.text.SpannableString("$label\n$detail").apply {
+            setSpan(android.text.style.RelativeSizeSpan(.87f), label.length + 1, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(android.text.style.ForegroundColorSpan(Palette.MUTED), label.length + 1, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        textSize = 15f; setTextColor(Palette.INK); isChecked = checked; minHeight = dp(56)
         // Off: outlined track and grey thumb (>= 3:1 against paper). On: filled accent track, white thumb.
         thumbTintList = null; trackTintList = null
         trackDrawable = StateListDrawable().apply {
