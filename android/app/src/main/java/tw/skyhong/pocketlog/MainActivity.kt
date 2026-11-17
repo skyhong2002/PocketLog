@@ -348,6 +348,7 @@ class MainActivity : Activity() {
 
     /** User-facing failure text. Never includes response bodies, tokens or journal content. */
     private fun describe(error: Throwable): String = when (error) {
+        is ApiProtocolFailure -> error.reason.message
         is ApiFailure -> when (error.status) {
             401 -> "伺服器不接受這把金鑰：可能打錯、過期或已撤銷。請到「設定 → 連線」更換。"
             403 -> "這把金鑰沒有這個權限。手機請使用「日誌（手機 app）」金鑰。"
@@ -364,7 +365,7 @@ class MainActivity : Activity() {
         is SocketTimeoutException -> "連線逾時，伺服器可能離線或網路太慢。"
         is ConnectException -> "連不上伺服器。請確認服務正在執行、連接埠正確。"
         is IOException -> "網路連線失敗，資料仍加密保存在手機。"
-        is org.json.JSONException -> "伺服器回應的格式不對，請確認伺服器與 app 版本相符。"
+        is org.json.JSONException -> "伺服器回應缺少這項功能需要的資料，請更新 PocketLog 伺服器。"
         else -> "無法完成，請檢查網路與伺服器。"
     }
 
@@ -674,7 +675,7 @@ class MainActivity : Activity() {
             error.visibility = View.GONE
             task("正在確認伺服器與金鑰…", {
                 synchronized(SyncEngine.lock) {
-                    PocketLogApi(candidate).request(dayPath())
+                    PocketLogApi(candidate).verifyConnection(dayPath())
                     CredentialStore(this@MainActivity).save(candidate)
                     RecordingSettings(this@MainActivity).clearRejectedCredentials()
                     UsageCollector(this@MainActivity).reset()

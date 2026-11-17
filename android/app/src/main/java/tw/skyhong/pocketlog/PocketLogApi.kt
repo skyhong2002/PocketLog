@@ -7,6 +7,12 @@ import java.net.HttpURLConnection
 class ApiFailure(val status: Int, val retryMs: Long) : Exception("HTTP request failed")
 
 class PocketLogApi(private val credentials: Credentials) {
+    /** Authenticate and check the API contract before persisting a new connection. */
+    fun verifyConnection(timelinePath: String) {
+        ApiCompatibility.status(request("/v1/status"))
+        ApiCompatibility.timeline(request(timelinePath))
+    }
+
     fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject {
         require(path.startsWith("/v1/"))
         // Refuses public plain HTTP before any connection exists, so the key never leaves over it.
@@ -37,7 +43,7 @@ class PocketLogApi(private val credentials: Credentials) {
             if (status == 204) return JSONObject()
             val bytes = connection.inputStream.use { it.readNBytes(512 * 1024 + 1) }
             check(bytes.size <= 512 * 1024) { "回應超過大小限制" }
-            return JSONObject(String(bytes, Charsets.UTF_8))
+            return ApiCompatibility.decode(connection.contentType, String(bytes, Charsets.UTF_8))
         } finally { connection.disconnect() }
     }
 }

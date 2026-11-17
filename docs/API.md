@@ -139,6 +139,13 @@ snapshots. See [security boundaries](SECURITY.md).
   JSON) and `retry_after` (503/429 carry `Retry-After`). Older flags such as
   `GET /v1/ai` `probe_provider_binding` remain.
 - An older Android client keeps using `/v1/timeline` unchanged.
+- Android checks `/v1/status` and the timeline's `activities`/`cards` arrays
+  before saving a new connection. It accepts legacy status responses without
+  `api`, ignores additive response fields, and rejects an explicitly unsupported
+  API version. `schema_version` is a storage version, not an app release number.
+  HTML/wrong-service responses, malformed JSON and unsupported API versions have
+  separate fixed messages; response content is never displayed or logged. This
+  checks new connections; it does not negotiate optional features on every request.
 
 ## Errors and retries
 
