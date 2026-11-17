@@ -12,8 +12,8 @@ android {
         minSdk = 34
         targetSdk = 36
         testInstrumentationRunner = "tw.skyhong.pocketlog.UiSnapshotInstrumentation"
-    versionCode = 37
-    versionName = "0.4.31"
+    versionCode = 38
+    versionName = "0.4.32"
         // In-app updates read GitHub releases of this repository; only release builds check.
         buildConfigField("String", "UPDATE_REPOSITORY", "\"skyhong2002/PocketLog\"")
         buildConfigField("boolean", "UPDATE_CHECK", "false")
@@ -34,7 +34,8 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("boolean", "UPDATE_CHECK", "true")
             if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
