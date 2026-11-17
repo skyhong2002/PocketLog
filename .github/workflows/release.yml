@@ -31,7 +31,7 @@ jobs:
           test -n "$KEYSTORE_BASE64" || { echo "POCKETLOG_KEYSTORE_BASE64 secret is missing" >&2; exit 1; }
           export POCKETLOG_KEYSTORE="$RUNNER_TEMP/release.jks"
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$POCKETLOG_KEYSTORE"
-          ./gradlew --no-daemon :app:testReleaseUnitTest :app:assembleRelease
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
           rm -f "$POCKETLOG_KEYSTORE"
       - name: Publish release
         env:
