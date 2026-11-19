@@ -52,7 +52,7 @@ pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
     )
     .map_err(storage_error)?;
     db.execute(
-        "DELETE FROM notes WHERE id NOT IN (SELECT id FROM activities)",
+        "DELETE FROM notes WHERE id NOT IN (SELECT id FROM journal_activities)",
         [],
     )
     .map_err(storage_error)?;
@@ -70,7 +70,7 @@ pub(super) fn erase(db: &Connection) -> Result<()> {
     .map_err(storage_error)?;
     db.execute("DELETE FROM review_records", [])
         .map_err(storage_error)?;
-    db.execute_batch("UPDATE journal_meta SET epoch=epoch+1; DELETE FROM analysis_jobs; DELETE FROM observations; DELETE FROM receipts; DELETE FROM notes; DELETE FROM reflections; DELETE FROM title_topics; UPDATE storage_settings SET text_only_before_ms=NULL;").map_err(storage_error)
+    db.execute_batch("UPDATE journal_meta SET epoch=epoch+1; DELETE FROM analysis_jobs; DELETE FROM screen_jobs; DELETE FROM screen_cards; DELETE FROM observations; DELETE FROM receipts; DELETE FROM notes; DELETE FROM reflections; DELETE FROM title_topics; UPDATE storage_settings SET text_only_before_ms=NULL;").map_err(storage_error)
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -202,9 +202,9 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
 use rusqlite::OptionalExtension;
 #[derive(Serialize)]
 pub(super) struct Card {
-    id: String,
-    start_ms: i64,
-    end_ms: i64,
+    pub(super) id: String,
+    pub(super) start_ms: i64,
+    pub(super) end_ms: i64,
     app: String,
     title: String,
     summary: String,
@@ -214,6 +214,12 @@ pub(super) struct Card {
     // execution state nor permission to send context to an external provider.
     pending_context: bool,
 }
+impl Card {
+    pub(super) fn is_app_only(&self) -> bool {
+        self.source == "app_only"
+    }
+}
+
 pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card>> {
     let preferences = workspace::load(db)?;
     activities
@@ -285,7 +291,7 @@ async fn edit(State(state): State<AppState>, Json(e): Json<Edit>) -> Result<Stat
     state.database(move |db| {
         super::prune(db,now_ms())?;
         workspace::ensure_category(db, &e.category)?;
-        let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM activities WHERE id=?)",[&e.id],|r|r.get(0)).map_err(storage_error)?;
+        let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM journal_activities WHERE id=?)",[&e.id],|r|r.get(0)).map_err(storage_error)?;
         if !exists { return Err(ApiError(StatusCode::NOT_FOUND,"activity not found")); }
         db.execute("INSERT INTO notes VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET title=excluded.title, summary=excluded.summary,category=excluded.category,edited=1",params![e.id,e.title,e.summary,serde_json::to_string(&e.category).map_err(storage_error)?]).map_err(storage_error)?;
         Ok(())
@@ -374,7 +380,7 @@ async fn overview(
         let apps:Vec<AppTotal>=db.prepare("SELECT app,SUM(MIN(end_ms,?2)-MAX(start_ms,?1)) FROM activities WHERE end_ms>?1 AND start_ms<?2 GROUP BY app ORDER BY 2 DESC,app LIMIT 20").map_err(storage_error)?
             .query_map([w.from_ms,w.to_ms],|r|Ok(AppTotal {app:r.get(0)?,duration_ms:r.get(1)?})).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         let (checkins,mood,energy):(i64,Option<f64>,Option<f64>)=db.query_row("SELECT COUNT(*),AVG(mood),AVG(energy) FROM checkins WHERE at_ms>=? AND at_ms<?",[w.from_ms,w.to_ms],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(storage_error)?;
-        let titles:Vec<String>=db.prepare("SELECT n.title FROM notes n JOIN activities a ON a.id=n.id WHERE a.end_ms>? AND a.start_ms<? ORDER BY a.start_ms DESC LIMIT 1000").map_err(storage_error)?
+        let titles:Vec<String>=db.prepare("SELECT n.title FROM notes n JOIN journal_activities a ON a.id=n.id WHERE a.end_ms>? AND a.start_ms<? ORDER BY a.start_ms DESC LIMIT 1000").map_err(storage_error)?
             .query_map([w.from_ms,w.to_ms],|r|r.get(0)).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         let (ranked,keyword_mode)=crate::topics::keywords(db,&titles)?;
         Ok(Json(serde_json::json!({"from_ms":w.from_ms,"to_ms":w.to_ms,"categories":categories,"apps":apps,"checkin_count":checkins,"mood_average":mood,"energy_average":energy,"title_keywords":ranked,"keyword_mode":keyword_mode,"keywords_sample_limit":1000})))
