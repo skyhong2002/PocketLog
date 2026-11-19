@@ -104,8 +104,8 @@ class RecordingTest {
         assertEquals(720, RecordingRules.MAX_IMAGE_EDGE)
         assertTrue((RecordingRules.MAX_IMAGE_BYTES + 2) / 3 * 4 <= RecordingRules.MAX_IMAGE_BASE64)
         assertTrue(RecordingRules.MAX_IMAGE_BASE64 + 4 * RecordingRules.MAX_TEXT + 1024 <= RecordingRules.MAX_UPLOAD_BODY)
-        assertTrue(ContextImage.isMostlyBlack(IntArray(100) { 0xff000000.toInt() }))
-        assertFalse(ContextImage.isMostlyBlack(IntArray(100) { if (it < 10) 0xffffffff.toInt() else 0xff000000.toInt() }))
+        assertTrue(ScreenChange.isMostlyBlack(IntArray(100) { 0xff000000.toInt() }))
+        assertFalse(ScreenChange.isMostlyBlack(IntArray(100) { if (it < 10) 0xffffffff.toInt() else 0xff000000.toInt() }))
     }
     @Test fun largeContextUploadsFitAndJournalReadsSkipThem() {
         val files = MemoryFiles(); val queue = JournalQueue(files) {}
@@ -120,5 +120,54 @@ class RecordingTest {
         assertEquals(1, JournalQueue(counting) {}.entries(c, 1).size)
         queue.clearContexts()
         assertEquals(1 to 0, queue.counts())
+    }
+    @Test fun capturesWaitThreeDaysWhileOtherWritesKeepTheirDay() {
+        val files = MemoryFiles(); var dropped = 0
+        val queue = JournalQueue(files) { dropped++ }
+        val c = Credentials("https://example.com", "a".repeat(64))
+        val now = System.currentTimeMillis()
+        queue.enqueue(c, "/v1/observations", JSONObject().put("id", "shot"), now)
+        queue.enqueue(c, "/v1/activities", JSONObject().put("id", "session"), now)
+        queue.prune(now + RecordingRules.RAW_TTL)
+        assertEquals("/v1/observations", queue.entries(c).single().data.getString("path"))
+        assertEquals(1, dropped)
+        queue.prune(now + RecordingRules.CONTEXT_TTL - 1)
+        assertEquals(1 to 0, queue.counts())
+        queue.prune(now + RecordingRules.CONTEXT_TTL)
+        assertEquals(0 to 0, queue.counts()); assertEquals(2, dropped)
+        assertEquals(72 * 60 * 60 * 1000L, RecordingRules.CONTEXT_TTL)
+    }
+    @Test fun capturesWaitingForChargerAreSkippedWithoutBlockingOtherUploads() {
+        val files = MemoryFiles(); val queue = JournalQueue(files) {}
+        val c = Credentials("https://example.com", "a".repeat(64))
+        val now = System.currentTimeMillis()
+        queue.enqueue(c, "/v1/observations", JSONObject().put("id", "shot"), now)
+        queue.enqueue(c, "/v1/cards", JSONObject().put("id", "edit"), now + 1)
+        var reads = 0
+        val counting = object : JournalFiles by files { override fun read(name: String): ByteArray? { reads++; return files.read(name) } }
+        assertEquals("/v1/cards", JournalQueue(counting) {}.entries(c, 32, includeObservations = false).single().data.getString("path"))
+        assertEquals(1, reads)
+        assertEquals(2, queue.entries(c, 32, includeObservations = true).size)
+        assertEquals(1, queue.pending(includeObservations = false))
+        assertEquals(2, queue.pending(includeObservations = true))
+        val (count, bytes) = queue.observationBacklog()
+        assertEquals(1, count); assertTrue(bytes > 0)
+    }
+    @Test fun overTheByteCapOldCapturesGoBeforeAppSessions() {
+        val files = MemoryFiles(); val queue = JournalQueue(files) {}
+        val c = Credentials("https://example.com", "a".repeat(64))
+        val now = System.currentTimeMillis()
+        queue.enqueue(c, "/v1/activities", JSONObject().put("id", "oldest"), now)
+        queue.enqueue(c, "/v1/observations", JSONObject().put("id", "shot"), now + 1)
+        // Report the capture as huge so the queue is over its byte cap.
+        val shot = files.data.keys.single { it.endsWith("_ctx") }
+        val big = object : JournalFiles by files { override fun size(name: String) = if (name == shot) RecordingRules.MAX_QUEUE_BYTES + 1 else files.size(name) }
+        JournalQueue(big) {}.prune(now + 2)
+        assertEquals("/v1/activities", queue.entries(c).single().data.getString("path"))
+    }
+    @Test fun suggestedAppsAreInstalledAndNeverSensitiveOrExcluded() {
+        val installed = listOf("com.android.chrome", "notion.id", "com.x8bit.bitwarden", "com.example.bankapp", "com.google.android.youtube", "tw.skyhong.pocketlog")
+        assertEquals(setOf("com.android.chrome", "notion.id"), RecordingRules.suggested(installed, setOf("com.google.android.youtube"), "tw.skyhong.pocketlog"))
+        assertTrue(RecordingRules.suggested(emptyList(), emptySet(), "tw.skyhong.pocketlog").isEmpty())
     }
 }

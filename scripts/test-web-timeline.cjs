@@ -157,18 +157,6 @@ console.log('Device setup distinguishes issued, unknown and authenticated journa
   console.log('Classification conflict recovery preserves drafts, remote goals, revision and independent snapshots');
 }
 
-const { sharedWeekAxis } = require('../server/web/app.js');
-try {
-  process.env.TZ = 'America/New_York';
-  assert.equal(sharedWeekAxis(['2026-03-06','2026-03-07','2026-03-08']), false);
-  assert.equal(sharedWeekAxis(['2026-10-30','2026-10-31','2026-11-01']), false);
-  assert.equal(sharedWeekAxis(['2026-11-09','2026-11-15']), true);
-  process.env.TZ = 'Australia/Lord_Howe';
-  assert.equal(sharedWeekAxis(['2026-10-02','2026-10-03','2026-10-04']), false);
-  process.env.TZ = 'Asia/Taipei';
-  assert.equal(sharedWeekAxis(['2026-10-03','2026-11-15']), true);
-} finally { if (originalZone === undefined) delete process.env.TZ; else process.env.TZ=originalZone; }
-console.log('Week clocks split for full-hour and half-hour DST transitions');
 
 const { timelineGroups } = require('../server/web/app.js');
 const dense = Array.from({length:1000},(_,id)=>({id,start_ms:id*1000,end_ms:(id+1)*1000}));
@@ -188,13 +176,15 @@ assert.deepEqual(timelineGroups([],0,4),[]);
 console.log('Dense display groups preserve every record, true bounds and ordinary overlaps');
 
 const { duration } = require('../server/web/app.js');
-assert.equal(duration(0),'0 分鐘');
-assert.equal(duration(-1000),'0 分鐘');
-assert.equal(duration(1),'不到 1 分鐘');
-assert.equal(duration(29999),'不到 1 分鐘');
-assert.equal(duration(30000),'1 分鐘');
-assert.equal(duration(89999),'1 分鐘');
-assert.equal(duration(90000),'2 分鐘');
+assert.equal(duration(0),'0 分');
+assert.equal(duration(-1000),'0 分');
+assert.equal(duration(1),'不到 1 分');
+assert.equal(duration(29999),'不到 1 分');
+assert.equal(duration(30000),'不到 1 分');
+assert.equal(duration(59999),'不到 1 分');
+assert.equal(duration(60000),'1 分');
+assert.equal(duration(89999),'1 分');
+assert.equal(duration(90000),'2 分');
 assert.equal(duration(3600000),'1 小時');
 assert.equal(duration(3660000),'1 小時 1 分');
 console.log('Positive brief durations stay distinct from zero; minute/hour rounding retained');
@@ -215,6 +205,281 @@ for (const [cardLimit,reviewLimit] of [[false,false],[true,false],[false,true],[
 assert.equal(JSON.stringify([exportDays,exportReviews]),beforeExport);
 assert.equal(exportSnapshot(exportDays,exportReviews).reviews_truncated,false);
 console.log('Journal exports retain activity/review completeness without changing data');
+
+// Bounded search keeps reading sparse pages, resumes from its cursor and stops at its budget.
+{
+  const { searchActivities } = require('../server/web/app.js');
+  const pages = (all, per) => {
+    const seen = [];
+    const fetchPage = async (path) => {
+      const q = new URL(path, 'https://journal.invalid').searchParams;
+      seen.push(Object.fromEntries(q));
+      const start = q.has('after_id') ? Number(q.get('after_id').slice(1)) + 1 : 0;
+      assert.equal(q.has('after_id'), q.has('epoch'), 'cursor always carries its epoch');
+      const rows = all.slice(start, start + per);
+      const end = start + rows.length;
+      return {
+        cards: rows.filter((r) => r.match).map((r) => ({ id: r.id })),
+        scanned: rows.length,
+        journal_epoch: 3,
+        next_cursor: end < all.length ? { after_start_ms: end, after_id: 'r' + (end - 1) } : null,
+      };
+    };
+    return { fetchPage, seen };
+  };
+  const rows = Array.from({ length: 10 }, (_, i) => ({ id: 'r' + i, match: i === 1 || i === 8 }));
+  (async () => {
+    let { fetchPage, seen } = pages(rows, 3);
+    let r = await searchActivities(fetchPage, { q: 'report', category: 'work', fromMs: 1, toMs: 2 });
+    assert.deepEqual(r.cards.map((c) => c.id), ['r1', 'r8']);
+    assert.equal(r.done, true); assert.equal(r.scanned, 10); assert.equal(seen.length, 4);
+    assert.equal(seen[0].q, 'report'); assert.equal(seen[0].category, 'work');
+    assert.ok(!('after_id' in seen[0]));
+    ({ fetchPage, seen } = pages(rows, 3));
+    r = await searchActivities(fetchPage, { q: 'x', fromMs: 1, toMs: 2, maxRequests: 2 });
+    assert.deepEqual(r.cards.map((c) => c.id), ['r1']);
+    assert.equal(r.done, false, 'request budget stops before the end without claiming no results');
+    assert.deepEqual(r.cursor, { after_start_ms: 6, after_id: 'r5', epoch: 3 });
+    const rest = await searchActivities(fetchPage, { q: 'x', fromMs: 1, toMs: 2, cursor: r.cursor });
+    assert.deepEqual(rest.cards.map((c) => c.id), ['r8']);
+    assert.equal(seen[2].after_id, 'r5'); assert.equal(seen[2].epoch, '3');
+    ({ fetchPage, seen } = pages(rows, 10));
+    r = await searchActivities(fetchPage, { q: 'x', fromMs: 1, toMs: 2, want: 1 });
+    assert.equal(seen[0].limit, '1');
+    console.log('Web bounded search pagination checks passed');
+  })().catch((e) => { console.error(e); process.exit(1); });
+}
+
+// The timeline status line shows one state, in priority order, from server facts.
+{
+  const { captureStatus } = require('../server/web/app.js');
+  const now = 10 * 86400000;
+  const phone = (extra = {}) => ({ scope: 'journal', expires_ms: now + 1, last_authenticated_ms: now - 60000, ...extra });
+  const on = { enabled: true, auto_summarize: true };
+  const kind = (input) => captureStatus({ now, ai: on, pending: 0, paused: false, devices: [phone()], ...input }).kind;
+  assert.equal(kind({}), 'ok');
+  assert.equal(captureStatus({ now, ai: on, paused: false, devices: [phone()] }).text, '記錄中');
+  assert.equal(kind({ paused: true, devices: [] }), 'paused', 'pause wins over everything');
+  assert.equal(kind({ devices: [] }), 'not-started');
+  assert.equal(kind({ devices: [phone({ scope: 'collector' })] }), 'not-started', 'collector keys are not phones');
+  assert.equal(kind({ devices: [phone({ expires_ms: now - 1 })] }), 'expired');
+  assert.equal(captureStatus({ now, ai: on, devices: [phone({ expires_ms: now })] }).text, '金鑰失效，請重新連線');
+  assert.equal(kind({ devices: [phone({ last_authenticated_ms: null })] }), 'not-started', 'issued but never connected');
+  assert.equal(kind({ devices: [phone({ last_authenticated_ms: now - 2 * 86400000 })] }), 'stale');
+  assert.equal(kind({ devices: [phone({ last_authenticated_ms: undefined })].map(({ last_authenticated_ms, ...d }) => d) }), 'ok', 'older servers without last-seen are not warned about');
+  assert.equal(kind({ ai: { enabled: false } }), 'no-ai');
+  assert.equal(captureStatus({ now, ai: { enabled: false }, devices: [phone()] }).target, 'ai');
+  assert.equal(kind({ ai: { enabled: true, auto_summarize: false } }), 'ai-off');
+  const busy = captureStatus({ now, ai: on, devices: [phone()], pending: 3 });
+  assert.equal(busy.kind, 'processing'); assert.equal(busy.text, 'AI 整理中（3 張）');
+  // Unknown facts (failed reads) never produce a warning of their own.
+  assert.equal(captureStatus({ now, paused: null, devices: null, ai: on }).kind, 'ok');
+  assert.equal(captureStatus({ now, paused: null, devices: null, ai: null }).kind, 'ok');
+  console.log('Status line chooses one state: paused, keys, phone contact, AI, then pending cards');
+}
+
+// AI presets fill in the endpoint and protocol; only 自訂 takes a typed endpoint.
+{
+  const { providerSettings, presetFor, aiLabel, AI_PROVIDERS } = require('../server/web/app.js');
+  assert.deepEqual(AI_PROVIDERS.map(p => p.id), ['openai', 'anthropic', 'gemini', 'openrouter', 'deepseek', 'custom']);
+  const cases = [
+    ['openai', 'gpt-x', 'openai', 'https://api.openai.com/v1/chat/completions'],
+    ['anthropic', 'claude-x', 'anthropic', 'https://api.anthropic.com/v1/messages'],
+    ['gemini', 'gemini-2.5-flash', 'gemini', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'],
+    ['openrouter', 'vendor/model', 'openai', 'https://openrouter.ai/api/v1/chat/completions'],
+    ['deepseek', 'deepseek-chat', 'openai', 'https://api.deepseek.com/chat/completions'],
+  ];
+  for (const [id, model, protocol, endpoint] of cases) {
+    const settings = providerSettings(id, `  ${model} `, 'https://ignored.example/v1');
+    assert.equal(settings.protocol, protocol, id);
+    assert.equal(settings.endpoint, endpoint, id);
+    assert.equal(settings.model, model, 'model is trimmed');
+    assert.equal(presetFor(settings), id, 'saved settings map back to their provider');
+  }
+  assert.equal(providerSettings('openai', 'm').response_format, 'json_schema');
+  assert.equal(providerSettings('deepseek', 'm').response_format, 'json_object');
+  const custom = providerSettings('custom', 'llama3.2-vision', ' http://127.0.0.1:11434/v1/chat/completions ');
+  assert.deepEqual([custom.protocol, custom.endpoint], ['openai', 'http://127.0.0.1:11434/v1/chat/completions']);
+  assert.equal(presetFor(custom), 'custom');
+  assert.equal(providerSettings('custom', 'm', 'http://[::1]:8080/v1/chat/completions').endpoint, 'http://[::1]:8080/v1/chat/completions');
+  assert.equal(providerSettings('custom', 'm', 'https://llm.example/v1/chat/completions').endpoint, 'https://llm.example/v1/chat/completions');
+  // Private-network http is allowed (same rule as the server); public http is not.
+  assert.equal(providerSettings('custom', 'm', 'http://localhost:11434/v1').endpoint, 'http://localhost:11434/v1');
+  assert.equal(providerSettings('custom', 'm', 'http://192.168.1.2:8317/v1').endpoint, 'http://192.168.1.2:8317/v1');
+  assert.equal(providerSettings('custom', 'm', 'http://cliproxy:8317/v1').endpoint, 'http://cliproxy:8317/v1');
+  assert.throws(() => providerSettings('custom', 'm', 'http://llm.example.com/v1'), /HTTPS/);
+  assert.throws(() => providerSettings('custom', 'm', 'http://8.8.8.8/v1'), /HTTPS/);
+  assert.throws(() => providerSettings('custom', 'm', 'https://user:pw@llm.example/v1'), /帳號或密碼/);
+  assert.throws(() => providerSettings('custom', 'm', 'not a url'), /完整/);
+  assert.throws(() => providerSettings('gemini', 'gemini/../x'), /Gemini/);
+  assert.throws(() => providerSettings('openai', '   '), /模型/);
+  assert.throws(() => providerSettings('nope', 'm'), /提供者/);
+  assert.equal(presetFor({ protocol: 'anthropic', endpoint: 'https://proxy.example/v1/messages', model: 'm' }), null, 'unknown native endpoints are not relabelled');
+  assert.equal(presetFor({ protocol: 'gemini', endpoint: cases[2][3], model: 'other' }), null, 'Gemini endpoint must match its model');
+  assert.equal(presetFor({}), null);
+  assert.equal(aiLabel({ protocol: 'anthropic', endpoint: cases[1][3], model: 'claude-x' }), 'Anthropic · claude-x');
+  assert.equal(aiLabel({ protocol: 'openai', endpoint: 'https://llm.example/v1/chat/completions', model: 'm' }), '自訂 · m');
+  console.log('AI provider presets map to fixed endpoints/protocols and back; custom endpoints are validated');
+}
+
+// Package names become readable app names; app-only card titles fall back to them.
+{
+  const { appName, cardTitle } = require('../server/web/app.js');
+  assert.equal(appName('com.google.android.youtube'), 'YouTube');
+  assert.equal(appName('com.example.notes'), 'Notes');
+  assert.equal(appName('org.example.app'), 'Example');
+  assert.equal(appName(''), '未知的 app');
+  assert.equal(cardTitle({ app: 'com.example.notes', title: 'com.example.notes' }), 'Notes');
+  assert.equal(cardTitle({ app: 'com.example.notes', title: '' }), 'Notes');
+  assert.equal(cardTitle({ app: 'com.example.notes', title: '寫週報' }), '寫週報');
+  console.log('App display names and app-only title fallback');
+}
+
+// Cross-platform consistency (UX round 1): zh-TW dates, compact units, exception-only labels, true-overlap columns.
+{
+  const { shortDate, weekRange, cardLength, cardTimes, cardBadges, layoutLanes, captureStatus } = require('../server/web/app.js');
+  assert.equal(shortDate('2026-11-16'), '11月16日（週一）');
+  assert.equal(shortDate('2026-11-16', false), '11月16日');
+  assert.equal(weekRange('2026-11-16', '2026-11-22'), '11月16日 – 22日');
+  assert.equal(weekRange('2026-11-30', '2026-12-06'), '11月30日 – 12月6日');
+  const at = new Date('2026-11-16T01:26:00').getTime();
+  assert.equal(cardLength({ start_ms: at, end_ms: at }), '不到 1 分');
+  assert.equal(cardTimes({ start_ms: at, end_ms: at }), '01:26');
+  assert.equal(cardLength({ start_ms: at, end_ms: at + 56 * 60000 }), '56 分');
+  assert.equal(cardLength({ start_ms: at, end_ms: at + 64 * 60000 }), '1 小時 4 分');
+  assert.deepEqual(cardBadges({ source: 'ai' }), [], 'normal AI cards carry no label');
+  // Compact rows show one exception; AI 整理中 never appears with 只有 app.
+  assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true, protected_screen: true }), ['AI 整理中']);
+  assert.deepEqual(cardBadges({ source: 'app_only', pending_context: true }, false), ['AI 整理中']);
+  assert.deepEqual(cardBadges({ source: 'app_only' }), ['只有應用程式']);
+  assert.deepEqual(cardBadges({ source: 'user', protected_screen: true }, false), ['受保護畫面（無截圖）', '你改過']);
+  // 08:10–08:28 and 08:32 do not overlap, so they share one column.
+  const t = (h, m) => new Date(`2026-11-16T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
+  const placed = layoutLanes([{ start_ms: t(8, 10), end_ms: t(8, 28) }, { start_ms: t(8, 32), end_ms: t(8, 40) }], 60000);
+  assert.ok(placed.every(p => p.lanes === 1), 'adjacent activities must not split into columns');
+  assert.equal(layoutLanes([{ start_ms: t(8, 10), end_ms: t(8, 30) }, { start_ms: t(8, 20), end_ms: t(8, 40) }], 60000)[0].lanes, 2);
+  assert.equal(captureStatus({ now: 1, ai: { enabled: false }, devices: null }).text, 'AI 未設定，只顯示 app 名稱');
+  assert.equal(captureStatus({ now: 1, ai: { enabled: true, auto_summarize: false }, devices: null }).text, 'AI 自動整理已關閉');
+  console.log('zh-TW dates, compact units, exception-only labels and true-overlap columns');
+}
+
+// Round 2: collapsed empty hours, private networks, model lists, storage and review rules.
+{
+  const m = require('../server/web/app.js');
+  const H = 3600000, bounds = Array.from({ length: 25 }, (_, i) => i * H); // 04:00 = 0 … next 04:00 = 24h
+  const card = (from, to) => ({ start_ms: from * H, end_ms: to * H });
+  // Cards 5–6h and 12–13h (09:00 and 16:00): 0–5 empty (gap), 6–12 empty (gap), 13–24 empty (gap).
+  let axis = m.timeAxis(bounds, [card(5, 6), card(12, 13)]);
+  assert.deepEqual(axis.segments.map(s => [s.kind, s.from / H, s.to / H]), [['gap', 0, 5], ['time', 5, 6], ['gap', 6, 12], ['time', 12, 13], ['gap', 13, 24]]);
+  assert.equal(axis.height, 3 * 18 + 2 * 96);
+  assert.equal(axis.y(5.5 * H), 18 + 48, 'times map inside their hour');
+  assert.ok(axis.y(12 * H) > axis.y(6 * H), 'later times stay below earlier ones');
+  // Every empty hour collapses consistently (even a single one); zero-length cards keep their hour; now keeps its hour.
+  axis = m.timeAxis(bounds, [card(5, 6), card(7, 7), card(9, 10)], { now: 20.5 * H });
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'time').map(s => [s.from / H, s.to / H]), [[5, 6], [7, 8], [9, 10], [20, 21]]);
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'gap').map(s => [s.from / H, s.to / H]), [[0, 5], [6, 7], [8, 9], [10, 20], [21, 24]]);
+  // Adjacent busy hours stay one segment.
+  assert.deepEqual(m.timeAxis(bounds, [card(5, 6), card(6, 7)]).segments.filter(s => s.kind === 'time').map(s => [s.from / H, s.to / H]), [[5, 7]]);
+  assert.equal(m.timeAxis(bounds, []).segments.length, 1, 'an empty day collapses to one gap');
+  assert.deepEqual(m.timeAxis(bounds, [card(0, 24)]).segments.map(s => s.kind), ['time']);
+  // Networks: same private-host rule as the server.
+  for (const h of ['127.0.0.1', 'localhost', '10.1.2.3', '172.16.0.1', '172.31.255.1', '192.168.0.5', '100.64.0.1', '100.127.1.1', '[::1]', '[fd12::1]', '[fe80::1]', 'nas', 'pi.local', 'box.lan', 'svc.internal', 'home.home.arpa'])
+    assert.equal(m.isPrivateHost(h), true, h);
+  for (const h of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '192.169.1.1', 'example.com', '[2001:db8::1]', '999.1.1.1'])
+    assert.equal(m.isPrivateHost(h), false, h);
+  // Loopback over http shows both the loopback hint and the no-HTTPS warning.
+  assert.deepEqual(m.originHints({ hostname: '127.0.0.1', protocol: 'http:' }), ['這是本機位址；手機請用 VPN／區網位址', '這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路']);
+  assert.deepEqual(m.originHints({ hostname: '100.80.1.2', protocol: 'http:' }), ['這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路']);
+  assert.deepEqual(m.originHints({ hostname: 'localhost', protocol: 'https:' }), ['這是本機位址；手機請用 VPN／區網位址']);
+  assert.deepEqual(m.originHints({ hostname: 'journal.example', protocol: 'https:' }), []);
+  // Proxy base URL display and the models request/response.
+  assert.equal(m.proxyBase('http://127.0.0.1:8317/v1/chat/completions'), 'http://127.0.0.1:8317/v1');
+  assert.equal(m.proxyBase('https://openrouter.ai/api/v1'), 'https://openrouter.ai/api/v1');
+  assert.deepEqual(m.modelsRequest('custom', '', 'http://127.0.0.1:8317/v1', ''), { protocol: 'openai', endpoint: 'http://127.0.0.1:8317/v1' });
+  assert.deepEqual(m.modelsRequest('anthropic', 'x', '', 'k'), { protocol: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', api_key: 'k' });
+  assert.equal(m.modelsRequest('gemini', '', '', '').endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', 'Gemini lists via a valid model path');
+  assert.equal(m.modelsRequest('gemini', 'gemini-pro', '', '').endpoint.includes('/models/gemini-pro:'), true);
+  assert.throws(() => m.modelsRequest('custom', 'm', 'http://public.example.com/v1', ''), /HTTPS/);
+  assert.deepEqual(m.parseModels({ models: ['models/gemini-2.5-flash', 'gpt-x', 'gpt-x', '', 7, ' claude '] }), ['gemini-2.5-flash', 'gpt-x', 'claude']);
+  assert.deepEqual(m.parseModels({}), []);
+  assert.equal(m.parseModels({ models: Array.from({ length: 400 }, (_, i) => 'm' + i) }).length, 300);
+  // Storage, week values, topics, examples and app-only summaries.
+  assert.equal(m.gib(0), '0 MB');
+  assert.equal(m.gib(512 * 1024 ** 2), '512 MB');
+  assert.equal(m.gib(3.24 * 1024 ** 3), '3.2 GB');
+  assert.equal(m.weekHours(4.1 * H), '4.1 時');
+  assert.equal(m.weekHours(0), '0.0 時');
+  assert.equal(m.topicsVisible({ keyword_mode: 'local', title_keywords: [['a', 1]] }), false);
+  assert.equal(m.topicsVisible({ keyword_mode: 'model', title_keywords: [['a', 1]] }), true);
+  assert.equal(m.topicsVisible({ keyword_mode: 'mixed', title_keywords: [] }), false);
+  assert.deepEqual(m.askExamples('day'), ['今天花最多時間在哪？', '今天學了什麼？', '有哪些分心的時段？']);
+  assert.deepEqual(m.askExamples('week'), ['這週花最多時間在哪？', '這週學了什麼？', '這週有哪些分心的時段？']);
+  assert.equal(m.cardSummary({ source: 'app_only', summary: '' }), '只知道使用了這個應用程式');
+  assert.equal(m.cardSummary({ source: 'ai', summary: '寫報告' }), '寫報告');
+  console.log('Collapsed empty hours, private-network hosts, model lists, storage units and review rules');
+}
+
+// Round 3: zero-length ranges, recording status, storage, week average and copy.
+{
+  const m = require('../server/web/app.js');
+  const at = new Date('2026-11-17T01:26:10').getTime();
+  assert.equal(m.cardTimes({ start_ms: at, end_ms: at + 20000 }), '01:26', 'same-minute ranges show only the start');
+  assert.equal(m.cardLength({ start_ms: at, end_ms: at + 20000 }), '不到 1 分');
+  const now = new Date('2026-11-17T03:30:00').getTime();
+  const phone = last => ({ scope: 'journal', expires_ms: now + 1, last_authenticated_ms: last });
+  assert.equal(m.recordState(null, []), '暫時讀不到記錄狀態');
+  assert.equal(m.recordState({ paused: true }, [phone(now)]), '已暫停：伺服器不接受新的記錄');
+  assert.equal(m.recordState({ paused: false }, []), '還沒有連接手機');
+  assert.equal(m.recordState({ paused: false }, [phone(now)]), '', 'never 記錄中 from last-seen alone; the device row says it');
+  assert.equal(m.deviceStatus(phone(null), now), '還沒連線過');
+  assert.equal(m.deviceStatus(phone(new Date('2026-11-17T03:17:00').getTime()), now), '最後連線 11/17 03:17');
+  assert.equal(m.deviceStatus(phone(new Date('2026-11-15T03:17:00').getTime()), now), '超過一天沒有連線（最後 11/15 03:17）');
+  assert.equal(m.storageLine({ used_bytes: 0, limit_bytes: 10 * 1024 ** 3 }), '已用 0 MB / 10.0 GB');
+  assert.equal(m.weekAverage(3 * 3600000, 2), '平均每天 1 小時 30 分（已過 2 天）');
+  assert.equal(m.askDisclosure('api.example.com'), '會把問題和這段時間的活動卡送到 api.example.com（不含截圖）。');
+  assert.equal(m.badgeClass('AI 整理中'), 'badge pending');
+  assert.equal(m.badgeClass('受保護畫面'), 'badge protected');
+  assert.equal(m.badgeClass('只有應用程式'), 'badge');
+  console.log('Same-minute ranges, recording status from last contact, storage, week average and copy');
+}
+
+// Round 4: empty stretches split at the calendar midnight; pending cards have a summary placeholder.
+{
+  const m = require('../server/web/app.js');
+  const H = 3600000, bounds = Array.from({ length: 25 }, (_, i) => i * H);
+  const axis = m.timeAxis(bounds, [{ start_ms: 5 * H, end_ms: 6 * H }], { splitAt: [20 * H] });
+  assert.deepEqual(axis.segments.filter(s => s.kind === 'gap').map(s => [s.from / H, s.to / H]), [[0, 5], [6, 20], [20, 24]], '隔天凌晨 sits between two gaps');
+  assert.equal(axis.y(20 * H), axis.segments.find(s => s.from === 20 * H).top);
+  assert.equal(m.cardSummary({ source: 'app_only', pending_context: true, summary: '' }), '正在整理這段活動…');
+  assert.equal(m.cardSummary({ source: 'ai', pending_context: true, summary: '寫週報' }), '寫週報');
+  console.log('Gaps split at midnight; pending summary placeholder');
+}
+
+// Round 5: app-only collapsing, AI summary wording, and no ASCII "..." in user-facing strings.
+{
+  const m = require('../server/web/app.js');
+  const M = 60000;
+  const card = (id, app, start, end, extra = {}) => ({ id, app, start_ms: start * M, end_ms: end * M, source: 'app_only', category: 'work', ...extra });
+  const cards = [card('a', 'x', 0, 0), card('b', 'x', 3, 3), card('c', 'x', 7, 8), card('d', 'y', 9, 10), card('e', 'x', 11, 12), card('f', 'x', 30, 31)];
+  const before = JSON.stringify(cards);
+  const out = m.collapseAppOnly(cards);
+  assert.equal(JSON.stringify(cards), before, 'collapsing never mutates the journal');
+  assert.deepEqual(out.map(c => c.members ? c.members.map(x => x.id).join('+') : c.id), ['a+b+c', 'd', 'e', 'f'], 'only consecutive same-app cards ≤ 5 min apart join');
+  assert.equal(m.cardLength(out[0]), '3 次 · 1 分');
+  assert.equal(m.cardLength(m.collapseAppOnly([card('a', 'x', 0, 0), card('b', 'x', 1, 1)])[0]), '2 次 · 不到 1 分');
+  assert.equal(out[0].start_ms, 0); assert.equal(out[0].end_ms, 8 * M);
+  assert.equal(m.collapseAppOnly([card('a', 'x', 0, 1), card('b', 'x', 2, 3, { source: 'ai' })]).length, 2, 'AI cards never collapse');
+  assert.equal(m.collapseAppOnly([card('a', 'x', 0, 1), card('b', 'x', 2, 3, { pending_context: true })]).length, 2, 'pending cards never collapse');
+  assert.equal(m.aiSummary('claude-haiku-4-5', true, false), 'claude-haiku-4-5 · 自動整理開啟 · 每日回顧關閉');
+  assert.equal(m.providerName({ protocol: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', model: 'x' }), 'Anthropic');
+  // Typography: user-facing strings never contain ASCII "..." (code spreads are not strings).
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../server/web/app.js'), 'utf8');
+  const strings = source.match(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g) || [];
+  const offenders = strings.map(s => s.replace(/\$\{[^}]*\}/g, '')).filter(s => s.includes('...'));
+  assert.deepEqual(offenders, [], 'use the ellipsis character … in UI text, never ASCII ...');
+  console.log('App-only collapsing, AI summary wording and no ASCII ... in UI strings');
+}
 
 // The weekly chart uses elapsed time, not the sum of overlapping card lengths.
 {

@@ -30,6 +30,13 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
             [],
         )?;
     }
+    if !columns.iter().any(|c| c == "protected_screen") {
+        // A secure/DRM window (e.g. a video app) yielded text but no pixels.
+        db.execute(
+            "ALTER TABLE observations ADD COLUMN protected_screen INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     db.execute_batch(
         "CREATE INDEX IF NOT EXISTS observations_pending ON observations(processed,at_ms);
          CREATE INDEX IF NOT EXISTS observations_images ON observations(at_ms,jpeg_bytes) WHERE jpeg_bytes IS NOT NULL;

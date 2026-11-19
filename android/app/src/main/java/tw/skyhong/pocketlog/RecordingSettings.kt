@@ -61,6 +61,11 @@ class RecordingSettings(private val context: Context) {
     var replayConsent: Boolean
         get() = imagesEnabled && hasReplayGrant
         set(value) = update(prefs.edit().putBoolean("replay", value))
+    // PocketLog's own FLAG_SECURE: an explicit display preference, off by default (owner, 2026-11-17).
+    // Not a capture consent, so it does not bump [revision].
+    var protectAppScreen: Boolean
+        get() = prefs.getBoolean("protect_app_screen", false)
+        set(value) { check(prefs.edit().putBoolean("protect_app_screen", value).commit()) }
     var wifiOnly: Boolean
         get() = prefs.getBoolean("wifi", true)
         set(value) { check(prefs.edit().putBoolean("wifi", value).commit()) }
@@ -77,6 +82,10 @@ class RecordingSettings(private val context: Context) {
     fun drop() { check(prefs.edit().putInt("dropped", (dropped().toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()).commit()) }
     fun status(value: String) { check(prefs.edit().putString("status", value).commit()) }
     fun status(): String = prefs.getString("status", "尚未同步")!!
+    /** Last completed upload pass, for 「上次同步 03:15」. */
+    var lastSync: Long
+        get() = prefs.getLong("last_sync", 0)
+        set(value) { check(prefs.edit().putLong("last_sync", value).commit()) }
     var nextAttempt: Long
         get() = prefs.getLong("next", 0)
         set(value) { check(prefs.edit().putLong("next", value).commit()) }

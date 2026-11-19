@@ -2,6 +2,7 @@ package tw.skyhong.pocketlog
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.os.BatteryManager
 import android.net.NetworkCapabilities
 import androidx.work.*
 import org.json.JSONObject
@@ -9,15 +10,43 @@ import java.util.concurrent.TimeUnit
 
 object SyncEngine {
     val lock = Any()
+    @Volatile private var lastCaptureSchedule = 0L
     fun schedule(context: Context) {
         val settings = RecordingSettings(context)
-        val constraints = Constraints.Builder().setRequiredNetworkType(if (settings.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build()
+        val constraints = Constraints.Builder().setRequiredNetworkType(network(settings)).build()
         // Metadata reads are independent of connectivity; uploads enforce network policy below.
         WorkManager.getInstance(context).enqueueUniquePeriodicWork("pocketlog-record", ExistingPeriodicWorkPolicy.UPDATE,
             PeriodicWorkRequestBuilder<JournalWorker>(15, TimeUnit.MINUTES).build())
         WorkManager.getInstance(context).enqueueUniqueWork("pocketlog-upload", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<JournalWorker>().setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES).build())
+        scheduleCaptureUpload(context, settings)
     }
+    private fun network(settings: RecordingSettings) = if (settings.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+    /**
+     * Screen captures upload only while charging, so this work waits for the charger instead of
+     * waking the phone on battery. A large backlog (see [UploadPolicy]) may also go over an
+     * unmetered network so storage cannot fill up. No periodic wakeup is added.
+     */
+    private fun scheduleCaptureUpload(context: Context, settings: RecordingSettings) {
+        val manager = WorkManager.getInstance(context)
+        manager.enqueueUniqueWork("pocketlog-captures", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<JournalWorker>().setConstraints(Constraints.Builder().setRequiresCharging(true).setRequiredNetworkType(network(settings)).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES).build())
+        if (UploadPolicy.backlogNeedsUpload(JournalQueue(context).observationBacklog().second))
+            manager.enqueueUniqueWork("pocketlog-captures-backlog", ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<JournalWorker>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build())
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES).build())
+    }
+    /** Called after each queued capture (every ten seconds at most); re-arms the charger work every few minutes. */
+    fun afterCapture(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now >= lastCaptureSchedule && now - lastCaptureSchedule < 5 * 60_000L) return
+        lastCaptureSchedule = now
+        scheduleCaptureUpload(context, RecordingSettings(context))
+    }
+    fun charging(context: Context): Boolean = context.getSystemService(BatteryManager::class.java)?.isCharging == true
+    /** Captures waiting for a charger (count only; nothing decrypted). Caller holds [lock]. */
+    fun waitingCaptures(context: Context): Int = if (charging(context)) 0 else JournalQueue(context).observationBacklog().first
     fun enqueue(context: Context, path: String, body: JSONObject) = synchronized(lock) {
         val credentials = requireNotNull(CredentialStore(context).load())
         JournalQueue(context).enqueue(credentials, path, body)
@@ -38,12 +67,12 @@ object SyncEngine {
         if (network == null || !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
             (settings.wifiOnly && !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))) {
             UsageCollector(context).collect(credentials)
-            settings.status("已加密保留，等待符合網路設定的連線"); return@synchronized true
+            settings.status("已加密保存，等待可用的網路"); return@synchronized true
         }
         if (System.currentTimeMillis() < settings.nextAttempt) {
             // Server backoff must not pause the existing local UsageStats cadence.
             UsageCollector(context).collect(credentials)
-            settings.status("等待伺服器重試；本機整理遵守原有同意與暫停設定")
+            settings.status("伺服器稍後再試；記錄照常進行")
             return@synchronized false
         }
         // No extra periodic worker: refresh the stop switch on the existing sync cadence.
@@ -54,7 +83,7 @@ object SyncEngine {
             val transient = failure !is ApiFailure || !RetryPolicy.permanent(failure.status)
             if (transient) UsageCollector(context).collect(credentials)
             settings.nextAttempt = if (transient) System.currentTimeMillis() + (if (failure is ApiFailure) failure.retryMs else 60_000L) else 0L
-            settings.status(if (transient) "伺服器暫時無法連線；保留加密紀錄，依原設定繼續本機整理" else "伺服器拒絕讀取收集狀態；請檢查連線與金鑰，尚未上傳")
+            settings.status(if (transient) "伺服器暫時連不上；記錄已加密保存，照常進行" else "伺服器拒絕連線；請檢查網址與金鑰，尚未上傳")
             return@synchronized false
         }
         val paused = control.getBoolean("paused")
@@ -69,13 +98,15 @@ object SyncEngine {
         settings.applyScreenshotDefault()
         if (!paused) UsageCollector(context).collect(credentials)
         val queue = JournalQueue(context)
+        val unmetered = network.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        val captures = UploadPolicy.observations(charging(context), unmetered, queue.observationBacklog().second)
         var count = 0
         // Ten-second context needs more than a few requests per run: drain in batches of 32 for at
         // most 45 seconds. The lock is held throughout and capture enqueues wait on it, so keep
         // the run short; each capture schedules another upload and the next worker continues the FIFO.
         val deadline = System.currentTimeMillis() + 45_000L
         while (System.currentTimeMillis() < deadline) {
-            val batch = queue.entries(credentials, 32)
+            val batch = queue.entries(credentials, 32, includeObservations = captures)
             if (batch.isEmpty()) break
             for (entry in batch) {
                 try {
@@ -86,27 +117,31 @@ object SyncEngine {
                         settings.remotePaused = true
                         queue.clearCollected()
                         UsageCollector(context).reset()
-                        settings.status("伺服器已暫停活動收集；待傳活動與情境已清除")
+                        settings.status("伺服器已暫停記錄；尚未上傳的記錄已清除")
                         return@synchronized true
                     }
                     if (RetryPolicy.permanent(failure.status)) {
                         queue.reject(entry)
-                        settings.status("有資料被拒絕（HTTP ${failure.status}），請檢查連線／金鑰後手動重試")
+                        settings.status("有資料被伺服器拒絕（HTTP ${failure.status}），請到設定重試")
                         return@synchronized true
                     }
                     settings.nextAttempt = System.currentTimeMillis() + failure.retryMs
-                    settings.status("伺服器暫時忙碌，稍後重試")
+                    settings.status("伺服器暫時忙碌，稍後再試")
                     return@synchronized false
                 } catch (_: Exception) {
                     settings.nextAttempt = System.currentTimeMillis() + 60_000
-                    settings.status("連線失敗，資料仍加密保留")
+                    settings.status("連線失敗，資料仍加密保存在手機")
                     return@synchronized false
                 }
             }
         }
         settings.nextAttempt = 0
-        settings.status("已同步 $count 筆；離線佇列最多保留 24 小時")
-        queue.counts().first == 0
+        settings.lastSync = System.currentTimeMillis()
+        val waiting = if (captures) 0 else queue.observationBacklog().first
+        val sent = if (count > 0) "已上傳 $count 筆" else "沒有需要上傳的資料"
+        settings.status(if (waiting > 0) "$sent；$waiting 張截圖等充電時上傳" else sent)
+        // Captures waiting for a charger are not a failure: retrying on battery would only wake the phone.
+        queue.pending(includeObservations = captures) == 0
     }
     fun clearLocal(context: Context) = synchronized(lock) {
         CaptureDiagnostics.clear()

@@ -61,7 +61,7 @@ final class AppPickerChecks {
         finally {if(activity!=null)test.runOnMainSync(()->activity.finish());}
     }
     private void invoke(String name)throws Exception {Method m=MainActivity.class.getDeclaredMethod(name);m.setAccessible(true);m.invoke(activity);}
-    private void choose()throws Exception {Method m=MainActivity.class.getDeclaredMethod("chooseApps",EditText.class);m.setAccessible(true);m.invoke(activity,origin);}
+    private void choose()throws Exception {Method m=MainActivity.class.getDeclaredMethod("chooseApps",EditText.class,boolean.class);m.setAccessible(true);m.invoke(activity,origin,false);}
     private void settle()throws Exception {test.waitForIdleSync();Thread.sleep(300);test.waitForIdleSync();}
     private List<View> views(View root){List<View> all=new ArrayList<>();all.add(root);if(root instanceof ViewGroup g)for(int i=0;i<g.getChildCount();i++)all.addAll(views(g.getChildAt(i)));return all;}
     private View dialogRoot(){for(View root:WindowInspector.getGlobalWindowViews())if(root!=activity.getWindow().getDecorView()&&root.isShown())return root;throw new IllegalStateException("Picker dialog absent");}

@@ -2239,3 +2239,27 @@ regressions and Docker smoke pass. Unchanged Rust/Android checks remain applicab
 
 ![Approved import draft preserved on phone](screenshots/web-agent-import-draft-phone.png)
 ![Approved import draft preserved on desktop](screenshots/web-agent-import-draft-desktop.png)
+
+## Web timeline search, 2026-11-17 (#97)
+
+The timeline toolbar has a **搜尋** toggle that opens one bounded search form
+(keyword, last 1/7/30 days, optional category) above the timeline. It uses
+`GET /v1/activities` with `q`/`category` and matches app, card title and summary
+only; raw observation text and screenshots are never searched. Each submit reads
+at most five pages (≤10,000 inspected rows) or 50 matches; when rows remain it
+says so and offers **繼續搜尋** from the exact cursor, so "no results" is shown
+only after the whole range was inspected. 409 (journal deleted mid-search),
+missing server support (404/405) and other failures each get their own message.
+Saving a card edited from a result updates that result in place.
+
+Checked on a disposable local container with 60 synthetic activities and three
+synthetic corrected cards, at 1280×800 and 390×844: "report" found the two
+matching cards (and not a Chinese-only title), focus moved to the results with a
+`role=status` summary, an unmatched keyword showed "這段期間沒有符合的活動。",
+the 390px page had no horizontal overflow, and editing a result's title updated
+the open result list. Node checks cover the paging loop, request budget and
+cursor/epoch hand-off. Android now has the same bounded search entry on the
+native timeline: keyword, 1/7/30-day range, optional category and exact-cursor
+continuation. The native implementation has unit coverage for query bounds and
+encoding; physical TalkBack/VoiceOver, 200% zoom and reduced-motion acceptance
+remain outstanding.

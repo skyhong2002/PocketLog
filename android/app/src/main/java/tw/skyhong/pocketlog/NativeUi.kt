@@ -1,5 +1,6 @@
 package tw.skyhong.pocketlog
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
@@ -35,7 +36,7 @@ object Palette {
     const val ACCENT_DARK = 0xFF3B5A47.toInt()
     const val ACCENT_SOFT = 0xFFDDE8DA.toInt()
     const val INK = 0xFF303A32.toInt()
-    const val MUTED = 0xFF5D6A5F.toInt()
+    const val MUTED = 0xFF4E5A50.toInt()
     const val BORDER = 0xFFD8E0D3.toInt()
     const val HAIRLINE = 0xFFE6EBE2.toInt()
     const val DANGER = 0xFFA3352C.toInt()
@@ -43,6 +44,10 @@ object Palette {
     const val WARN_SOFT = 0xFFFAF0D9.toInt()
     const val WARN_INK = 0xFF684C12.toInt()
     const val FALLBACK_CATEGORY = 0xFFB1A797.toInt()
+    /** Off-state switch outline/thumb: 4.6:1 against paper. */
+    const val SWITCH_OFF = 0xFF6B776D.toInt()
+    /** Lighter off-state thumb, still 3.2:1 against paper. */
+    const val SWITCH_THUMB_OFF = 0xFF89938B.toInt()
 
     /** Mixes a category color toward paper for readable dark text on a tinted card. */
     fun tint(color: Int, amount: Float): Int {
@@ -58,7 +63,7 @@ object Palette {
  * interactive controls keep a 48 dp minimum target.
  */
 class Ui(val context: Context) {
-    enum class Tone { PRIMARY, TONAL, OUTLINE, TEXT, DANGER }
+    enum class Tone { PRIMARY, TONAL, OUTLINE, TEXT, DANGER, CHIP }
     enum class Kind { INFO, WARN, ERROR, SUCCESS }
     enum class Field { TEXT, MULTILINE, NUMBER, SECRET, URL }
 
@@ -119,7 +124,9 @@ class Ui(val context: Context) {
             Tone.OUTLINE -> Triple(Palette.PAPER, Palette.BORDER, Palette.INK)
             Tone.TEXT -> Triple(Color.TRANSPARENT, null, Palette.ACCENT_DARK)
             Tone.DANGER -> Triple(Palette.DANGER_SOFT, null, Palette.DANGER)
+            Tone.CHIP -> Triple(Palette.PAPER, Palette.BORDER, Palette.ACCENT_DARK)
         }
+        if (tone == Tone.CHIP) { textSize = 14f; setPadding(dp(14), dp(6), dp(14), dp(6)) }
         background = ripple(shape(fill, 24f, stroke), 24f); setTextColor(ink)
         if (tone == Tone.PRIMARY || tone == Tone.DANGER) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         setOnClickListener { onClick(it) }
@@ -150,6 +157,19 @@ class Ui(val context: Context) {
         parent?.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
+    /** Quiet outlined label for exceptions on cards (畫面文字, AI 整理中, 受保護畫面…). */
+    enum class Badge { ACCENT, AMBER, NEUTRAL }
+    /** Soft-filled card badge: `AI 整理中` accent, `受保護畫面` amber, everything else neutral. */
+    fun badge(parent: ViewGroup?, value: String, kind: Badge = Badge.NEUTRAL): TextView = TextView(context).apply {
+        text = value; textSize = 12f
+        val (fill, ink) = when (kind) { Badge.ACCENT -> Palette.ACCENT_SOFT to Palette.ACCENT_DARK; Badge.AMBER -> Palette.WARN_SOFT to Palette.WARN_INK; Badge.NEUTRAL -> Palette.HAIRLINE to Palette.MUTED }
+        setTextColor(ink); background = shape(fill, 10f); setPadding(dp(8), dp(2), dp(8), dp(2))
+        parent?.addView(this, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** A row that wraps its children onto new lines instead of clipping them. */
+    fun flow(parent: ViewGroup?, gap: Int = 8): FlowRow = FlowRow(context, dp(gap), dp(gap)).also { parent?.addView(it, lp(top = 4, bottom = 4)) }
+
     fun icon(res: Int, tint: Int = Palette.INK, size: Int = 24): ImageView = ImageView(context).apply {
         setImageResource(res); imageTintList = ColorStateList.valueOf(tint)
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size)); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -159,7 +179,7 @@ class Ui(val context: Context) {
      * Tappable navigation row: title, optional description and status pill, chevron. The whole row is
      * one accessible button with a combined label.
      */
-    fun row(parent: ViewGroup, title: String, detail: String? = null, state: Pair<String, Boolean>? = null, divider: Boolean = true, onClick: (() -> Unit)?): LinearLayout {
+    fun row(parent: ViewGroup, title: String, detail: String? = null, state: Pair<String, Boolean>? = null, divider: Boolean = true, chevron: Boolean = true, onClick: (() -> Unit)?): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(56)
             setPadding(dp(4), dp(10), dp(4), dp(10))
@@ -169,18 +189,18 @@ class Ui(val context: Context) {
         text(texts, title, 16f)
         if (detail != null) meta(texts, detail, top = 2)
         if (state != null) pill(row, state.first, state.second).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(8) }
-        if (onClick != null) row.addView(icon(R.drawable.ic_chevron, Palette.MUTED, 20).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(6) })
+        if (onClick != null && chevron) row.addView(icon(R.drawable.ic_chevron, Palette.MUTED, 20).apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(6) })
         row.contentDescription = listOfNotNull(title, state?.first, detail).joinToString("，")
-        if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag == ROW_TAG) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
+        if (divider && parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag in setOf(ROW_TAG, SWITCH_TAG)) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
         row.tag = ROW_TAG
         parent.addView(row, lp())
         return row
     }
 
-    fun field(parent: ViewGroup, label: String, hint: String = "", kind: Field = Field.TEXT, value: String? = null, help: String? = null): EditText {
-        val title = text(parent, label, 14f, Palette.INK, bold = true, top = 8, bottom = 6)
+    fun field(parent: ViewGroup, label: String?, hint: String = "", kind: Field = Field.TEXT, value: String? = null, help: String? = null): EditText {
+        val title = label?.let { text(parent, it, 14f, Palette.INK, bold = true, top = 8, bottom = 6) }
         val edit = EditText(context).apply {
-            this.hint = hint; textSize = 16f; setTextColor(Palette.INK); setHintTextColor(0xFF7F8A80.toInt())
+            this.hint = hint; textSize = 16f; setTextColor(Palette.INK); setHintTextColor(Palette.MUTED)
             isSaveEnabled = false; importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
             minHeight = dp(48); setPadding(dp(14), dp(12), dp(14), dp(12))
             background = StateListDrawable().apply {
@@ -198,8 +218,8 @@ class Ui(val context: Context) {
             if (value != null) setText(value)
             id = View.generateViewId()
         }
-        title.labelFor = edit.id
-        parent.addView(edit, lp())
+        if (title != null) title.labelFor = edit.id else edit.contentDescription = hint
+        parent.addView(edit, lp(top = if (title == null) 8 else 0))
         if (help != null) meta(parent, help, top = 4)
         return edit
     }
@@ -223,10 +243,28 @@ class Ui(val context: Context) {
 
     @Suppress("UseSwitchCompatOrMaterialCode") // Platform widget on purpose: no AppCompat/Material dependency.
     fun switchRow(parent: ViewGroup, label: String, detail: String?, checked: Boolean, onChange: (Boolean) -> Unit): Switch = Switch(context).apply {
-        text = if (detail == null) label else "$label\n$detail"; textSize = 15f; setTextColor(Palette.INK); isChecked = checked; minHeight = dp(56)
-        thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Palette.ACCENT, Color.WHITE))
-        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Palette.ACCENT_SOFT, Palette.BORDER))
+        text = if (detail == null) label else android.text.SpannableString("$label\n$detail").apply {
+            setSpan(android.text.style.RelativeSizeSpan(.87f), label.length + 1, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(android.text.style.ForegroundColorSpan(Palette.MUTED), label.length + 1, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        textSize = 15f; setTextColor(Palette.INK); isChecked = checked; minHeight = dp(56)
+        // Off: outlined track and grey thumb (>= 3:1 against paper). On: filled accent track, white thumb.
+        thumbTintList = null; trackTintList = null
+        trackDrawable = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), shape(Palette.HAIRLINE, 16f, Palette.BORDER, 2f).apply { setSize(dp(52), dp(32)) })
+            addState(intArrayOf(android.R.attr.state_checked), shape(Palette.ACCENT, 16f).apply { setSize(dp(52), dp(32)) })
+            addState(intArrayOf(), shape(Palette.PAPER, 16f, Palette.SWITCH_OFF, 2f).apply { setSize(dp(52), dp(32)) })
+        }
+        // Material 3 proportions: 24 dp thumb when on, 16 dp when off, both centred in the 32 dp track.
+        fun knob(color: Int, size: Int) = android.graphics.drawable.InsetDrawable(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setSize(dp(size), dp(size)) }, dp((32 - size) / 2))
+        thumbDrawable = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), knob(Palette.BORDER, 16))
+            addState(intArrayOf(android.R.attr.state_checked), knob(Color.WHITE, 24))
+            addState(intArrayOf(), knob(Palette.SWITCH_THUMB_OFF, 16))
+        }
         setOnCheckedChangeListener { _, value -> onChange(value) }
+        if (parent.childCount > 0 && parent.getChildAt(parent.childCount - 1).tag in setOf(ROW_TAG, SWITCH_TAG)) parent.addView(View(context).apply { setBackgroundColor(Palette.HAIRLINE) }, lp(height = 1))
+        tag = SWITCH_TAG
         parent.addView(this, lp())
     }
 
@@ -246,9 +284,10 @@ class Ui(val context: Context) {
         }
         fun paint() = segments.forEachIndexed { index, view ->
             val on = index == current
-            view.setTextColor(if (on) Color.WHITE else Palette.INK)
+            // Soft style: the selected segment is a white pill on the muted track.
+            view.setTextColor(if (on) Palette.INK else Palette.MUTED)
             view.typeface = Typeface.create(Typeface.DEFAULT, if (on) Typeface.BOLD else Typeface.NORMAL)
-            view.background = ripple(if (on) shape(Palette.ACCENT, 20f) else null, 20f)
+            view.background = ripple(if (on) shape(Palette.PAPER, 20f, Palette.BORDER) else null, 20f)
             view.isSelected = on
             view.contentDescription = "$description：${options[index]}${if (on) "，已選取" else ""}"
         }
@@ -314,5 +353,44 @@ class Ui(val context: Context) {
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
     }
 
-    companion object { private const val ROW_TAG = "pocketlog-row" }
+    companion object { private const val ROW_TAG = "pocketlog-row"; private const val SWITCH_TAG = "pocketlog-switch" }
+}
+
+/** Lays children out left to right and wraps to a new line when the width runs out; lines are vertically centred. */
+@SuppressLint("ViewConstructor") // Built in code only, like the other native views.
+class FlowRow(context: Context, private val hGap: Int, private val vGap: Int) : ViewGroup(context) {
+    private fun lines(maxWidth: Int): List<List<View>> {
+        val out = mutableListOf<MutableList<View>>(mutableListOf())
+        var x = 0
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            if (child.visibility == GONE) continue
+            if (out.last().isNotEmpty() && x + child.measuredWidth > maxWidth) { out += mutableListOf<View>(); x = 0 }
+            out.last() += child; x += child.measuredWidth + hGap
+        }
+        return out.filter { it.isNotEmpty() }
+    }
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val width = MeasureSpec.getSize(widthSpec)
+        val inner = (width - paddingLeft - paddingRight).coerceAtLeast(0)
+        for (i in 0 until childCount) getChildAt(i).let { if (it.visibility != GONE) it.measure(MeasureSpec.makeMeasureSpec(inner, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)) }
+        val rows = lines(inner)
+        val height = rows.sumOf { row -> row.maxOf { it.measuredHeight } } + vGap * (rows.size - 1).coerceAtLeast(0)
+        setMeasuredDimension(width, height + paddingTop + paddingBottom)
+    }
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        var y = paddingTop
+        val rtl = layoutDirection == LAYOUT_DIRECTION_RTL
+        for (row in lines(r - l - paddingLeft - paddingRight)) {
+            val lineHeight = row.maxOf { it.measuredHeight }
+            var x = paddingLeft
+            for (child in row) {
+                val top = y + (lineHeight - child.measuredHeight) / 2
+                val left = if (rtl) r - l - x - child.measuredWidth else x
+                child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
+                x += child.measuredWidth + hGap
+            }
+            y += lineHeight + vGap
+        }
+    }
 }

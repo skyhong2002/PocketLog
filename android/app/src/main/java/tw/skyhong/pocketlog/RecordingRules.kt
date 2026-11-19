@@ -6,6 +6,9 @@ import java.security.MessageDigest
 object RecordingRules {
     const val MAX_TEXT = 2000
     const val RAW_TTL = 24 * 60 * 60 * 1000L
+    // Screen captures wait for a charger, so they may stay queued for up to three days; the server
+    // accepts and still analyses context up to 72 hours old. Other queued writes keep RAW_TTL.
+    const val CONTEXT_TTL = 72 * 60 * 60 * 1000L
     // Several hours of 10-second captures with screenshots while offline.
     const val MAX_QUEUE_BYTES = 1024 * 1024 * 1024L
     const val MAX_QUEUE_RECORDS = 32_768
@@ -29,6 +32,16 @@ object RecordingRules {
         .filter { it.isNotBlank() }.onEach { require(packageName.matches(it)) { "請輸入完整 app 套件名稱" } }.toSet()
     fun excluded(pkg: String, extra: Set<String>, own: String): Boolean = pkg == own || pkg in sensitive || pkg in extra ||
         Regex("(?i)(bank|wallet|payment|authenticator|password|keyguard)").containsMatchIn(pkg)
+    // Common reading and work apps offered as a starting allowlist; messaging is left to the user.
+    private val suggestions = listOf("com.android.chrome", "org.mozilla.firefox", "com.brave.browser", "com.microsoft.emmx",
+        "com.google.android.youtube", "com.google.android.apps.docs", "com.google.android.apps.docs.editors.docs",
+        "com.google.android.apps.docs.editors.sheets", "com.google.android.keep", "com.google.android.gm", "notion.id",
+        "md.obsidian", "com.slack", "com.microsoft.teams", "com.reddit.frontpage", "com.twitter.android",
+        "com.instagram.android", "com.facebook.katana", "com.medium.reader", "com.google.android.apps.magazines",
+        "com.amazon.kindle", "com.github.android")
+    /** Installed suggestions that the built-in rules and the user's exclusions still allow. */
+    fun suggested(installed: Collection<String>, extra: Set<String>, own: String): Set<String> =
+        suggestions.filter { it in installed && !excluded(it, extra, own) }.toSet()
     fun contextAllowed(pkg: String, allowed: Set<String>, excluded: Set<String>, own: String): Boolean =
         pkg in allowed && !excluded(pkg, excluded, own)
     /** Delay before the next capture attempt: app switches wait [CONTEXT_MIN_GAP], otherwise [CONTEXT_INTERVAL]. */

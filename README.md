@@ -19,11 +19,12 @@
 
 > **Early development.** The timeline reader and self-hosted API
 > now include opt-in app/context capture, encrypted offline sync, editable activity
-> cards, daily reflection, shared onboarding, a private responsive website and BYO AI.
-> Daily/weekly saved AI briefs and opt-in schedules, durable Chat, shared focus timers,
-> native agent JSONL preview/replay, custom categories/rules and revocable device keys
-> are available; full desktop Dayflow parity is not shipped. Real-device capture and
-> full-day battery validation are still required. There is no stable release yet.
+> cards, a private responsive website and BYO AI. The website follows the
+> [simplified product](docs/ux/SIMPLIFIED_IA.md) (2026-11-17): only 時間軸, 回顧 and
+> 設定, with AI recaps and asking the AI inside 回顧; the Android app has not been
+> simplified yet. Custom categories/rules and revocable device keys are available;
+> full desktop Dayflow parity is not shipped. Real-device capture and full-day
+> battery validation are still required. There is no stable release yet.
 
 ## Your Day, in Context
 
@@ -46,17 +47,16 @@ to your own tools. Manual mood entry is no longer part of the app.
 
 | Feature | Status |
 | --- | --- |
-| Shared onboarding and website | Owner login, shared setup/goals/category presentation; separate phone permission/consent flow |
-| Daily timeline and overview | Native + web hourly day/week cards, 04:00 day boundary, daily/week/month totals, top apps and keywords |
-| Daily reflection | Optional editable reflection with encrypted offline queue; manual mood entry removed |
-| Private Android connection | HTTPS, no redirects, Keystore-protected credentials |
+| Onboarding | Three skippable steps on both clients: what is and is never captured, connect your AI, then start recording (phone) or connect the Android app (web) |
+| Timeline and review | Exactly three destinations on Android and the website: 時間軸 (one status line, bounded activity-card search, recorded time with a stacked category bar, AI-understood cards, 04:00 day boundary; the web keeps an hourly grid on desktop) / 回顧 (day/week AI recap, time split, top apps, topics, 問 AI) / 設定 |
+| Manual journaling | Removed from both clients on 2026-11-17 (reflections, mood, daily rating, Flow, Agents); APIs and stored data kept |
+| Private Android connection | HTTPS anywhere, or plain http only to a VPN／private-network host (with a warning); no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
-| Text and optional image context | Opt-in with explicit app allowlist; screenshots on by default with text (can be turned off); capture every 10 s and on app switch, 720 px screenshots, secure-window gate |
-| Activity cards and summaries | App-only/excerpt fallback; editable categories; OpenAI-compatible, Anthropic or Gemini BYO model with a provider-bound owner automatic-summary switch and model-labeled topic keywords |
-| Encrypted offline queue and review | AES-GCM queue/cache, bounded retention/storage, retries and quarantine |
-| Chat, Flow, Agents | Persistent day/week conversations, charts, saved briefs/schedules, shared focus timers and approved Codex/Claude JSONL turns; see parity boundaries below |
-| Export | Private JSON + timeline clipboard; Android document picker |
+| Screen text and screenshots | Opt-in with an app allowlist through one guided 自動記錄 flow; screenshots on by default (can be turned off); every 10 s and on app switch, 720 px; unchanged screens skipped; protected/DRM windows kept as text only (`protected_screen`) |
+| Activity cards and AI | Source labels AI 整理 / 畫面文字 / 只有 app / 你改過, plus AI 整理中 and 受保護畫面（無截圖）; one-tap category edits; Mika-style AI setup on both clients (OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek or a custom OpenAI-compatible endpoint such as Ollama) with test-and-save, a provider-bound automatic-summary switch and an optional daily recap |
+| Battery and offline queue | AES-GCM queue/cache with retries and quarantine; screen captures upload while charging (or on unmetered networks above 256 MB) and are kept up to 72 h, other writes 24 h |
+| Export | Private JSON from 設定 › 資料 on both clients |
 | Device credentials | Owner-issued journal/collector keys, expiry and individual revocation; phone Keystore storage |
 | Short-term image replay | Independent opt-in; worker-sanitized 480 px thumbnails, 24 hours / 256 images |
 | infovore publishing | Not enabled; PocketLog operates independently |
@@ -105,10 +105,11 @@ cd android
 For bounded checks and an isolated phone build that preserves an existing
 installation, see [development setup](docs/DEVELOPMENT.md).
 
-Put the service behind a trusted HTTPS proxy or Tailscale Serve. Open its HTTPS
-origin in a browser and sign in with the owner key to complete onboarding. In
+Reach the service privately: a VPN or private network (Tailscale, Headscale, ZeroTier,
+WireGuard, a LAN…), ideally behind a trusted HTTPS proxy. Open its
+address in a browser and sign in with the owner key to complete onboarding. In
 Settings → Connection and devices, create a journal device key for your phone;
-enter that key and the same HTTPS origin in the Android app. Keep the owner key
+enter that key and the same address in the Android app. Keep the owner key
 for website login and recovery. See [setup](docs/SETUP.md) for secret handling and
 deployment details. The new app does not connect to the old infovore
 phone API or migrate its history.

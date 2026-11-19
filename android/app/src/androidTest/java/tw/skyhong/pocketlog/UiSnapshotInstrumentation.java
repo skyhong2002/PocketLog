@@ -7,7 +7,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.os.Bundle;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import org.json.JSONArray;
@@ -19,7 +18,7 @@ import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
-/** Explicit synthetic-only emulator view snapshots; never disables FLAG_SECURE or uses a server. */
+/** Explicit synthetic-only emulator view snapshots; never uses a server or stored credentials. */
 public final class UiSnapshotInstrumentation extends Instrumentation {
     private Bundle args;
     private Activity activity;
@@ -34,34 +33,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy exact post401 fixture shows generic capture-off and offers re-enable; support retains reason.\n" : "Synthetic credential-bound known rejection, consent stop, retained journal/cache and actionable secure recovery checks passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
-            if ("yes".equals(args.getString("savedCaptureConsent"))) {
-                new SavedCaptureConsentChecks(this,args).run();
-                result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy hidden saved grants, blocked paused revocation and incomplete resume disclosure reproduced.\n" : "Synthetic saved capture grants, paused revocation and explicit resume disclosure checks passed.\n");
-                finish(Activity.RESULT_OK,result); return;
-            }
-            if ("yes".equals(args.getString("accessibility"))) {
-                new AccessibilityChecks(this, args).run();
-                result.putString("stream", "Synthetic OS accessibility node/actions checks passed; FLAG_SECURE retained.\n");
-                finish(Activity.RESULT_OK, result); return;
-            }
             if ("yes".equals(args.getString("classificationFocus"))) {
                 new ClassificationFocusChecks(this,args).run();
                 result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy native classification action scroll reset reproduced.\n" : "Synthetic native classification action focus, visible continuation, draft preservation and rule order passed.\n");
-                finish(Activity.RESULT_OK,result); return;
-            }
-            if ("yes".equals(args.getString("weekAxis"))) {
-                new WeekAxisChecks(this,args).run();
-                result.putString("stream", "Synthetic native week clock/progress axes, transition badges and day navigation passed.\n");
-                finish(Activity.RESULT_OK,result); return;
-            }
-            if ("yes".equals(args.getString("shortTimeline"))) {
-                new ShortTimelineChecks(this,args).run();
-                result.putString("stream", "Synthetic native short-card geometry/bounds/original hit targets passed at 320/360/800dp and 100-card density.\n");
-                finish(Activity.RESULT_OK,result); return;
-            }
-            if ("yes".equals(args.getString("cardEdit"))) {
-                new CardEditChecks(this,args).run();
-                result.putString("stream", "Synthetic activity-edit validation, failure/busy draft retention and exact encrypted Unicode payload checks passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
             if ("yes".equals(args.getString("exportLifecycle"))) {
@@ -69,19 +43,9 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy pending export loss on Activity recreation reproduced.\n" : "Synthetic export recreation, exact Unicode write, cancel/reset/missing-state and buffer disposal passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
-            if ("yes".equals(args.getString("readiness"))) {
-                new CaptureReadinessChecks(this,args).run();
-                result.putString("stream", "Synthetic effective-allowlist readiness and historical diagnostics checks passed; original settings restored.\n");
-                finish(Activity.RESULT_OK,result); return;
-            }
             if ("yes".equals(args.getString("replayOwnership"))) {
                 new ReplayOwnershipChecks(this,args).run();
                 result.putString("stream", "Synthetic replay secure dialog, dismissal/recreation and undelivered-bitmap disposal passed.\n");
-                finish(Activity.RESULT_OK,result); return;
-            }
-            if ("yes".equals(args.getString("timelineUpdates"))) {
-                new TimelineUpdateChecks(this,args).run();
-                result.putString("stream", "yes".equals(args.getString("expectLegacy")) ? "Legacy published APK has no native timeline watcher; snapshot-only lifecycle confirmed.\n" : "Synthetic native foreground update cadence/lifecycle/stale response/draft and explicit reload checks passed.\n");
                 finish(Activity.RESULT_OK,result); return;
             }
             if ("yes".equals(args.getString("ruleAppPicker"))) {
@@ -98,27 +62,6 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                 new CapturePipelineChecks(this,args).run();
                 result.putString("stream", "Synthetic real-window capture, input exclusion, encrypted queue and journal-device API upload passed.\n");
                 finish(Activity.RESULT_OK,result); return;
-            }
-            if ("yes".equals(args.getString("connected"))) {
-                new ConnectedUiChecks(this, args).run();
-                result.putString("stream", "yes".equals(args.getString("weekAxisPageOnly"))
-                    ? "Synthetic HTTPS transition-week explanation, full day length and normal-week recovery passed.\n"
-                    : "yes".equals(args.getString("appNamesOnly"))
-                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native package-ID activity titles reproduced.\n" : "Synthetic HTTPS local app-name list/canvas/overview/identity and offline checks passed; canonical journal unchanged.\n")
-                    : "yes".equals(args.getString("weeklyLimitOnly"))
-                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native Weekly hides real API truncation reproduced.\n" : "Synthetic HTTPS weekly truncated response, loaded totals and affected-day warning checks passed.\n")
-                    : "yes".equals(args.getString("goalsConflictOnly"))
-                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native repeated goal409 without recovery reproduced; fixture restored.\n" : "Synthetic HTTPS retained goal drafts, latest classification preservation, cancel/confirm/race and offline recovery passed; fixture restored.\n")
-                    : "yes".equals(args.getString("classificationConflictOnly"))
-                    ? ("yes".equals(args.getString("expectLegacy")) ? "Legacy native repeated409 without recovery reproduced; fixture restored.\n" : "Synthetic HTTPS classification conflict draft preservation, guarded retry/replacement, used-category and offline recovery checks passed; fixture restored.\n")
-                    : "yes".equals(args.getString("goalsThenCategoriesOnly"))
-                    ? "Synthetic HTTPS native goal-save then classification-save preserves both goals and category; fixture restored.\n"
-                    : "yes".equals(args.getString("controlFailureOnly"))
-                    ? "Synthetic HTTPS server-outage collection/backoff, paused/auth stops and restored upload checks passed; capture settings cleared.\n"
-                    : "yes".equals(args.getString("captureAiOnly"))
-                    ? "Synthetic HTTPS future-capture provider rotation, renewal/cancel, offline readiness and queue identity checks passed; capture settings cleared.\n"
-                    : "Connected synthetic HTTPS view/API checks passed; capture consent remained off.\n");
-                finish(Activity.RESULT_OK, result); return;
             }
             if (new CredentialStore(getTargetContext()).load() != null) throw new IllegalStateException("Refusing snapshots on a connected installation");
             folder = new File(getTargetContext().getExternalFilesDir(null), "ux-snapshots");
@@ -143,32 +86,28 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
                     target.requestRectangleOnScreen(new android.graphics.Rect(0, 0, target.getWidth(), target.getHeight()), true);
                 });
                 settle(); capture("first-run-help");
-                result.putString("stream", "Synthetic expanded setup help captured with current web device-key path. FLAG_SECURE retained.\n");
+                result.putString("stream", "Synthetic expanded setup help captured with current web device-key path.\n");
                 finish(Activity.RESULT_OK, result); return;
             }
             runOnMainSync(() -> { try { invoke("settings"); } catch (Exception e) { throw new RuntimeException(e); } });
             settle(); capture("settings");
-            runOnMainSync(() -> { try { renderFixture(false); } catch (Exception e) { throw new RuntimeException(e); } });
+            runOnMainSync(() -> { try { renderFixture(); } catch (Exception e) { throw new RuntimeException(e); } });
             settle(); capture("timeline");
-            runOnMainSync(() -> { try { renderFixture(true); } catch (Exception e) { throw new RuntimeException(e); } });
-            settle(); capture("activity-list");
-            for (String page : new String[]{"dailyReview", "weeklyTimeline", "chatPage", "flowPage", "agentsPage", "supportPage"}) {
-                runOnMainSync(() -> { try { invoke(page); } catch (Exception e) { throw new RuntimeException(e); } });
-                settle(); capture(page + "-unconnected");
-            }
-            result.putString("stream", "Synthetic emulator view snapshots saved. FLAG_SECURE remained enabled.\n");
+            runOnMainSync(() -> { try { renderReviewFixture(); } catch (Exception e) { throw new RuntimeException(e); } });
+            settle(); capture("review");
+            result.putString("stream", "Synthetic emulator view snapshots of the three tabs saved.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("rejectedConnection")) || "yes".equals(args.getString("savedCaptureConsent")) || "yes".equals(args.getString("timelineUpdates")) || "yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("accessibility")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("shortTimeline")) || "yes".equals(args.getString("cardEdit")) || "yes".equals(args.getString("connected")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("readiness")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
+            result.putString("stream", "Snapshot failure: " + error.getClass().getSimpleName() + (("yes".equals(args.getString("rejectedConnection")) || "yes".equals(args.getString("ruleAppPicker")) || "yes".equals(args.getString("classificationFocus")) || "yes".equals(args.getString("capture")) || "yes".equals(args.getString("appPicker")) || "yes".equals(args.getString("replayOwnership")) || "yes".equals(args.getString("exportLifecycle"))) ? " " + error.getMessage() : "") + "\n");
             finish(Activity.RESULT_CANCELED, result);
         } finally { if (activity != null) runOnMainSync(() -> activity.finish()); }
     }
     private Field field(String name) throws Exception { Field f = MainActivity.class.getDeclaredField(name); f.setAccessible(true); return f; }
     private void invoke(String name) throws Exception { Method m = MainActivity.class.getDeclaredMethod(name); m.setAccessible(true); m.invoke(activity); }
     private void settle() throws Exception { waitForIdleSync(); Thread.sleep(250); waitForIdleSync(); }
-    private void renderFixture(boolean listMode) throws Exception {
+    private void renderFixture() throws Exception {
         LocalDate day = TimelineMath.INSTANCE.journalDay(java.time.ZonedDateTime.now()).minusDays(1);
-        field("day").set(activity, day); field("listMode").setBoolean(activity, listMode);
+        field("day").set(activity, day);
         invoke("home");
         // Reject the intentionally unconnected async read; use the actual production render callback.
         Field generation = field("generation"); generation.setInt(activity, generation.getInt(activity) + 1);
@@ -180,9 +119,27 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
         String[] categories = {"work", "learning", "rest"};
         long[] offsets = {0, 15 * 60000L, 90 * 60000L};
         long[] durations = {55 * 60000L, 45 * 60000L, 30 * 60000L};
-        for (int i = 0; i < titles.length; i++) cards.put(new JSONObject().put("id", "synthetic-" + i).put("start_ms", start + offsets[i]).put("end_ms", start + offsets[i] + durations[i]).put("title", titles[i]).put("category", categories[i]).put("source", "app_only").put("summary", "僅用於介面驗證的合成資料。"));
+        for (int i = 0; i < titles.length; i++) cards.put(new JSONObject().put("id", "synthetic-" + i).put("start_ms", start + offsets[i]).put("end_ms", start + offsets[i] + durations[i]).put("title", titles[i]).put("category", categories[i]).put("source", i == 0 ? "ai" : "app_only").put("summary", "僅用於介面驗證的合成資料。").put("pending_context", i == 1).put("protected_screen", i == 2));
         JSONObject fixture = new JSONObject().put("cards", cards).put("checkins", new JSONArray()).put("reflections", new JSONArray());
         Method render = MainActivity.class.getDeclaredMethod("renderTimeline", LinearLayout.class, JSONObject.class); render.setAccessible(true); render.invoke(activity, slot, fixture);
+    }
+    /** 回顧 rendered from synthetic overview data through the production render path; no server. */
+    private void renderReviewFixture() throws Exception {
+        invoke("review");
+        Field generation = field("generation"); generation.setInt(activity, generation.getInt(activity) + 1);
+        LinearLayout page = (LinearLayout) field("page").get(activity);
+        LinearLayout slot = (LinearLayout) page.getChildAt(3); slot.removeAllViews();
+        JSONObject overview = new JSONObject()
+            .put("categories", new JSONArray().put(new JSONObject().put("category", "work").put("duration_ms", 3 * 3600000L)).put(new JSONObject().put("category", "learning").put("duration_ms", 5400000L)).put(new JSONObject().put("category", "rest").put("duration_ms", 1800000L)))
+            .put("apps", new JSONArray().put(new JSONObject().put("app", "org.example.reader").put("duration_ms", 5400000L)).put(new JSONObject().put("app", "org.example.notes").put("duration_ms", 3600000L)))
+            .put("title_keywords", new JSONArray().put(new JSONArray().put("Kotlin").put(4)).put(new JSONArray().put("專案計畫").put(3)));
+        JSONObject ai = new JSONObject().put("available", true).put("enabled", true).put("endpoint", "https://ai.example/v1/chat/completions").put("model", "synthetic").put("provider_id", "0".repeat(64)).put("auto_summarize", true);
+        JSONObject briefs = new JSONObject().put("briefs", new JSONArray().put(new JSONObject().put("id", "synthetic").put("kind", "daily").put("text", "合成回顧：上午整理專案，下午閱讀資料。")));
+        Class<?> data = Class.forName("tw.skyhong.pocketlog.MainActivity$ReviewData");
+        var constructor = data.getDeclaredConstructor(JSONObject.class, JSONObject.class, JSONObject.class, java.util.List.class, JSONObject.class); constructor.setAccessible(true);
+        Object fixture = constructor.newInstance(overview, ai, briefs, null, null);
+        Method render = MainActivity.class.getDeclaredMethod("renderReview", LinearLayout.class, data, boolean.class, long.class, long.class, String.class); render.setAccessible(true);
+        render.invoke(activity, slot, fixture, false, 0L, 1L, "d:synthetic");
     }
     private void capture(String name) throws Exception {
         String variant = args.getString("variant", "phone");
@@ -191,7 +148,6 @@ public final class UiSnapshotInstrumentation extends Instrumentation {
         runOnMainSync(() -> {
             Bitmap bitmap = null;
             try {
-                if ((activity.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) == 0) throw new IllegalStateException("Secure flag missing");
                 View view = activity.getWindow().getDecorView();
                 bitmap = Bitmap.createBitmap(view.getWidth(), view.getHeight(), Bitmap.Config.ARGB_8888);
                 view.draw(new Canvas(bitmap));

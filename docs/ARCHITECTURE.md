@@ -20,7 +20,7 @@ diagnose mental health or equate entertainment with unhealthy behavior.
 | Android | Kotlin, platform Views and APIs | Separate capture consent, bounded event-driven context, pre-capture exclusions, encrypted queue/cache, sync, timeline, rule editing and optional reflection |
 | API/storage | Rust, Axum, Tokio, SQLite | Authentication, validation, limits, retention, private history and derived records |
 | Analysis worker | Separate Rust process and configurable inference provider | Deduplication, segmentation, classification and summaries; separately consented saved/scheduled activity briefs |
-| Deployment | Docker Compose, HTTPS proxy/Tailscale | Single-owner service, persistent encrypted host storage, explicit ingress |
+| Deployment | Docker Compose, VPN/private network with HTTPS proxy (or private-address HTTP) | Single-owner service, persistent encrypted host storage, explicit ingress |
 | infovore | No active connector | PocketLog operates independently; no outbound publishing or direct access to its journal |
 
 The API must remain responsive without an AI model. A worker may read only the

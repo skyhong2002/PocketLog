@@ -1,5 +1,74 @@
 # Native Android UI implementation (issues #9, #8 first run)
 
+## Current state: simplified app (2026-11-17)
+
+Implements the Android parts of [SIMPLIFIED_IA.md](SIMPLIFIED_IA.md). The sections
+below this one are the original 2026-11-15 implementation log and describe pages that
+no longer exist (每日, 每週, Chat, Flow, Agents, 支援, goal meters, reflection,
+check-ins, daily rating, copy timeline, the hourly day canvas and the week canvas).
+Server APIs and stored data for those features are unchanged.
+
+- **Navigation**: exactly three bottom tabs, 時間軸 / 回顧 / 設定, equal-width cells.
+- **時間軸**: previous / date picker / next / 今天; one tappable status line chosen by
+  `StatusLine.select` (key rejected → paused → not started → usage access →
+  accessibility → AI not set → `等待充電時上傳截圖（N 張）` → all good); day summary
+  (`已記錄 …` + one stacked category bar labelled by its top categories); a filter
+  menu; chronological card rows with AI title (or app name), one-line summary,
+  category chip, source label (`AI 整理` / `畫面文字` / `只有 app` / `你改過`) and badges
+  `AI 整理中` / `受保護畫面（無截圖）`. Empty today shows the promise and one action.
+  Card detail is a dialog: full summary, one-tap category chips that save immediately
+  through the existing encrypted `/v1/cards` queue, 修改文字 for title/summary, and
+  看截圖 only when replay consent exists. The two-minute update check is kept.
+- **回顧**: 日 / 週 segmented control and date navigation; AI 回顧 card (saved brief or
+  產生 AI 回顧 with `會把這段時間的活動卡送到 <host>`; 先設定 AI otherwise); 時間分配
+  bars (week adds a seven-day bar row); 常用 app top 5; 主題 chips from `/v1/overview`;
+  問 AI with three example chips, `/v1/ask` with one in-memory conversation ID per
+  period and retry-stable request IDs; answers stack below.
+- **設定**: 記錄 (master 自動記錄 switch → guided explain → 使用情況存取 → 輔助使用 →
+  choose apps with installed suggestions → done; 截圖 switch; app lists; independent
+  畫面文字 / replay / suspected-secret / pause-all rows; Wi‑Fi only; battery line;
+  last capture), AI (state line, 自動整理新截圖, 每天自動產生回顧), 分類, 連線, 資料
+  (storage, `防止截圖這個 app`, export a day, clear/delete), 說明 (condensed support).
+- **AI form**: provider presets from `AiProviders` derive the endpoint (only 自訂 shows a
+  URL field), the model is prefilled and editable, 讓 AI 看截圖 defaults on (off for
+  DeepSeek), and 測試並儲存 saves (`PUT /v1/ai`) then runs the bound probe
+  (`POST /v1/ai/test` with the returned `provider_id`). A 409 is reported, never
+  retried with a new identity; automatic summaries stay off until switched on.
+- **FLAG_SECURE**: a persisted setting, off by default; when on it applies to the
+  activity and every dialog/picker as before.
+- **Onboarding**: three skippable steps (promise → AI → start recording).
+- **UX round 1 (2026-11-17)**: follows SIMPLIFIED_IA "Cross-platform consistency":
+  shared status vocabulary and order (`StatusLine`), app names never shown as package IDs
+  (device label → the website's known-name map → readable last segment, `LocalAppNames`),
+  `不到 1 分`, a `隔天凌晨` divider, zh-TW dates (`11月16日（週一）`, `11月16日 – 22日`),
+  exception-only source badges on one wrapping meta line, card detail as a bottom sheet
+  with wrapping category chips (current first), single-line category bars sized by share,
+  a `這週每天` card, period-matched 問 AI examples, a single master 自動記錄 switch with one
+  next-step row and an 進階 page, `上次同步 HH:mm`, the AI page with a visible provider
+  list, saved-key hint, `取得 API 金鑰` links, a visible test result and AI switches only
+  there. Secondary text colour was darkened for ≥ 4.5:1 contrast.
+- **UX round 2 + networks (2026-11-17)**: SIMPLIFIED_IA "Round 2 rules" and "Networks and
+  self-hosted AI": at most one card badge (`AI 整理中` wins), `只知道使用了這個 app`, ranges under a
+  minute show only the start, non-breaking legend items with dots, outlined filter, labelled
+  同步 action, sticky date/period in the header, stacked week bars (`週一`, `4.1 時`, 平均每天),
+  time split `1 小時 · 25%`, topics only for model keywords, inline 問 AI send with the spec's
+  examples, a shorter 設定 › 記錄 (Wi‑Fi and 暫停所有裝置 in 進階), destructive actions last and
+  quiet, AI page order with 載入模型清單 (`POST /v1/ai/models`) and an 自動化 section, and
+  private-network `http://` connections (`EndpointPolicy.privateNetworkHost`, same rule as the
+  server) with the VPN warning.
+- **UX round 3 + updater (2026-11-17)**: separate timeline cards with a 4 dp stripe and soft
+  badges (accent `AI 整理中`, amber `受保護畫面`, neutral others; pending cards show no app-only
+  line), icon-only 重新整理, compact 今天, header shadow, sheet in spec order with a 修改文字 icon
+  button and small inset chips, soft 日/週 segment, time split with a ≥ 40% bar, scrollable ask
+  chips and a send icon inside the input, a full-width 160 dp week chart with `—` and
+  `平均每天 X（已過 N 天）`, outlined/filled switches, 開始記錄 button and battery line in 記錄,
+  http warning row with an icon, and `AppUpdater`/`Updates` (GitHub releases, 12 h throttle,
+  SHA-256 check, PackageInstaller) behind `BuildConfig.UPDATE_CHECK`.
+- **Instrumentation**: checks for removed pages were deleted; `UiSnapshotInstrumentation`
+  renders 設定, a synthetic 時間軸 and a synthetic 回顧. No device or emulator run was
+  made for this change; the new UI has unit-tested logic only.
+
+
 Owner: native UI worker (Claude Opus 5.5). Date: 2026-11-15. Scope: `MainActivity.kt`,
 new native helpers `NativeUi.kt`, `TimelineViews.kt`, `TimelineMath.kt`, nav/control
 vector icons in `res/drawable/ic_nav_*.xml`, `ic_back.xml`, `ic_chevron.xml`,
@@ -37,8 +106,8 @@ No Dayflow artwork, copy or icons were reused. Icons are new 24 dp stroke vector
 - Sub-pages (Bring your own AI, 目標與分類, 分類與自動規則, AI 回顧/排程, app 清單,
   工作線, 對話回放, JSONL 核准, 縮圖回放) show a back arrow; the rail keeps the parent
   tab highlighted. Back from a root tab returns to 時間軸; from 時間軸 it leaves the app.
-  Back uses `OnBackInvokedDispatcher` (required for targetSdk 36 on Android 16) plus
-  the legacy `onBackPressed` path for Android 14/15 without the manifest opt-in.
+  Back uses `OnBackInvokedDispatcher` only; the manifest sets
+  `enableOnBackInvokedCallback` so Android 14/15 route button and gesture Back there too.
   The category editor asks before discarding unsaved edits.
 - targetSdk 36 is edge-to-edge: the shell applies system-bar, cutout and IME insets;
   the rail hides while the keyboard is open. Content is limited to a 720 dp column

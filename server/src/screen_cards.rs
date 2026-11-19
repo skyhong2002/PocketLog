@@ -17,14 +17,26 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
         "CREATE TABLE IF NOT EXISTS screen_cards(
             id TEXT PRIMARY KEY, batch_ms INTEGER NOT NULL, start_ms INTEGER NOT NULL,
             end_ms INTEGER NOT NULL, app TEXT NOT NULL, category TEXT NOT NULL,
-            provider_id TEXT);
+            provider_id TEXT, protected_screen INTEGER NOT NULL);
          CREATE INDEX IF NOT EXISTS screen_cards_batch ON screen_cards(batch_ms);
          CREATE INDEX IF NOT EXISTS screen_cards_end ON screen_cards(end_ms);
          CREATE TABLE IF NOT EXISTS screen_jobs(
             batch_ms INTEGER PRIMARY KEY, epoch INTEGER NOT NULL,
             attempts INTEGER NOT NULL, next_ms INTEGER NOT NULL);
+         CREATE TABLE IF NOT EXISTS screen_projection(slot INTEGER PRIMARY KEY CHECK(slot=1), revision INTEGER NOT NULL);
+         INSERT OR IGNORE INTO screen_projection VALUES(1,0);
          CREATE VIEW IF NOT EXISTS journal_activities AS
             SELECT id,start_ms,end_ms,app,category FROM activities
+            UNION ALL
+            SELECT id,start_ms,end_ms,app,category FROM screen_cards;
+         CREATE VIEW IF NOT EXISTS visible_journal_activities AS
+            SELECT a.id,a.start_ms,a.end_ms,a.app,a.category FROM activities a
+            WHERE EXISTS(SELECT 1 FROM notes n WHERE n.id=a.id)
+               OR NOT EXISTS (
+                SELECT 1 FROM screen_cards c
+                WHERE c.start_ms<=a.start_ms AND c.end_ms>=a.end_ms
+                  AND c.end_ms<=a.start_ms+900000
+               )
             UNION ALL
             SELECT id,start_ms,end_ms,app,category FROM screen_cards;",
     )
@@ -36,6 +48,7 @@ struct Frame {
     app: String,
     text: String,
     has_image: bool,
+    protected_screen: bool,
 }
 
 #[derive(Deserialize)]
@@ -245,10 +258,7 @@ fn saved_cards(
             .map_or(batch + WINDOW, |f| f.at_ms)
             .min(last.at_ms + FRAME_LENGTH)
             .max(last.at_ms + 1);
-        let id = format!(
-            "screen-{:x}",
-            Sha256::digest(format!("{batch}:{index}").as_bytes())
-        );
+        let id = format!("screen-{}", hex_digest(format!("{batch}:{index}")));
         let collision: bool = db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM activities WHERE id=?)",
@@ -261,7 +271,7 @@ fn saved_cards(
         }
         let category = serde_json::to_string(&card.category).map_err(storage_error)?;
         db.execute(
-            "INSERT INTO screen_cards VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO screen_cards VALUES (?,?,?,?,?,?,?,?)",
             params![
                 id,
                 batch,
@@ -269,7 +279,10 @@ fn saved_cards(
                 end,
                 first.app,
                 category,
-                provider_id
+                provider_id,
+                frames[card.first_frame..=card.last_frame]
+                    .iter()
+                    .any(|f| f.protected_screen)
             ],
         )
         .map_err(storage_error)?;
@@ -279,6 +292,11 @@ fn saved_cards(
         )
         .map_err(storage_error)?;
     }
+    db.execute(
+        "UPDATE screen_projection SET revision=revision+1 WHERE slot=1",
+        [],
+    )
+    .map_err(storage_error)?;
     Ok(())
 }
 
@@ -287,7 +305,7 @@ pub(super) fn run(db: &mut Connection, provider: &Provider) -> Result<usize> {
     let epoch = journal_epoch(db)?;
     db.execute(
         "DELETE FROM screen_jobs WHERE epoch<>?1 OR batch_ms<?2",
-        params![epoch, now - DAY - WINDOW],
+        params![epoch, now - journal::MAX_CONTEXT_AGE - WINDOW],
     )
     .map_err(storage_error)?;
     let batches: Vec<i64> = db
@@ -381,7 +399,7 @@ fn load_frames(db: &Connection, batch: i64) -> Result<(Vec<Frame>, i64)> {
         .map_err(storage_error)?;
     let mut query = db
         .prepare(
-            "SELECT id,at_ms,app,text,jpeg_base64 IS NOT NULL FROM observations
+            "SELECT id,at_ms,app,text,jpeg_base64 IS NOT NULL,protected_screen FROM observations
          WHERE at_ms>=?1 AND at_ms<?2 AND rowid<=?3 ORDER BY at_ms,id LIMIT ?4",
         )
         .map_err(storage_error)?;
@@ -393,6 +411,7 @@ fn load_frames(db: &Connection, batch: i64) -> Result<(Vec<Frame>, i64)> {
                 app: r.get(2)?,
                 text: r.get(3)?,
                 has_image: r.get(4)?,
+                protected_screen: r.get(5)?,
             })
         })
         .map_err(storage_error)?
@@ -440,6 +459,7 @@ mod tests {
             app: "org.example.app".into(),
             text: "deployment notes".into(),
             has_image: false,
+            protected_screen: false,
         }
     }
 

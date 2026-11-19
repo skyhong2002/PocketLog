@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Disposable API/worker Docker smoke. Never touches the production journal volume."""
+import importlib.util
 import json
 import os
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -92,6 +94,23 @@ def main():
             assert request("GET", "/v1/status")["pending_context"] == 0, "replay resurrected raw content"
             request("POST", "/v1/cards", {"id": activity["id"], "title": "My correction", "summary": "Disposable note", "category": "rest"})
             assert request("GET", path)["cards"][0]["source"] == "user"
+            # The documented example client reads the journal through the paged contract.
+            sys.dont_write_bytecode = True  # Keep docs/examples free of __pycache__.
+            spec = importlib.util.spec_from_file_location("pocketlog_client", Path(__file__).resolve().parent.parent / "docs" / "examples" / "pocketlog_client.py")
+            example = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(example)
+            client = example.Client(origin, token, allow_loopback_http=True)
+            assert {"activity_pages", "activity_search", "json_errors"} <= client.capabilities()
+            cards = list(client.read_activities(now - 7_200_000, now, limit=1))
+            assert [c["id"] for c in cards] == ["smoke-session"] and cards[0]["source"] == "user"
+            assert [c["id"] for c in client.read_activities(now - 7_200_000, now, q="CORRECTION")] == ["smoke-session"]
+            assert list(client.read_activities(now - 7_200_000, now, category="work")) == []
+            client.correct(activity["id"], "rest", "My correction", "Disposable note")
+            try:
+                client.request("GET", "/v1/activities", query={"from_ms": 1, "to_ms": 0})
+                raise AssertionError("invalid window accepted")
+            except example.ApiError as failure:
+                assert (failure.status, failure.error) == (400, "invalid request")
             # Restart validates persistence and additive schema setup with the same volume.
             run("docker", "restart", server)
             origin = "http://127.0.0.1:" + run("docker", "port", server, "8080/tcp").rsplit(":", 1)[1]

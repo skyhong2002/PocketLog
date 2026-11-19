@@ -14,7 +14,7 @@
   const modal = () => document.querySelector('#modal');
   const name = () => modal().querySelector('[data-category-id]');
   const fill = (node, value) => { node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); };
-  const open = async () => { document.querySelector('[data-key=settings-categories]').click(); await until(() => modal().open && !!name()); };
+  const open = async () => { document.querySelector('[data-key=settings-categories-edit]').click(); await until(() => modal().open && !!name()); };
   const close = async () => { modal().querySelector('.close').click(); await until(() => !modal().open); await pause(); };
   const preview = async () => { const n = previews.length; fill(document.querySelector('.rule-preview input'), 'org.example.synthetic'); button('試算規則').click(); await until(() => previews.length > n); return previews.at(-1); };
   const save = async () => { const n = writes.length; button('儲存分類').click(); await until(() => writes.length > n); return writes.at(-1); };
@@ -26,7 +26,7 @@
       if (path === '/v1/workspace' && holdRecovery) return new Promise(resolve => recoveries.push({ resolve }));
       return original(url, options);
     };
-    document.querySelector('button[aria-label="設定"]').click(); await until(() => !!document.querySelector('[data-key=settings-categories]'));
+    document.querySelector('button[aria-label="設定"]').click(); await until(() => !!document.querySelector('[data-key=settings-categories-edit]'));
     // Closed preview cannot expire a new editor or change its focus/draft.
     for (const status of [200, 503, 401]) {
       await open(); const pending = await preview(); await close(); await open();
@@ -44,10 +44,9 @@
     await until(() => !!modal().querySelector('.preview-outcome')); assert(modal().textContent.includes('範例將分類為'), 'current success missing'); await close();
     // A save's detached response cannot install an old workspace globally.
     await open(); const staleSave = await save(); await close(); await open(); fill(name(), '合成：儲存回應後保留'); name().focus();
-    release(staleSave, 200, { ...snapshot, focus_minutes: 1234 }); await pause(); await pause();
+    release(staleSave, 200, { ...snapshot, categories: snapshot.categories.map((c, i) => (i ? c : { ...c, name: '合成：過期儲存' })) }); await pause(); await pause();
     assert(modal().open && name().value === '合成：儲存回應後保留', 'stale save closed new editor'); await close();
-    document.querySelector('[data-key=settings-goals]').click(); await until(() => modal().open && !!modal().querySelector('input'));
-    assert(Number(modal().querySelector('input').value) === snapshot.focus_minutes, 'stale save replaced prefs'); await close();
+    await open(); assert(name().value === snapshot.categories[0].name, 'stale save replaced prefs'); await close();
     // A conflict recovery GET is also owned by the originating editor.
     for (const status of [200, 401]) {
       await open(); holdRecovery = true; const pendingSave = await save(); release(pendingSave, 409);

@@ -1,5 +1,250 @@
 # Web first-run and responsive UI: implementation notes
 
+## Current state: simplified website (2026-11-17)
+
+The website now implements the web parts of [SIMPLIFIED_IA.md](SIMPLIFIED_IA.md).
+The sections after this one are the earlier history of the eight-page website and
+describe UI that no longer exists; keep them only as a record.
+
+Files: `server/web/app.js`, `app.css`, `index.html`, the `/agent-import.js` route
+in `server/src/web.rs` (removed with `server/web/agent-import.js` and its test),
+`scripts/test-web-timeline.cjs`, the `scripts/check-web-*.js` browser checks,
+`scripts/dev-check.sh` and the web CI job. No API, storage or Android change.
+
+- **Navigation:** exactly 時間軸 / 回顧 / 設定 (left rail on desktop, three-item
+  bottom bar at ≤ 860 px).
+- **時間軸:** date navigation; one status line chosen by `captureStatus()` from
+  `GET /v1/collection`, `/v1/devices` (journal keys, expiry, last authentication),
+  `/v1/ai` and the day's `pending_context` cards, in this order: 已暫停 → 金鑰失效
+  → 尚未開始記錄 (no key or never connected) → 手機超過一天沒有連線 → AI 未設定 →
+  AI 自動整理已關閉 → AI 整理中（N 張） → 記錄中 · AI 自動整理. Unknown reads never
+  produce a warning. The line opens the matching 設定 section (or the phone step of
+  onboarding). Below it: 已記錄 time with one stacked category bar whose labels are
+  the legend; category chips for categories present that day; 時間格/清單 and a
+  search icon button (the existing bounded search). Desktop ≥ 1100 px shows the
+  hourly grid with an inspector; narrower windows open cards in a dialog and start
+  in the list. Cards show the AI title (app display name for app-only cards), a
+  one-line summary, category, source label (AI 整理 / 畫面文字 / 只有 app / 你改過),
+  `AI 整理中` and `受保護畫面（無截圖）`. Card detail: full summary, app, time, a
+  one-tap category picker that saves immediately (`POST /v1/cards`), `修改文字` for
+  title/summary (newer typing during a save stays unsaved and is reported), and
+  replay thumbnails only when `/v1/replay` has images for that app in the last 24 h.
+  Empty day: the promise sentence plus at most one action.
+- **回顧:** 日/週 segmented control sharing the date navigation (week steps by
+  seven days). AI 回顧 card first: the newest saved brief of that kind for the
+  period, or `產生 AI 回顧` (one tap sends `POST /v1/briefs` with `provider_id` and
+  `consent:true`; a 409 re-reads `/v1/ai` and asks again), with the line
+  `會把這段時間的活動卡送到 <host>`; without AI, `先設定 AI`. 時間分配 (category
+  bars with duration and percent from `/v1/overview`), 常用 app (top five), 主題
+  chips, and for the week a seven-day bar row that opens a day. 問 AI: one input,
+  three example chips that only fill it, answers stacked below; one conversation
+  per period (`conversation_id`), the same `request_id` for a retried question, the
+  saved `provider_id`, `consent:true` only on explicit send, and on 409 a new
+  conversation with no automatic retry.
+- **設定:** 記錄 (state, each phone key's last contact, pause/resume all devices,
+  link to keys), AI (state `已連接：<Provider> · <model>`, switches `自動整理新截圖`
+  = `PUT /v1/ai/auto` with confirmation and `每天自動產生回顧` = brief schedule
+  enabled with the browser's IANA time zone, daily and weekly, after
+  confirmation; 停用並刪除金鑰), 分類 (one row to the existing category/rule editor;
+  the focus/neutral/distraction role select was removed, stored roles are kept),
+  連線與裝置 (server address, device-key dialog, logout, short private API note),
+  資料 (storage use and limit, JSON export of today / 7 / 30 days, delete all),
+  說明 (condensed help and links).
+- **AI setup:** provider list OpenAI · Anthropic · Google Gemini · OpenRouter ·
+  DeepSeek · 自訂（OpenAI 相容，例如 Ollama）. `providerSettings()` fills the
+  endpoint and protocol (Gemini puts the model in the path; 自訂 alone shows the
+  endpoint field and accepts HTTPS or literal loopback HTTP). Then API key, model
+  (editable suggestion), `讓 AI 看截圖` (on except DeepSeek) and `測試並儲存`:
+  `PUT /v1/ai`, then `POST /v1/ai/test` bound to the returned `provider_id`. A
+  failed probe keeps the dialog open with the saved-but-untested message; nothing is
+  retried automatically. Saving still turns the automatic switch off server-side.
+- **Onboarding:** three skippable steps: promise with what is / is never captured;
+  connect your AI (same form, `稍後再說`); install and connect the Android app
+  (device-key dialog, server address). The goal step and the getting-started
+  checklist (and its `localStorage` flag) are gone; the website stores nothing in
+  browser storage.
+- **Removed from the website:** 每日/每週 pages, Chat page and thread list, Flow,
+  Agents and JSONL import, 支援 page, daily reflection, day rating, goals and
+  meters, replay page, copy-timeline, the week timeline grid, the brief schedule
+  dialog. Their APIs and stored data are untouched.
+
+Verification done for this change (synthetic data only):
+
+- `scripts/dev-check.sh web` (adds status-line, provider-preset and app-name tests)
+  and `scripts/dev-check.sh rust` (fmt, clippy -D warnings, tests, audit) pass.
+- The production image built with podman and `scripts/smoke-private.py` passed.
+- In headless Chromium against a disposable container of that image (throw-away
+  owner key, synthetic activities, AI pointed at a closed loopback port so nothing
+  left the machine): every provider preset was accepted by `PUT /v1/ai` and mapped
+  back to its preset; login, onboarding, timeline, one-tap category save, 回顧 day
+  and week, brief/ask/probe failure messages and 設定 rendered at 1280 and 390 px
+  with no horizontal overflow, console errors or CSP violations.
+- The nine remaining `scripts/check-web-*.js` checks passed at 1280 and 390 px, but
+  against a local mock of the API on the fixture port, not the real service; rerun
+  them against the built image before treating them as accepted.
+  `check-web-chat-reads.js`, `check-web-chat-writes.js`,
+  `check-web-schedule-ownership.js` and `check-web-provider-completion.js` were
+  deleted (their UI is gone or folded into `check-web-provider-ownership.js`);
+  ACCEPTANCE.md still mentions them as history.
+
+Not done: screen-reader, 200 % zoom, Firefox/Safari and real-phone review; no new
+acceptance screenshots were saved; the Android app is unchanged and still shows its
+older tabs; there is no dark theme (the site never had one).
+
+### UX round 1 fixes (2026-11-17)
+
+Follows "Cross-platform consistency (UX round 1)" in SIMPLIFIED_IA.md:
+
+- Status line uses the shared vocabulary (`記錄中`, `AI 整理中（N 張）`, `AI 未設定，只顯示
+  app 名稱`, `AI 自動整理已關閉`, …). Compact units (`56 分`, `不到 1 分`), zero-length
+  cards show `01:26 · 不到 1 分`, a `隔天凌晨` divider after midnight, and only
+  exception source labels (no `AI 整理`).
+- Dates are zh-TW everywhere: the date control is a button (`今天 · 11月16日（週一）`,
+  week `11月16日 – 22日`) that opens a hidden native picker; stamps read `11月16日 09:00`.
+  `今天` appears only away from today; refresh is hidden on narrow screens and absent on 設定.
+- Narrow windows default to the card list (until the owner picks 時間表/清單); the bottom
+  nav has 13 px labels and content keeps clear of it. The hourly table (renamed 時間表)
+  splits columns only for true overlaps and shows the time range in every block; category
+  chips became one filter select.
+- Card detail: read-only title, category picker right below it, × close button, no
+  duplicate category row.
+- 回顧: header aligned with the content column; 這週每天 directly after the AI recap with
+  visible empty days; bars are the share of total time; 常用 app and topic chips wrap on
+  phones; full-width 產生 AI 回顧 on phones; 重新產生 is a button and 刪除 a low-emphasis text
+  action with confirmation; period-specific example questions with a neutral placeholder.
+- 設定: stronger section titles, a section index (so 說明 is one tap away), one-line hints,
+  server URL in normal type with 複製, 管理裝置金鑰 only in 連線與裝置, the private API note in
+  說明. The AI section is a one-line summary plus an `AI 設定 ›` row; the dialog holds the
+  two switches, 更換 AI and 停用並刪除金鑰.
+- AI form: `自訂` with a small second line, saved key shown as the field placeholder
+  `已儲存金鑰 ••••，貼上新的會取代`, a `取得 API 金鑰` link per provider, larger
+  `測試並儲存` with a smaller cost note. All checkboxes render as switches.
+- Secondary text colour darkened to about 6:1 on the lightest surfaces; icon buttons and
+  switches have 44 px targets.
+
+### UX round 2 and self-hosted AI (2026-11-17)
+
+Follows "Round 2 rules" and "Networks and self-hosted AI" in SIMPLIFIED_IA.md:
+
+- Cards share one structure (`時間 · 時長` + category + at most one exception badge /
+  title / one-line summary) on a neutral background with a category stripe; app-only cards
+  read `只知道使用了這個 app`; `AI 整理中` replaces `只有 app`. Under a minute is `不到 1 分`.
+- The desktop 時間表 collapses runs of two or more empty hours into a thin `沒有記錄` gap
+  (`timeAxis()`), shows `時間 · 時長` in every block at 14 px, marks `隔天凌晨`, and rings
+  only the selected block. The inspector has a source/state line, `應用程式` and a text-style
+  `修改文字`.
+- Focus is a thin `:focus-visible` ring; selected segments, chips and AI services use soft
+  pills. The header is sticky with the short date.
+- 回顧 uses the timeline width with two balanced columns (one column in reading order on
+  phones), bold titles, `日/週` before the date navigation, stacked week bars with `4.1 時`
+  values, `平均每天`, the spec's example questions, send inside the input, and 主題 only for
+  `keyword_mode` `model`/`mixed`.
+- 設定: `暫停所有裝置` is a switch; the phone-address hint for loopback and plain-http
+  origins; a horizontally scrolling section index with the current section marked; `匯出`
+  range plus button; storage in MB below 1 GB; delete grouped last with a `無法復原`
+  confirmation; `記錄` everywhere.
+- AI page: AI 服務 → 金鑰 → 模型 + `載入模型清單` (`POST /v1/ai/models`, pickable list, free
+  text fallback, short 502/429 errors) → 讓 AI 看截圖 → 測試並儲存 → 自動化 (two switches) →
+  停用. `自訂（OpenAI 相容：CLIProxyAPI、LiteLLM、Ollama…）` takes a base `API 網址`
+  (placeholder `http://127.0.0.1:8317/v1`, http allowed for private-network hosts by the
+  same rule as the server) and an optional key.
+- Wording names any VPN／private network instead of Tailscale only; plain-http logins on a
+  private host show `這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路`.
+
+Checked: dev-check web/rust, podman image build and smoke, the nine `check-web-*.js` against
+the local mock, and a headless browser run against a disposable container (all presets
+accepted, the models request reaches the server and reports the short error for an
+unreachable endpoint). Not checked: a real CLIProxyAPI/LiteLLM/Ollama model list, Safari,
+screen readers.
+
+### UX round 3 (2026-11-17)
+
+Follows "Round 3 rules" in SIMPLIFIED_IA.md:
+
+- List cards are separate neutral cards and desktop grid blocks are neutral too, each with a
+  4 px category stripe; tall blocks repeat the shared row 1 (時間 · 時長, soft category chip,
+  one badge: AI 整理中 accent, 受保護畫面 amber, others neutral). Same-minute and zero-length
+  ranges show only the start time. Every empty hour collapses into a `沒有記錄` gap.
+- Focus restoration passes `focusVisible: false`, and pointer-modality tracking hides rings
+  after pointer actions (keyboard users keep the thin ring).
+- Card detail order: title → app · time · length → summary → `AI 整理，可能有誤，請核對。`
+  (ai/local_excerpt only) → category chips → icon + text `修改文字`; no top colour border.
+- 回顧 on phones: 日/週 on row 1, `‹ 日期 › 今天` on row 2; time split is one line per
+  category with aligned bars; ask chips scroll in one row; send is an icon inside the input.
+  The week chart uses seven equal columns (~160 px), values above bars, `—` for empty days
+  and `平均每天 X（已過 N 天）`.
+- Copy: `AI 產生，可能有誤，請對照時間軸。`, `會把問題和這段時間的活動卡送到 <host>（不含截圖）。`,
+  dialog title `AI`, `API 金鑰`, `檔案含私人內容，不含截圖；請自行保管。`, `已用 0 MB / 10.0 GB`.
+- AI dialog: 自訂 tile shows only `自訂` with its description below once selected;
+  `載入模型清單` is a secondary button with a loading label, styled like the `取得 API 金鑰`
+  link; all switches share one size with a visible outlined off state.
+- 設定: the recording line reads `最後連線 11/17 03:17` (or `手機超過一天沒有連線`) instead of
+  `記錄中`; no divider under the last switch; the phone chip row fades at its edge; http
+  origins show the no-HTTPS warning row in addition to the loopback hint; desktop secondary
+  text is 14 px.
+
+### UX round 4 (2026-11-17)
+
+Follows "Round 4 rules" in SIMPLIFIED_IA.md:
+
+- 時間表: hour labels are centred on their hour rules and blocks sit at their true times
+  (minimum height only); short blocks show a badge icon (AI 整理中 / 受保護畫面); empty
+  stretches are faint text-only markers, split at the calendar midnight so the `隔天凌晨`
+  pill sits on a hairline at 00:00; the inspector column is sticky.
+- Selection is a tonal fill everywhere (grid blocks, chips, settings tabs); the rail and
+  bottom nav show a soft pill behind the selected icon.
+- Inspector: × on the title row, meta `App · 時間 · 時長` without the date, category chips in
+  workspace order with dots inside the padding. Pending cards read `正在整理這段活動…`.
+- Native selects and the date navigation use soft pills; phones are list-only (the
+  時間表/清單 toggle is hidden) and 日/週 spans the width.
+- 回顧: time-split bars flex to the value column; 問 AI spans both columns with an empty-state
+  line, padded chips with an edge fade, a disclosure that never breaks inside （不含截圖）, and a
+  circular send button; the week chart has 60 % bars, values directly above, `—` on the
+  baseline and a bold weekday for today.
+- 設定: `最後連線` appears once, text buttons align with the card padding, the storage bar keeps
+  a minimum sliver, the AI summary is two status chips, phone section tabs wrap, and the
+  no-HTTPS note keeps `VPN／私人網路` together.
+- AI dialog: 12 px provider tiles with a two-line 自訂 tile, `取得 API 金鑰` as a text link with
+  an external-link icon, one switch size with helper text under each label, a 13 px test
+  disclosure, a single divider before `停用並刪除金鑰`, and delete confirmations that state the
+  scope and `無法復原`.
+
+### UX round 5 (2026-11-17)
+
+Follows "Round 5 rules" in SIMPLIFIED_IA.md plus the round 5 web findings and addendum:
+
+- 問 AI is one soft pill field; the circular send button is a flex item centred on its
+  trailing edge (an older absolute rule had pushed it onto the top border). On desktop 問 AI
+  sits under the AI recap in the left column; `產生 AI 回顧` is a pill.
+- 時間表: a 96 px hour scale with blocks up to 40 px tall when the next block allows (true
+  times kept); short blocks show the badge with its label, `title` and `aria-label`, plus the
+  category chip when they have the full width; pending blocks show only `AI 整理中`; empty
+  stretches are faint dotted markers (the 04:00 tick stays visible); the intro sentence is
+  gone; the selected block has a tonal fill and bold title; the inspector column matches the
+  grid height with its content kept in view.
+- Consecutive app-only cards of one app at most five minutes apart collapse into one
+  `N 次 · 時長` card whose detail lists every visit (`collapseAppOnly()`).
+- Words: `只有應用程式`, `只知道使用了這個應用程式`, `常用應用程式`, `空間上限`, `分類與規則`.
+- Text sizes: mobile card title 16 px / summary 14 px, nav labels 13 px, time split and
+  desktop grid 14 px. Time split rows use a fixed label column, flexible 9 px bar and a fixed
+  right-aligned value column.
+- Inspector: semibold larger title, `分類` heading with `你選的分類會優先於自動分類。`, ✓ on the
+  selected category.
+- 設定: the AI and 分類與規則 card headers are the navigable rows; AI shows the provider with
+  `model · 自動整理開啟 · 每日回顧關閉`; `最後連線` is each device's own status; `登出這個瀏覽器` is
+  an underlined text button; section tabs only on phones (one scrolling row with an edge fade);
+  the no-HTTPS notice is a calm one-line row with an icon; the storage bar is an empty track at
+  0 MB.
+- AI dialog: semibold title, ✓ on the selected tile, 3/2-column equal tiles with a wider 自訂
+  tile so its subtitle fits, tighter spacing, a divider before `讓 AI 看截圖`, no redundant
+  `已連接` sentence.
+- 回顧 uses the calendar icon; week-chart layers are at least 2 px and every label shares one
+  baseline. Mobile timeline header has the refresh icon; the legend wraps in even columns; the
+  filter select and search button share one height.
+- A node test fails if any string literal in `app.js` contains ASCII `...`.
+
+## History (before 2026-11-17)
+
 Date: 2026-11-15 (UTC 2026-11-14 evening). Scope: issues
 [#8](https://github.com/skyhong2002/PocketLog/issues/8) (deployment → first
 connected phone, website half) and

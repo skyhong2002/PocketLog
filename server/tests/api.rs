@@ -287,7 +287,8 @@ async fn private_context_requires_consent_is_idempotent_and_never_read_back() {
         StatusCode::BAD_REQUEST
     );
     let mut expired = observation.clone();
-    expired["at_ms"] = json!(now - 86_400_001);
+    // Deferred (charging-time) uploads are accepted for three days, not longer.
+    expired["at_ms"] = json!(now - 3 * 86_400_000 - 1);
     assert_eq!(
         call(&app, "POST", "/v1/observations", expired, true)
             .await
@@ -739,7 +740,10 @@ async fn existing_observation_schema_migrates_and_legacy_receipts_still_replay()
     let canonical = format!(
         r#"{{"id":"legacy","at_ms":{at},"app":"app.example","text":"synthetic legacy","analysis_consent":true,"external_ai_consent":false,"jpeg_base64":null,"image_consent":false}}"#
     );
-    let hash = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+    let hash: String = Sha256::digest(canonical.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     db.execute(
         "INSERT INTO observations VALUES('legacy',?,'app.example','synthetic legacy',1,NULL)",
         [at],

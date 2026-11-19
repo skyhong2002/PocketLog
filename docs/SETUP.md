@@ -30,8 +30,9 @@ readiness and prints next steps without reading or revealing your key. Use
 
 # Run the development server
 
-Prerequisites: Docker Compose, OpenSSL, and a trusted HTTPS reverse proxy or
-Tailscale Serve. One instance currently belongs to **one person**. This is not a
+Prerequisites: Docker Compose, OpenSSL, and a way for your phone to reach the server
+privately: a VPN / private network (Tailscale, Headscale, ZeroTier, WireGuard, NetBird, a home
+LAN…) and, ideally, a trusted HTTPS reverse proxy (Caddy, nginx, Tailscale Serve…). One instance currently belongs to **one person**. This is not a
 multi-user hosted service and should stay behind your private network/ACLs.
 
 ```sh
@@ -40,9 +41,10 @@ docker compose up --build -d
 curl --fail http://127.0.0.1:18748/healthz
 ```
 
-Expose loopback port 18748 through your existing HTTPS proxy or Tailscale Serve.
-The Android client requires valid HTTPS, including on Tailscale. Do not publish the
-HTTP port to the internet. The token is in `.secrets/owner_token` (not printed by
+Expose loopback port 18748 through your HTTPS proxy, or publish it only on your VPN/private
+network address. The Android client accepts trusted HTTPS anywhere and plain HTTP only for
+private-network addresses (see [private network without HTTPS](#private-network-without-https)).
+Do not publish the HTTP port to the internet. The token is in `.secrets/owner_token` (not printed by
 initialization). Transfer it to the app through a private channel; never a URL,
 public QR code, screenshot, log, or Git commit. QR/device pairing is future work.
 The secret's parent directory is mode 0700; the bind-mounted file is readable by
@@ -51,6 +53,33 @@ the container's non-root UID. Protect copies of this directory just like the DB.
 The default server does not call any AI provider. No captures or existing journal
 records are copied during setup. Stop with `docker compose down`; this preserves
 the journal volume. `docker compose down -v` permanently removes that volume.
+
+## Private network without HTTPS
+
+Some VPNs (ZeroTier, plain WireGuard, a LAN) give you a private address but no certificate
+your phone trusts. PocketLog then works over plain HTTP **only on private addresses**:
+loopback, 10.x, 172.16–31.x, 192.168.x, 100.64–127.x (CGNAT ranges used by Tailscale,
+Headscale and others), IPv6 unique-local/link-local, and local names (`*.local`, `*.lan`,
+`*.internal`, `*.home.arpa`, single-label names). The VPN must provide the encryption.
+
+1. Publish the API on the private address, e.g. `ports: ["10.147.17.5:18748:8080"]` (never
+   `0.0.0.0` on a machine with a public interface).
+2. Set `POCKETLOG_PRIVATE_HTTP=true` on the API service so the website's login cookie works
+   over plain HTTP (browsers refuse `Secure` cookies there).
+3. In the app use `http://10.147.17.5:18748`; it shows a reminder that the connection relies on
+   your VPN. Public `http://` addresses are always refused.
+
+## AI providers and self-hosted proxies
+
+設定 › AI offers OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek and 自訂. 自訂
+takes any OpenAI-compatible base URL, such as a CLIProxyAPI, LiteLLM, one-api, vLLM or Ollama
+instance (`http://127.0.0.1:8317/v1`, `http://cliproxyapi:8317/v1`, `http://192.168.1.20:11434/v1`).
+`/chat/completions` is appended for you, the key may be left empty if the proxy needs none,
+and 載入模型清單 reads the proxy's `/models`. Plain HTTP is accepted only for the private
+addresses listed above; anything else must be HTTPS. When the API runs in Docker,
+`127.0.0.1` means the container itself: use the proxy's service name on a shared Compose
+network, `host.docker.internal` (with `extra_hosts: ["host.docker.internal:host-gateway"]`), or
+the host's LAN/VPN address.
 
 ## Personal production instance
 
@@ -66,6 +95,8 @@ curl --fail http://127.0.0.1:18748/healthz
 tailscale serve --bg --https=12446 http://127.0.0.1:18748
 ```
 
+The `tailscale serve` line is one example of private HTTPS; any VPN plus HTTPS proxy works
+(Caddy with a certificate your phone trusts, Headscale with MagicDNS certificates, etc.).
 Choose an unused Tailscale HTTPS port. In the app, use
 `https://YOUR-MACHINE.YOUR-TAILNET.ts.net:12446` and the token stored in
 `.secrets/production_owner_token`. Keep the token out of URLs, public files and
@@ -152,6 +183,35 @@ adding a key; the owner must turn on 自動摘要 for the saved provider. The up
 adds `processed`/`jpeg_bytes` observation columns and stops 30-day journal and
 24-hour raw deletion; screenshots are then bounded by the 10 GiB default storage
 budget (Settings → 資料). No new production token is needed.
+
+## Updating the app
+
+Release builds of the Android app update themselves from this repository's GitHub releases.
+Pushing a version tag (`git tag v0.5.0 && git push origin v0.5.0`) runs
+`.github/workflows/release.yml`, which builds a signed release APK and publishes
+`PocketLog-<version>-<versionCode>.apk` plus its `.sha256` file. Bump `versionCode` in
+`android/app/build.gradle.kts` for every release; the app only offers a higher versionCode.
+
+Before the first tag, create a release keystore once and keep it (and its passwords) safe outside
+the repository, for example:
+
+```sh
+keytool -genkeypair -v -keystore pocketlog-release.jks -alias pocketlog -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 pocketlog-release.jks   # value for POCKETLOG_KEYSTORE_BASE64
+```
+
+Then add these repository secrets (Settings → Secrets and variables → Actions):
+`POCKETLOG_KEYSTORE_BASE64`, `POCKETLOG_KEYSTORE_PASSWORD`, `POCKETLOG_KEY_ALIAS` and
+`POCKETLOG_KEY_PASSWORD`. Without them the workflow fails instead of publishing an unsigned APK.
+Local `assembleRelease` without these environment variables produces an unsigned APK.
+
+On the phone, 設定 › 說明 › 檢查更新 shows the installed version; 自動檢查更新 (on by default)
+checks at most every 12 hours when the app opens. The app downloads the APK only from GitHub over
+HTTPS, verifies its SHA-256 and hands it to Android's installer, which asks you to confirm (and the
+first time, to allow installs from PocketLog). Android only accepts an update signed with the same
+key as the installed app: an installation signed with a different key (for example a debug build
+or a build from another machine) must be uninstalled and reinstalled once from the release APK.
+Sandbox and debug builds never check for updates.
 
 ## Private website and bring your own AI
 

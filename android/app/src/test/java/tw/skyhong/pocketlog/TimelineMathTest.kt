@@ -63,7 +63,7 @@ class TimelineMathTest {
         val items = listOf(Interval(0, 60_000), Interval(30_000, 120_000), Interval(600_000, 660_000))
         assertEquals(180_000L, TimelineMath.covered(items))
         assertEquals(120_000L, TimelineMath.longestMerged(items))
-        assertEquals("0 分", TimelineMath.duration(0))
+        assertEquals("不到 1 分", TimelineMath.duration(0))
         assertEquals("不到 1 分", TimelineMath.duration(10_000))
         assertEquals("54 分", TimelineMath.duration(54 * 60_000L))
         assertEquals("2 小時", TimelineMath.duration(120 * 60_000L))
@@ -121,4 +121,31 @@ class TimelineMathTest {
         }
     }
 
+    @Test fun zhTwDatesAndAfterMidnightCards() {
+        assertEquals("11月16日（週一）", TimelineMath.dayLabel(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("11月16日 – 22日", TimelineMath.weekLabel(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("11月30日 – 12月6日", TimelineMath.weekLabel(java.time.LocalDate.of(2026, 11, 30)))
+        assertEquals("週一", TimelineMath.weekdayShort(java.time.LocalDate.of(2026, 11, 16)))
+        assertEquals("4.1 時", TimelineMath.hours(4 * 3_600_000L + 6 * 60_000L))
+        assertEquals("0.0 時", TimelineMath.hours(0))
+        val zone = java.time.ZoneId.of("Asia/Taipei"); val day = java.time.LocalDate.of(2026, 11, 16)
+        val midnight = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        assertFalse(TimelineMath.afterMidnight(day, zone, midnight - 1))
+        assertTrue(TimelineMath.afterMidnight(day, zone, midnight))
+    }
+    @Test fun shortRangesNeverShowAFakeMinute() {
+        assertEquals("不到 1 分", TimelineMath.duration(59_999))
+        assertEquals("1 分", TimelineMath.duration(60_000))
+        assertEquals("01:26 · 不到 1 分", TimelineMath.rangeLabel("01:26", "01:26", 0))
+        // 40 s that crosses a minute boundary is still under a minute and shows only the start.
+        assertEquals("01:26 · 不到 1 分", TimelineMath.rangeLabel("01:26", "01:27", 40_000))
+        assertEquals("16:00–16:14 · 14 分", TimelineMath.rangeLabel("16:00", "16:14", 14 * 60_000L))
+    }
+    @Test fun consecutiveAppOnlyCardsOfOneAppCollapse() {
+        val m = 60_000L
+        fun s(app: String, start: Long, end: Long, appOnly: Boolean = true) = TimelineMath.Slot(app, start * m, end * m, appOnly)
+        val slots = listOf(s("a", 0, 0), s("a", 3, 4), s("a", 9, 9), s("a", 20, 21), s("b", 22, 22), s("b", 23, 24, appOnly = false), s("b", 25, 26), s("", 27, 27), s("", 28, 28))
+        assertEquals(listOf(listOf(0, 1, 2), listOf(3), listOf(4), listOf(5), listOf(6), listOf(7), listOf(8)), TimelineMath.collapse(slots))
+        assertEquals(emptyList<List<Int>>(), TimelineMath.collapse(emptyList()))
+    }
 }

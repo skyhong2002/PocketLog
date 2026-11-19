@@ -5,10 +5,11 @@ brand mark, sage green accents, quiet green-tinted paper surfaces, readable colo
 cards and enough information to understand a day. Use the existing logo assets;
 do not replace them with an unrelated minimal mark or copy Dayflow artwork.
 
-- Keep Timeline, Daily, Weekly, Chat, Flow, Agents, Support and Settings discoverable.
-  Desktop uses a narrow left rail, a flexible timeline and a selected-day summary.
-  Small screens stack summaries and keep navigation in a horizontally scrollable
-  bottom rail. Native Android keeps platform controls and accessible card actions.
+- Navigation has exactly three destinations: 時間軸, 回顧 and 設定
+  ([simplified product](ux/SIMPLIFIED_IA.md)). The website already follows it;
+  Android still shows its older tabs until its own simplification. Desktop web uses
+  a narrow left rail, a flexible timeline and a card inspector; small screens use a
+  three-item bottom bar. Native Android keeps platform controls and accessible card actions.
 - Day begins at 04:00 in each client's system timezone; make this visible. Use actual
   start/end times and proportional interval cards. Never fill empty hours with
   invented activity. Overlapping intervals remain distinct selectable cards.
@@ -21,12 +22,14 @@ do not replace them with an unrelated minimal mark or copy Dayflow artwork.
   Native Android uses the same sage palette and retains platform typography.
   Hour labels and metadata may be smaller in dense timelines. Labels,
   keyboard focus indicators and an accessible activity list matter more than icons.
-- Onboarding explains value, privacy, goals and optional BYO AI in that order.
-  Share completion/settings across clients. Ask for OS access at the point where
-  the phone needs it; completing product onboarding never means consenting to capture.
+- Onboarding has at most three skippable steps: the promise and what is / is never
+  captured, connecting your AI, then connecting the phone. Share completion/settings
+  across clients. Ask for OS access at the point where the phone needs it;
+  completing product onboarding never means consenting to capture.
 - Put the exact provider/model and outgoing data scope before AI consent. Saving
-  credentials, testing synthetic text, future-capture consent and a one-off Chat
-  request are separate actions. Distinguish model output, excerpts and user edits.
+  credentials, testing synthetic text, future-capture consent and a one-off 問 AI
+  request are separate actions (the website's 測試並儲存 saves first, then sends only
+  the fixed test text, and says so beside the button). Distinguish model output, excerpts and user edits.
 - Empty, offline, truncated, loading and failed states must be real states, with
   recovery actions. Do not display demo journals in an owner's production account.
 - Treat each asynchronous read/write as belonging to its initiating page, dialog,

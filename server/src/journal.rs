@@ -44,11 +44,11 @@ pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
     .map_err(storage_error)?;
     // Observations, receipts and reflections are journal records and are kept
     // permanently. Screenshots are bounded by storage::enforce.
-    // Evidence that never matched an app session within a day stops being pending
-    // (the phone uploads sessions well within that window) but its text is kept.
+    // Evidence that never matched an app session within the deferred-upload window
+    // stops being pending (sessions upload sooner than context) but its text is kept.
     db.execute(
         "UPDATE observations SET processed=1 WHERE processed=0 AND at_ms<=?",
-        [now - DAY],
+        [now - MAX_CONTEXT_AGE],
     )
     .map_err(storage_error)?;
     db.execute(
@@ -90,7 +90,14 @@ struct Observation {
     replay_consent: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider_id: Option<String>,
+    /// The window was protected (FLAG_SECURE/DRM): text only, never pixels. Omitted
+    /// when false so receipts for earlier payloads keep the same hash.
+    #[serde(default, skip_serializing_if = "is_false")]
+    protected_screen: bool,
 }
+/// Phones defer screenshot uploads until charging, so context may arrive up to
+/// three days after capture and must still be analysed.
+pub(crate) const MAX_CONTEXT_AGE: i64 = 3 * DAY;
 /// About 300 KiB of JPEG, matching infovore's per-capture screenshot bound.
 pub(crate) const MAX_JPEG_BASE64: usize = 400_000;
 /// Bounds the analysis backlog, not retained history.
@@ -101,7 +108,7 @@ fn is_false(value: &bool) -> bool {
 async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> Result<StatusCode> {
     let now = now_ms();
     if !valid_id(&o.id)
-        || o.at_ms <= now - DAY
+        || o.at_ms <= now - MAX_CONTEXT_AGE
         || o.at_ms > now + 60_000
         || o.app.is_empty()
         || o.app.len() > 200
@@ -124,14 +131,12 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
             .as_ref()
             .is_some_and(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
         || o.replay_consent && (!o.image_consent || o.jpeg_base64.is_none())
+        || o.protected_screen && o.jpeg_base64.is_some()
         || !o.analysis_consent
     {
         return Err(invalid());
     }
-    let hash = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&o).map_err(storage_error)?)
-    );
+    let hash = crate::hex_digest(serde_json::to_vec(&o).map_err(storage_error)?);
     state
         .database(move |db| {
             let tx = db.transaction().map_err(storage_error)?;
@@ -179,7 +184,7 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                 )
                 .map_err(storage_error)?;
                 tx.execute(
-                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes) VALUES (?,?,?,?,?,?,?,0,?)",
+                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes,protected_screen) VALUES (?,?,?,?,?,?,?,0,?,?)",
                     params![
                         o.id,
                         o.at_ms,
@@ -188,7 +193,8 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                         if o.external_ai_consent { 2 } else { 1 },
                         o.jpeg_base64,
                         o.provider_id,
-                        o.jpeg_base64.as_ref().map(|j| j.len() as i64)
+                        o.jpeg_base64.as_ref().map(|j| j.len() as i64),
+                        o.protected_screen
                     ],
                 )
                 .map_err(storage_error)?;
@@ -205,14 +211,17 @@ pub(super) struct Card {
     pub(super) id: String,
     pub(super) start_ms: i64,
     pub(super) end_ms: i64,
-    app: String,
-    title: String,
-    summary: String,
-    category: Category,
+    pub(super) app: String,
+    pub(super) title: String,
+    pub(super) summary: String,
+    pub(super) category: Category,
     source: &'static str,
     // Matching raw context remains on the server; this is neither a worker
     // execution state nor permission to send context to an external provider.
     pending_context: bool,
+    /// Some captured evidence came from a protected (secure/DRM) window, so the card
+    /// was understood from app and screen text without screenshots.
+    protected_screen: bool,
 }
 impl Card {
     pub(super) fn is_app_only(&self) -> bool {
@@ -227,11 +236,16 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
         .map(|a| {
             // Timeline activities may be clipped to the requested window. Match
             // pending raw evidence against the stored activity's full interval.
-            let pending_context = db
+            let (pending_context, protected_screen): (bool, bool) = db
                 .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms WHERE a.id=? AND o.processed=0)",
+                    "SELECT COALESCE(MAX(pending),0),COALESCE(MAX(protected),0) FROM (
+                        SELECT o.processed=0 AS pending,o.protected_screen AS protected
+                        FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms
+                        WHERE a.id=?1
+                        UNION ALL SELECT 0,protected_screen FROM screen_cards WHERE id=?1
+                     )",
                     [&a.id],
-                    |r| r.get(0),
+                    |r| Ok((r.get::<_, i64>(0)? != 0, r.get::<_, i64>(1)? != 0)),
                 )
                 .map_err(storage_error)?;
             let note: Option<(String, String, String, i64)> = db
@@ -266,6 +280,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 category,
                 source,
                 pending_context,
+                protected_screen,
             })
         })
         .collect()
@@ -338,7 +353,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Value>
         super::prune(db,now_ms())?;
         let pending:i64=db.query_row("SELECT COUNT(*) FROM observations WHERE processed=0",[],|r|r.get(0)).map_err(storage_error)?;
         let storage=crate::storage::usage(db)?;
-        Ok(Json(serde_json::json!({"schema_version":2,"analysis":"local_excerpt_or_owner_enabled_model","raw_retention":"storage_budget","journal_retention":"permanent","pending_context":pending,"storage":storage})))
+        Ok(Json(serde_json::json!({"schema_version":2,"api":crate::API_CAPABILITIES.clone(),"analysis":"local_excerpt_or_owner_enabled_model","raw_retention":"storage_budget","journal_retention":"permanent","pending_context":pending,"storage":storage})))
     }).await
 }
 

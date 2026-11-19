@@ -18,14 +18,27 @@ report suspected vulnerabilities privately through the repository owner.
   bounded query results, 10-second API timeout, eight outstanding DB operations.
   Blocking SQLite work stays off Tokio runtime threads. A timed-out write might
   still finish; stable request IDs make activity retries safe.
-- Android requires HTTPS and system certificate verification, refuses redirects,
+- Android uses HTTPS with system certificate verification anywhere; plain `http://` is
+  accepted only for private-network hosts (the server's `private_network_host` rule:
+  loopback, RFC 1918, 100.64/10, IPv6 ULA/link-local, `localhost`, `*.local`, `*.lan`,
+  `*.internal`, `*.home.arpa`, single-label names), checked before every request so the
+  device key is never sent over public HTTP. The network security config permits
+  cleartext only so that this app check can decide; user-added CAs are not trusted.
+  An http connection shows 「這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路」. It refuses redirects,
   stores endpoint+token together using Android Keystore AES-GCM, excludes app
-  data from backups/device transfer, and blocks normal app screenshots. Screen
-  security flags do not protect against a rooted device or a camera.
+  data from backups/device transfer. Blocking screenshots of PocketLog itself
+  (`FLAG_SECURE` on the activity and every dialog) is an explicit setting,
+  「防止截圖這個 app」 in 設定 › 資料, **off by default** (owner decision 2026-11-17).
+  Screen security flags do not protect against a rooted device or a camera.
 - Container runs as UID/GID 10001, drops all capabilities, has a read-only root
   filesystem and bounded resources. The journal and dedicated AI settings volumes are writable/persistent for the API;
   the worker mounts AI settings read-only.
-  The HTTP host port binds to loopback, for a TLS proxy or Tailscale Serve.
+  The HTTP host port binds to loopback, for a TLS proxy (Caddy, nginx, Tailscale Serve…).
+  Plain HTTP is supported only on private-network addresses for owners whose VPN
+  (ZeroTier, WireGuard, a LAN) has no trusted certificate: the phone refuses public `http://`
+  origins, the website needs the explicit `POCKETLOG_PRIVATE_HTTP=true` (non-`__Host-`,
+  non-`Secure` session cookie), and confidentiality then depends on the VPN. AI endpoints
+  follow the same rule so self-hosted OpenAI-compatible proxies (CLIProxyAPI, Ollama) work.
 
 ## Trust and known limitations
 
@@ -42,7 +55,7 @@ report suspected vulnerabilities privately through the repository owner.
   does not establish upload/capture success. It survives journal deletion with
   device configuration and is removed when the key is revoked/pruned or rotated.
 - No built-in TLS termination or public-internet abuse protection. Keep behind
-  Tailscale ACLs or an authenticated/private HTTPS ingress. Do not expose raw
+  VPN ACLs (Tailscale, Headscale, ZeroTier, WireGuard…) or an authenticated/private ingress. Do not expose raw
   container networking as a public service. Host firewall and proxy request/header,
   connection and rate limits remain necessary. Docker is not a VM security boundary.
 - SQLite is plaintext inside the host volume. Use full-disk/volume encryption,
@@ -60,15 +73,25 @@ report suspected vulnerabilities privately through the repository owner.
   packages and package-name patterns, not every sensitive app; explicitly exclude
   your financial, authentication and other private apps. Structural password/editable-field checks run
   before any screenshot/text capture; incomplete traversal fails closed. Locked
-  screens and secure-window screenshot failures reject capture. OS/AppOps behavior
+  screens are never captured. A window that Android refuses to screenshot because it
+  is secure/DRM-protected (`ERROR_TAKE_SCREENSHOT_SECURE_WINDOW`) is no longer
+  rejected outright: PocketLog never tries to bypass the protection, sends the app and
+  its visible text with `protected_screen:true` and no image, and the card says
+  受保護畫面（無截圖）. Mostly-black frames are never stored or uploaded. Captures
+  whose app, normalised text and small downscaled image hash match the previous
+  stored capture (refreshed every five minutes) are skipped before encoding. OS/AppOps behavior
   and permission revocation still require physical-device validation. UsageStats
   checkpoints retain observed permission state and restart their scan boundary
   when that state changes, including on app resume. A revoke-and-restore sequence
   entirely while the app is not executing is not detectable from the later
   current AppOps grant; do not treat this as continuous permission-history proof.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
-  filename AAD. Queue max 24 h / 1 GiB / 32,768 entries, including quarantine;
-  screenshot entries are stored separately so reflection/edit reads never decrypt them;
+  filename AAD. Queue max 1 GiB / 32,768 entries including quarantine; screen
+  captures (`/v1/observations`) are kept up to 72 h because they upload only while
+  charging (or on an unmetered network once more than 256 MB are waiting), and the
+  server accepts context up to 72 h old; every other queued write keeps 24 h. Over
+  the byte/record cap the oldest captures are dropped before app sessions or edits.
+  Screenshot entries are stored separately so edit reads never decrypt them;
   timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
   app/workers execute, not while powered off. Key loss can make local records
   unrecoverable; corrupt files are discarded with a visible drop count.
@@ -115,6 +138,11 @@ report suspected vulnerabilities privately through the repository owner.
   capture, and confirmed pause clears queued capture. Retention is not extended.
   Failed server deletion must be retried; other installations can still upload
   with the shared owner token. Rotate/revoke that token when necessary.
+- In-app updates (release builds only, at most every 12 h or on request) contact only
+  `api.github.com` and GitHub's download hosts over HTTPS (redirects are followed only to GitHub
+  hosts, 150 MB cap), send no journal data or credentials, refuse a release without a SHA-256
+  digest, verify the APK before installing through `PackageInstaller`, and rely on Android's
+  same-signing-key rule; release notes are shown as plain text.
 - Raw screen content never belongs in logs or infovore. Daily exports contain
   private derived content and are outside app encryption/retention after export.
 - Dependency auditing is a development check, not proof of safety. SQLite/native

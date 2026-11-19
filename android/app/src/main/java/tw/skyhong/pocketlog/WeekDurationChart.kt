@@ -10,18 +10,20 @@ import android.view.View
 import java.time.LocalDate
 import java.time.ZoneId
 
+data class WeekDurationDay(val date: LocalDate, val available: Boolean, val intervals: List<TimelineMath.Interval>)
+
 /** Shared duration axis for the week. The existing day rows expose the values and actions to TalkBack. */
 @SuppressLint("ViewConstructor")
 class WeekDurationChart(
     context: Context,
-    private val days: List<WeekDay>,
+    private val days: List<WeekDurationDay>,
     private val today: LocalDate,
     zone: ZoneId,
 ) : View(context) {
     private val ui = Ui(context)
     private val amounts = days.map { day ->
         if (!day.available || day.date > today) 0L else {
-            TimelineMath.coveredInDay(day.date, zone, day.items.map { TimelineMath.Interval(it.start, it.end) })
+            TimelineMath.coveredInDay(day.date, zone, day.intervals)
         }
     }
     private val hourMs = 3_600_000L
