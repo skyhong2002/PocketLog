@@ -102,6 +102,35 @@ impl Provider {
             _ => self.env_automatic,
         }
     }
+    pub(super) fn image_support(&self) -> bool {
+        self.image_support
+    }
+
+    pub(super) fn screen_json(
+        &self,
+        instructions: &str,
+        content: Vec<serde_json::Value>,
+        name: &str,
+        schema: serde_json::Value,
+    ) -> std::result::Result<String, ()> {
+        use serde_json::json;
+        if !self.automatic() {
+            return Err(());
+        }
+        let format = match self.output_format {
+            crate::ai_settings::OutputFormat::JsonSchema => {
+                json!({"type":"json_schema","json_schema":{"name":name,"strict":true,"schema":schema}})
+            }
+            crate::ai_settings::OutputFormat::JsonObject => json!({"type":"json_object"}),
+        };
+        self.complete(
+            json!({"model":self.model,"store":false,"max_completion_tokens":1500,
+            "messages":[{"role":"system","content":instructions},
+                        {"role":"user","content":content}],"response_format":format}),
+            false,
+        )
+    }
+
     pub(crate) fn probe(&self) -> std::result::Result<(), ()> {
         self.generate(
             "pocketlog.connection_test",
@@ -434,7 +463,17 @@ pub fn process_with_provider(
     db: &mut Connection,
     provider: Option<&Provider>,
 ) -> std::result::Result<usize, &'static str> {
-    run(db, provider).map_err(|_| "context processing failed")
+    let result = if let Some(provider) = provider.filter(|p| p.automatic()) {
+        (|| {
+            super::prune(db, now_ms())?;
+            crate::replay::validate_pending(db)?;
+            crate::storage::enforce(db)?;
+            crate::screen_cards::run(db, provider)
+        })()
+    } else {
+        run(db, provider)
+    };
+    result.map_err(|_| "context processing failed")
 }
 type ContextRow = (String, String, i64, Option<String>, Option<String>, bool);
 const MAX_CONTEXTS: i64 = 200;
@@ -454,7 +493,7 @@ fn evidence_text<'a>(texts: impl Iterator<Item = &'a str>) -> String {
     lines.join("\n").chars().take(MAX_EVIDENCE_CHARS).collect()
 }
 /// Picks up to `max` items spread across the whole session.
-fn spread(items: Vec<String>, max: usize) -> Vec<String> {
+pub(super) fn spread<T: Clone>(items: Vec<T>, max: usize) -> Vec<T> {
     if items.len() <= max {
         return items;
     }
@@ -751,23 +790,32 @@ mod pipeline_tests {
         body: serde_json::Value,
         erase_path: Option<std::path::PathBuf>,
     ) -> (Provider, std::thread::JoinHandle<()>) {
+        provider_replies(vec![body], erase_path)
+    }
+
+    fn provider_replies(
+        replies: Vec<serde_json::Value>,
+        erase_path: Option<std::path::PathBuf>,
+    ) -> (Provider, std::thread::JoinHandle<()>) {
         use std::io::Write;
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-                .unwrap();
-            let mut buffer = [0; 16384];
-            let _ = stream.read(&mut buffer).unwrap();
-            if let Some(path) = erase_path {
-                let db = Connection::open(path).unwrap();
-                crate::journal::erase(&db).unwrap();
-                db.execute("DELETE FROM activities", []).unwrap();
+            for body in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut buffer = [0; 16384];
+                let _ = stream.read(&mut buffer).unwrap();
+                if let Some(path) = &erase_path {
+                    let db = Connection::open(path).unwrap();
+                    crate::journal::erase(&db).unwrap();
+                    db.execute("DELETE FROM activities", []).unwrap();
+                }
+                let bytes = body.to_string();
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",bytes.len(),bytes).unwrap();
             }
-            let bytes = body.to_string();
-            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",bytes.len(),bytes).unwrap();
         });
         (
             Provider::new(
@@ -808,29 +856,46 @@ mod pipeline_tests {
         assert_eq!(pending(&db), 0);
     }
     #[test]
-    fn owner_automatic_switch_summarizes_without_per_capture_consent_and_keeps_evidence() {
+    fn owner_automation_creates_one_card_across_apps_without_usage_sessions() {
+        use serde_json::json;
         let mut db = database();
         seed(&db, 1);
-        let (mut provider, handle) = provider(valid_output(), None);
+        db.execute("DELETE FROM activities", []).unwrap();
+        let at = now_ms() / 900_000 * 900_000 - 3_600_000;
+        db.execute("UPDATE observations SET at_ms=?", [at]).unwrap();
+        db.execute(
+            "INSERT INTO observations(id,at_ms,app,text,consent) VALUES ('second',?,'org.example.chat','確認部署時間',1)",
+            [at + 10_000],
+        ).unwrap();
+        let reply = |content: serde_json::Value| json!({"choices":[{"finish_reason":"stop","message":{"content":content.to_string()}}]});
+        let (mut provider, handle) = provider_replies(
+            vec![
+                reply(
+                    json!({"observations":[{"frame":0,"description":"閱讀部署文件"},{"frame":1,"description":"確認部署時間"}]}),
+                ),
+                reply(
+                    json!({"cards":[{"first_frame":0,"last_frame":1,"title":"確認部署流程","summary":"閱讀文件並確認部署時間","category":"work"}]}),
+                ),
+            ],
+            None,
+        );
         provider.env_automatic = true;
         assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 1);
         handle.join().unwrap();
-        assert_eq!(
-            db.query_row("SELECT title,edited FROM notes", [], |r| Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?
-            )))
-            .unwrap(),
-            ("閱讀資料".into(), 2)
-        );
+        assert_eq!(count(&db, "activities"), 0);
+        assert_eq!(count(&db, "observations"), 2);
         assert_eq!(pending(&db), 0);
-        // Raw text stays on the server after analysis.
+        assert_eq!(count(&db, "screen_jobs"), 0);
+        let cards = crate::screen_cards::timeline(&db, at - 1, at + 30_000).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!((cards[0].start_ms, cards[0].end_ms), (at, at + 20_000));
+        let visible = crate::journal::cards(&db, &cards).unwrap();
         assert_eq!(
-            db.query_row("SELECT text FROM observations", [], |r| r
-                .get::<_, String>(0))
-                .unwrap(),
-            "UNTRUSTED private evidence"
+            serde_json::to_value(&visible[0]).unwrap()["title"],
+            "確認部署流程"
         );
+        crate::journal::erase(&db).unwrap();
+        assert_eq!(count(&db, "screen_cards"), 0);
     }
     #[test]
     fn topic_labels_require_automatic_switch_and_cover_every_title() {
@@ -949,7 +1014,7 @@ fn decode_jpeg(value: &str) -> Option<image::DynamicImage> {
     reader.limits(limits);
     reader.decode().ok()
 }
-fn valid_jpeg(value: &str) -> bool {
+pub(super) fn valid_jpeg(value: &str) -> bool {
     decode_jpeg(value).is_some()
 }
 pub(crate) fn sanitize_jpeg(value: &str) -> Option<String> {

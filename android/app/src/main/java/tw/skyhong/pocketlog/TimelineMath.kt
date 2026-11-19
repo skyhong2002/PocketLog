@@ -87,6 +87,13 @@ object TimelineMath {
         return total
     }
 
+    /** Elapsed coverage inside one journal day, including variable-length DST days. */
+    fun coveredInDay(day: LocalDate, zone: ZoneId, intervals: List<Interval>): Long {
+        val start = dayStart(day, zone)
+        val end = dayStart(day.plusDays(1), zone)
+        return covered(intervals.map { Interval(maxOf(it.start, start), minOf(it.end, end)) })
+    }
+
     fun duration(ms: Long): String {
         val minutes = (ms.coerceAtLeast(0) + 30_000) / 60_000
         return when {

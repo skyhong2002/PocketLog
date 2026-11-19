@@ -215,3 +215,29 @@ for (const [cardLimit,reviewLimit] of [[false,false],[true,false],[false,true],[
 assert.equal(JSON.stringify([exportDays,exportReviews]),beforeExport);
 assert.equal(exportSnapshot(exportDays,exportReviews).reviews_truncated,false);
 console.log('Journal exports retain activity/review completeness without changing data');
+
+// The weekly chart uses elapsed time, not the sum of overlapping card lengths.
+{
+  const { weekActivityRows } = require('../server/web/app.js');
+  const start = fullDayBounds('2026-11-16')[0];
+  const hour = 3600000;
+  const day = {
+    date: '2026-11-16', truncated: true,
+    cards: [
+      { start_ms: start - hour, end_ms: start + hour / 2 },
+      { start_ms: start + hour / 4, end_ms: start + hour * 1.25 },
+      { start_ms: start + hour * 2, end_ms: start + hour * 2.5 },
+    ],
+  };
+  const rows = weekActivityRows([
+    day,
+    { date: '2026-11-17', cards: [] },
+    { date: '2026-11-18', cards: [] },
+  ], '2026-11-17');
+  assert.equal(rows[0].total, hour * 1.75);
+  assert.deepEqual(rows[0].buckets.slice(0, 4).map(b => b.ms), [hour, hour / 4, hour / 2, 0]);
+  assert.equal(rows[0].truncated, true);
+  assert.equal(rows[1].future, false);
+  assert.equal(rows[2].future, true);
+}
+console.log('Weekly charts use clipped interval unions and distinguish future days');

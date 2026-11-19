@@ -422,7 +422,7 @@ async fn ask(State(state): State<AppState>, Json(q): Json<Ask>) -> Result<Json<s
         super::prune(db,now)?;
         let current:i64=db.query_row("SELECT epoch FROM journal_meta",[],|r|r.get(0)).map_err(storage_error)?;
         if current != initial_epoch {return Err(ApiError(StatusCode::CONFLICT,"journal or provider changed"));}
-        let mut stmt=db.prepare("SELECT a.app,MAX(a.start_ms,?1),MIN(a.end_ms,?2),COALESCE(n.title,''),COALESCE(n.summary,'') FROM activities a LEFT JOIN notes n ON n.id=a.id WHERE a.end_ms>?1 AND a.start_ms<?2 ORDER BY a.start_ms LIMIT 101").map_err(storage_error)?;
+        let mut stmt=db.prepare("SELECT a.app,MAX(a.start_ms,?1),MIN(a.end_ms,?2),COALESCE(n.title,''),COALESCE(n.summary,'') FROM journal_activities a LEFT JOIN notes n ON n.id=a.id WHERE a.end_ms>?1 AND a.start_ms<?2 ORDER BY a.start_ms LIMIT 101").map_err(storage_error)?;
         let rows:Vec<serde_json::Value>=stmt.query_map([q.from_ms,q.to_ms],|r|Ok(serde_json::json!({"app":r.get::<_,String>(0)?,"start_ms":r.get::<_,i64>(1)?,"end_ms":r.get::<_,i64>(2)?,"title":r.get::<_,String>(3)?,"summary":r.get::<_,String>(4)?}))).map_err(storage_error)?.collect::<std::result::Result<_,_>>().map_err(storage_error)?;
         let mut rows=rows; rows.truncate(100);
         let mut text=serde_json::to_string(&rows).map_err(storage_error)?;

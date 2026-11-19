@@ -10,6 +10,7 @@ mod devices;
 mod focus;
 mod journal;
 mod replay;
+mod screen_cards;
 mod storage;
 mod topics;
 mod web;
@@ -109,6 +110,7 @@ impl AppState {
                 .map_err(|_| "database setup failed")?;
         }
         storage::migrate(&db).map_err(|_| "database setup failed")?;
+        screen_cards::migrate(&db).map_err(|_| "database setup failed")?;
         topics::migrate(&db).map_err(|_| "database setup failed")?;
         Ok(Self {
             db: Arc::new(Mutex::new(db)),
@@ -368,6 +370,11 @@ async fn ingest(
         collection::ensure_running(&tx)?;
         let mut accepted = 0;
         for a in batch.activities {
+            let derived_id: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM screen_cards WHERE id=?)",
+                [&a.id], |r| r.get(0),
+            ).map_err(storage_error)?;
+            if derived_id { return Err(ApiError(StatusCode::CONFLICT, "event id already used")); }
             let category = serde_json::to_string(&a.category).map_err(storage_error)?;
             let changed = tx.execute("INSERT OR IGNORE INTO activities VALUES (?, ?, ?, ?, ?)", params![a.id,a.start_ms,a.end_ms,a.app,category]).map_err(storage_error)?;
             if changed == 0 {
@@ -450,9 +457,17 @@ async fn timeline(
         }).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         let mut statement = db.prepare("SELECT id, at_ms, mood, energy FROM checkins WHERE at_ms >= ? AND at_ms < ? ORDER BY at_ms, id LIMIT 1001").map_err(storage_error)?;
         let mut checkins = statement.query_map([w.from_ms,w.to_ms], |r| Ok(Checkin {id:r.get(0)?,at_ms:r.get(1)?,mood:r.get(2)?,energy:r.get(3)?})).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
-        let truncated = activities.len() > 1000 || checkins.len() > 1000;
+        let mut truncated = activities.len() > 1000 || checkins.len() > 1000;
         activities.truncate(1000); checkins.truncate(1000);
-        let cards = journal::cards(db, &activities)?;
+        let mut cards = journal::cards(db, &activities)?;
+        let screen = screen_cards::timeline(db, w.from_ms, w.to_ms)?;
+        // Keep the separate raw activities response for usage statistics and legacy clients.
+        cards.retain(|card| !card.is_app_only() || !screen.iter().any(|item|
+            item.start_ms <= card.start_ms && item.end_ms >= card.end_ms));
+        cards.extend(journal::cards(db, &screen)?);
+        cards.sort_by(|a, b| (a.start_ms, &a.id).cmp(&(b.start_ms, &b.id)));
+        truncated |= cards.len() > 1000 || screen.len() > 1000;
+        cards.truncate(1000);
         let reflections = journal::reflections(db, w.from_ms, w.to_ms)?;
         let mut result = Timeline { activities, checkins, truncated, cards, reflections };
         // Bound serialized responses to the client limit even for multibyte user notes.
