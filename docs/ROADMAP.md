@@ -57,12 +57,22 @@ all of these remaining requirements shipped in this port.
 
 ## infovore capture parity (2026-11-16)
 
-By owner decision PocketLog now matches infovore's phone capture: context every
-minute and on app switches, 720 px / ≤300 KB screenshots, owner-enabled automatic
+By owner decision PocketLog now follows infovore's phone capture model, sampling
+more densely: context every 10 seconds (infovore: 60 s) while an allowed app is in
+front of an unlocked screen and on app switches, 720 px / ≤300 KB screenshots, owner-enabled automatic
 summaries (replacing per-capture consent), model-labeled topic keywords, a permanent
 server journal and a 10 GiB default storage budget that removes the oldest
 screenshots first. Battery, Doze and physical-device acceptance of this cadence are
 not yet measured. See [INFOVORE_PORT.md](INFOVORE_PORT.md).
+
+## Private API contract (2026-11-17)
+
+`/v1` now has a written additive compatibility policy with `GET /v1/status`
+capability flags, uniform JSON errors with `Retry-After` on 429/503, complete
+keyset-paged reads with bounded search (`GET /v1/activities`), a per-route
+credential scope matrix test and a standard-library example client exercised by
+the Docker smoke. Import/restore, local-only mode and reminders remain pending.
+See [API.md](API.md).
 
 ## Website and official Dayflow alignment (2026-11-14)
 

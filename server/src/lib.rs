@@ -9,6 +9,7 @@ mod conversations;
 mod devices;
 mod focus;
 mod journal;
+mod pages;
 mod replay;
 mod storage;
 mod topics;
@@ -30,6 +31,14 @@ use std::sync::{Arc, Mutex};
 use subtle::ConstantTimeEq;
 
 const DAY: i64 = 86_400_000;
+/// Additive feature flags for `/v1` clients; see docs/API.md "Compatibility".
+/// Absent on older servers. Flags are only ever added within `/v1`.
+static API_CAPABILITIES: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| {
+    serde_json::json!({
+        "version": 1,
+        "capabilities": ["activity_pages", "activity_search", "json_errors", "retry_after"]
+    })
+});
 const RETENTION: i64 = 30 * DAY;
 // Journal records are retained permanently; this bounds only a runaway client.
 const MAX_EVENTS: i64 = 2_000_000;
@@ -85,6 +94,7 @@ impl AppState {
           CREATE TABLE IF NOT EXISTS activities(id TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, app TEXT NOT NULL, category TEXT NOT NULL);
           CREATE INDEX IF NOT EXISTS activities_end ON activities(end_ms);
           CREATE INDEX IF NOT EXISTS activities_app ON activities(app,start_ms,end_ms);
+          CREATE INDEX IF NOT EXISTS activities_start ON activities(start_ms,id);
           CREATE TABLE IF NOT EXISTS checkins(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL, mood INTEGER NOT NULL, energy INTEGER NOT NULL);
           CREATE INDEX IF NOT EXISTS checkins_at ON checkins(at_ms);
           CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, category TEXT NOT NULL, edited INTEGER NOT NULL DEFAULT 0);
@@ -238,6 +248,52 @@ async fn private_headers(req: axum::extract::Request, next: Next) -> Response {
     );
     response
 }
+/// Seconds suggested to clients for transient refusals that carry no own hint.
+const RETRY_AFTER_SECONDS: &str = "5";
+/// Gives every `/v1` error the same `{"error":…}` JSON shape. Framework rejections
+/// (malformed JSON, unknown fields, wrong method, oversized body) otherwise answer
+/// with plain text. Status codes are kept unchanged for existing clients.
+async fn json_errors(req: axum::extract::Request, next: Next) -> Response {
+    let api = req.uri().path().starts_with("/v1/");
+    let mut response = next.run(req).await;
+    let status = response.status();
+    if !api || !(status.is_client_error() || status.is_server_error()) {
+        return response;
+    }
+    if matches!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+    ) && !response.headers().contains_key(header::RETRY_AFTER)
+    {
+        response.headers_mut().insert(
+            header::RETRY_AFTER,
+            axum::http::HeaderValue::from_static(RETRY_AFTER_SECONDS),
+        );
+    }
+    let is_json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|v| v.as_bytes().starts_with(b"application/json"));
+    if is_json {
+        return response;
+    }
+    let message = match status {
+        StatusCode::NOT_FOUND => "not found",
+        StatusCode::METHOD_NOT_ALLOWED => "method not allowed",
+        StatusCode::PAYLOAD_TOO_LARGE => "request too large",
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => "unsupported media type",
+        s if s.is_server_error() => "server error",
+        _ => "invalid request",
+    };
+    let headers = response.headers().clone();
+    let mut replaced = ApiError(status, message).into_response();
+    for name in [header::RETRY_AFTER, header::ALLOW] {
+        if let Some(value) = headers.get(&name) {
+            replaced.headers_mut().insert(name, value.clone());
+        }
+    }
+    replaced
+}
 pub fn router(state: AppState) -> Router {
     let private = journal::routes()
         .merge(ai_settings::routes())
@@ -250,7 +306,7 @@ pub fn router(state: AppState) -> Router {
         .merge(replay::routes())
         .merge(storage::routes())
         .merge(devices::routes())
-        .route("/v1/activities", post(ingest))
+        .route("/v1/activities", get(pages::activities).post(ingest))
         .route("/v1/checkins", post(checkin))
         .route("/v1/timeline", get(timeline))
         .route("/v1/journal", delete(erase))
@@ -263,6 +319,7 @@ pub fn router(state: AppState) -> Router {
         .merge(private)
         .merge(web::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
+        .layer(middleware::from_fn(json_errors))
         .layer(middleware::from_fn(private_headers))
         .with_state(state)
 }

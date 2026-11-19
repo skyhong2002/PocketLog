@@ -215,3 +215,47 @@ for (const [cardLimit,reviewLimit] of [[false,false],[true,false],[false,true],[
 assert.equal(JSON.stringify([exportDays,exportReviews]),beforeExport);
 assert.equal(exportSnapshot(exportDays,exportReviews).reviews_truncated,false);
 console.log('Journal exports retain activity/review completeness without changing data');
+
+// Bounded search keeps reading sparse pages, resumes from its cursor and stops at its budget.
+{
+  const { searchActivities } = require('../server/web/app.js');
+  const pages = (all, per) => {
+    const seen = [];
+    const fetchPage = async (path) => {
+      const q = new URL(path, 'https://journal.invalid').searchParams;
+      seen.push(Object.fromEntries(q));
+      const start = q.has('after_id') ? Number(q.get('after_id').slice(1)) + 1 : 0;
+      assert.equal(q.has('after_id'), q.has('epoch'), 'cursor always carries its epoch');
+      const rows = all.slice(start, start + per);
+      const end = start + rows.length;
+      return {
+        cards: rows.filter((r) => r.match).map((r) => ({ id: r.id })),
+        scanned: rows.length,
+        journal_epoch: 3,
+        next_cursor: end < all.length ? { after_start_ms: end, after_id: 'r' + (end - 1) } : null,
+      };
+    };
+    return { fetchPage, seen };
+  };
+  const rows = Array.from({ length: 10 }, (_, i) => ({ id: 'r' + i, match: i === 1 || i === 8 }));
+  (async () => {
+    let { fetchPage, seen } = pages(rows, 3);
+    let r = await searchActivities(fetchPage, { q: 'report', category: 'work', fromMs: 1, toMs: 2 });
+    assert.deepEqual(r.cards.map((c) => c.id), ['r1', 'r8']);
+    assert.equal(r.done, true); assert.equal(r.scanned, 10); assert.equal(seen.length, 4);
+    assert.equal(seen[0].q, 'report'); assert.equal(seen[0].category, 'work');
+    assert.ok(!('after_id' in seen[0]));
+    ({ fetchPage, seen } = pages(rows, 3));
+    r = await searchActivities(fetchPage, { q: 'x', fromMs: 1, toMs: 2, maxRequests: 2 });
+    assert.deepEqual(r.cards.map((c) => c.id), ['r1']);
+    assert.equal(r.done, false, 'request budget stops before the end without claiming no results');
+    assert.deepEqual(r.cursor, { after_start_ms: 6, after_id: 'r5', epoch: 3 });
+    const rest = await searchActivities(fetchPage, { q: 'x', fromMs: 1, toMs: 2, cursor: r.cursor });
+    assert.deepEqual(rest.cards.map((c) => c.id), ['r8']);
+    assert.equal(seen[2].after_id, 'r5'); assert.equal(seen[2].epoch, '3');
+    ({ fetchPage, seen } = pages(rows, 10));
+    r = await searchActivities(fetchPage, { q: 'x', fromMs: 1, toMs: 2, want: 1 });
+    assert.equal(seen[0].limit, '1');
+    console.log('Web bounded search pagination checks passed');
+  })().catch((e) => { console.error(e); process.exit(1); });
+}
