@@ -1,0 +1,450 @@
+{
+ "version": 1,
+ "description": "Synthetic classification benchmark. No real journal data. Titles follow production: app_only/local_excerpt cards are titled with the package name; ai/user cards carry free text.",
+ "rule_sets": {
+  "none": [],
+  "starter": [
+   {
+    "id": "r-ide",
+    "category": "work",
+    "app": "org.example.ide"
+   },
+   {
+    "id": "r-slack",
+    "category": "communication",
+    "app": "com.slack"
+   },
+   {
+    "id": "r-gmail",
+    "category": "communication",
+    "app": "com.google.android.gm"
+   },
+   {
+    "id": "r-whatsapp",
+    "category": "communication",
+    "app": "com.whatsapp"
+   },
+   {
+    "id": "r-instagram",
+    "category": "social_media",
+    "app": "com.instagram.android"
+   },
+   {
+    "id": "r-yt-lecture",
+    "category": "learning",
+    "app": "com.google.android.youtube",
+    "title_contains": "lecture"
+   },
+   {
+    "id": "r-youtube",
+    "category": "entertainment",
+    "app": "com.google.android.youtube"
+   },
+   {
+    "id": "r-netflix",
+    "category": "entertainment",
+    "app": "com.netflix.mediaclient"
+   },
+   {
+    "id": "r-duolingo",
+    "category": "learning",
+    "app": "com.duolingo"
+   },
+   {
+    "id": "r-bank",
+    "category": "life_admin",
+    "app": "com.example.bank"
+   },
+   {
+    "id": "r-docs",
+    "category": "work",
+    "app": "com.google.android.apps.docs"
+   },
+   {
+    "id": "r-chrome-api",
+    "category": "work",
+    "app": "com.android.chrome",
+    "title_contains": "api"
+   },
+   {
+    "id": "r-news-zh",
+    "category": "news_reading",
+    "title_contains": "新聞"
+   },
+   {
+    "id": "r-news-en",
+    "category": "news_reading",
+    "title_contains": "news"
+   },
+   {
+    "id": "r-launcher",
+    "category": "idle",
+    "app": "com.google.android.apps.nexuslauncher"
+   },
+   {
+    "id": "r-systemui",
+    "category": "idle",
+    "app": "com.android.systemui"
+   },
+   {
+    "id": "r-disabled",
+    "category": "rest",
+    "app": "com.slack",
+    "enabled": false
+   }
+  ]
+ },
+ "baseline": {
+  "none": {
+   "correct": 6,
+   "total": 31
+  },
+  "starter": {
+   "correct": 25,
+   "total": 31
+  }
+ },
+ "samples": [
+  {
+   "id": "ao-ide",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "org.example.ide",
+   "title": "org.example.ide",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "work",
+   "note": ""
+  },
+  {
+   "id": "ao-slack",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.slack",
+   "title": "com.slack",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "communication",
+   "note": ""
+  },
+  {
+   "id": "ao-mail",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.google.android.gm",
+   "title": "com.google.android.gm",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "communication",
+   "note": ""
+  },
+  {
+   "id": "ao-whatsapp",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.whatsapp",
+   "title": "com.whatsapp",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "communication",
+   "note": ""
+  },
+  {
+   "id": "ao-instagram",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.instagram.android",
+   "title": "com.instagram.android",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "social_media",
+   "note": ""
+  },
+  {
+   "id": "ao-netflix",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.netflix.mediaclient",
+   "title": "com.netflix.mediaclient",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "entertainment",
+   "note": ""
+  },
+  {
+   "id": "ao-duolingo",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.duolingo",
+   "title": "com.duolingo",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "learning",
+   "note": ""
+  },
+  {
+   "id": "ao-bank",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "com.example.bank",
+   "title": "com.example.bank",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "life_admin",
+   "note": ""
+  },
+  {
+   "id": "ao-unknown",
+   "kind": "app_only",
+   "source": "app_only",
+   "app": "org.example.unlisted",
+   "title": "org.example.unlisted",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "unsorted",
+   "note": "no rule; unsorted is the correct honest answer"
+  },
+  {
+   "id": "ao-launcher",
+   "kind": "idle",
+   "source": "app_only",
+   "app": "com.google.android.apps.nexuslauncher",
+   "title": "com.google.android.apps.nexuslauncher",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "idle",
+   "note": "home screen between apps"
+  },
+  {
+   "id": "ao-systemui",
+   "kind": "idle",
+   "source": "app_only",
+   "app": "com.android.systemui",
+   "title": "com.android.systemui",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "idle",
+   "note": "lock screen / notification shade"
+  },
+  {
+   "id": "le-chrome-docs",
+   "kind": "same_app_different_work",
+   "source": "local_excerpt",
+   "app": "com.android.chrome",
+   "title": "com.android.chrome",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "learning",
+   "note": "reading Rust docs; excerpt text is not a card title"
+  },
+  {
+   "id": "le-chrome-shop",
+   "kind": "same_app_different_work",
+   "source": "local_excerpt",
+   "app": "com.android.chrome",
+   "title": "com.android.chrome",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "life_admin",
+   "note": "online grocery order"
+  },
+  {
+   "id": "le-youtube-lecture",
+   "kind": "same_app_different_work",
+   "source": "local_excerpt",
+   "app": "com.google.android.youtube",
+   "title": "com.google.android.youtube",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "learning",
+   "note": "university lecture; package alone says entertainment"
+  },
+  {
+   "id": "le-youtube-music",
+   "kind": "same_app_different_work",
+   "source": "local_excerpt",
+   "app": "com.google.android.youtube",
+   "title": "com.google.android.youtube",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "entertainment",
+   "note": ""
+  },
+  {
+   "id": "le-docs",
+   "kind": "excerpt",
+   "source": "local_excerpt",
+   "app": "com.google.android.apps.docs",
+   "title": "com.google.android.apps.docs",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "work",
+   "note": ""
+  },
+  {
+   "id": "ai-docs-report",
+   "kind": "excerpt",
+   "source": "ai",
+   "app": "com.google.android.apps.docs",
+   "title": "季度報告草稿",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "work",
+   "note": ""
+  },
+  {
+   "id": "ai-docs-recipe",
+   "kind": "same_app_different_work",
+   "source": "ai",
+   "app": "com.google.android.apps.docs",
+   "title": "家庭食譜清單",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "life_admin",
+   "note": "Docs used for a personal list"
+  },
+  {
+   "id": "ai-chrome-news",
+   "kind": "multilingual",
+   "source": "ai",
+   "app": "com.android.chrome",
+   "title": "今日國際新聞摘要",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "news_reading",
+   "note": ""
+  },
+  {
+   "id": "ai-chrome-news-en",
+   "kind": "multilingual",
+   "source": "ai",
+   "app": "com.android.chrome",
+   "title": "Morning NEWS briefing",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "news_reading",
+   "note": ""
+  },
+  {
+   "id": "ai-chrome-news-ja",
+   "kind": "multilingual",
+   "source": "ai",
+   "app": "com.android.chrome",
+   "title": "今日のニュースまとめ",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "news_reading",
+   "note": "Japanese ニュース does not contain 新聞 or news"
+  },
+  {
+   "id": "ai-youtube-lecture",
+   "kind": "rule_conflict",
+   "source": "ai",
+   "app": "com.google.android.youtube",
+   "title": "Linear algebra lecture 3",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "learning",
+   "note": "lecture rule must precede the generic YouTube rule"
+  },
+  {
+   "id": "ai-youtube-LECTURE",
+   "kind": "rule_conflict",
+   "source": "ai",
+   "app": "com.google.android.youtube",
+   "title": "LECTURE: distributed systems",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "learning",
+   "note": "title matching is case-insensitive"
+  },
+  {
+   "id": "ai-chrome-mixed",
+   "kind": "cross_activity",
+   "source": "ai",
+   "app": "com.android.chrome",
+   "title": "Searching API errors, then news",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "work",
+   "note": "one session spans two activities; first rule wins"
+  },
+  {
+   "id": "ai-maps",
+   "kind": "unsorted",
+   "source": "ai",
+   "app": "com.google.android.apps.maps",
+   "title": "Route to clinic",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "life_admin",
+   "note": "no rule for maps"
+  },
+  {
+   "id": "ai-unsure",
+   "kind": "unsorted",
+   "source": "ai",
+   "app": "org.example.reader",
+   "title": "Unclear activity",
+   "base": "unsorted",
+   "edited": false,
+   "expected": "unsorted",
+   "note": "model said unsorted; nothing should guess"
+  },
+  {
+   "id": "ai-model-cat",
+   "kind": "rule_conflict",
+   "source": "ai",
+   "app": "com.whatsapp",
+   "title": "Planning a trip with family",
+   "base": "life_admin",
+   "edited": false,
+   "expected": "communication",
+   "note": "app rule overrides the model's life_admin"
+  },
+  {
+   "id": "user-slack-rest",
+   "kind": "manual_edit",
+   "source": "user",
+   "app": "com.slack",
+   "title": "Chatting with friends after work",
+   "base": "rest",
+   "edited": true,
+   "expected": "rest",
+   "note": "rule says communication; user edit wins"
+  },
+  {
+   "id": "user-youtube-work",
+   "kind": "manual_edit",
+   "source": "user",
+   "app": "com.google.android.youtube",
+   "title": "Recording product demo",
+   "base": "work",
+   "edited": true,
+   "expected": "work",
+   "note": ""
+  },
+  {
+   "id": "user-unknown",
+   "kind": "manual_edit",
+   "source": "user",
+   "app": "org.example.unlisted",
+   "title": "Flashcards",
+   "base": "learning",
+   "edited": true,
+   "expected": "learning",
+   "note": ""
+  },
+  {
+   "id": "user-custom",
+   "kind": "manual_edit",
+   "source": "user",
+   "app": "com.example.bank",
+   "title": "Paying rent",
+   "base": "life_admin",
+   "edited": true,
+   "expected": "life_admin",
+   "note": ""
+  }
+ ]
+}
