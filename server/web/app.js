@@ -23,6 +23,8 @@ let prefs,
   // Only choose at initial load so resizing never overrides an explicit switch.
   view = inBrowser && matchMedia("(max-width: 860px)").matches ? "list" : "grid",
   filter = null,
+  // Open timeline search: {q, days, category, fromMs, toMs, cards, cursor, scanned, done, error, ran}.
+  search = null,
   chat = [],
   flow = null,
   timerHandle,
@@ -517,8 +519,31 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
     categoryTotal: Object.values(totals).reduce((a, b) => a + b, 0),
   };
 }
+/* Bounded search over GET /v1/activities. A page can hold few or no matches while
+   more rows remain, so keep reading until enough matches, the end of the range,
+   or the request budget; the returned cursor resumes exactly where this stopped. */
+async function searchActivities(fetchPage, { q, category, fromMs, toMs, cursor = null, want = 50, maxRequests = 5 }) {
+  const cards = [];
+  let scanned = 0, requests = 0, next = cursor;
+  do {
+    const query = new URLSearchParams({ from_ms: String(fromMs), to_ms: String(toMs), limit: String(Math.min(200, want - cards.length)) });
+    if (q) query.set("q", q);
+    if (category) query.set("category", category);
+    if (next) {
+      query.set("after_start_ms", String(next.after_start_ms));
+      query.set("after_id", next.after_id);
+      query.set("epoch", String(next.epoch));
+    }
+    const page = await fetchPage(`/v1/activities?${query}`);
+    requests++;
+    scanned += page.scanned;
+    cards.push(...page.cards);
+    next = page.next_cursor ? { ...page.next_cursor, epoch: page.journal_epoch } : null;
+  } while (next && cards.length < want && requests < maxRequests);
+  return { cards, cursor: next, scanned, done: !next };
+}
 if (typeof module !== "undefined")
-  module.exports = { timelineGroups, sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot };
+  module.exports = { searchActivities, timelineGroups, sharedWeekAxis, metrics, layoutLanes, duration, shift, dateKey, fullDayBounds, timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot };
 
 /* Only classification fields belong to this editor; unrelated settings stay current. */
 function classificationRecovery(base, draft, latest, attemptedRevision = draft.revision) {
@@ -1511,7 +1536,19 @@ async function timelinePage(parent, seq) {
     );
     add(tools, state);
   }
+  add(
+    tools,
+    keyed(
+      btn(search ? "關閉搜尋" : "搜尋", async () => {
+        search = search ? null : { q: "", days: 7, category: "", cards: [], cursor: null, scanned: 0, done: false, error: "", ran: false };
+        focusKey = search ? "search-q" : "search-toggle";
+        await shell();
+      }, search ? "active" : ""),
+      "search-toggle",
+    ),
+  );
   add(parent, tools);
+  if (search) searchPanel(parent);
   const chips = el("div", null, "chips");
   chips.setAttribute("role", "group");
   chips.setAttribute("aria-label", "依分類篩選");
@@ -1828,6 +1865,98 @@ function track(data, compact) {
   }
   return lane;
 }
+function searchPanel(parent) {
+  const box = el("section", null, "search-panel");
+  box.setAttribute("aria-label", "搜尋活動");
+  const form = el("form", null, "search-form");
+  form.setAttribute("role", "search");
+  const cell = (cls) => add(form, el("div", null, cls ? `search-field ${cls}` : "search-field")).lastChild;
+  const q = keyed(field(cell("search-query"), "關鍵字", search.q, "search"), "search-q");
+  q.maxLength = 100;
+  q.required = true;
+  const hint = el("p", "比對 app、卡片標題與摘要；不搜尋原始畫面文字或截圖。", "hint");
+  hint.id = q.id + "-hint";
+  q.setAttribute("aria-describedby", hint.id);
+  const days = keyed(select(cell(), "期間", [["1", "今天與昨天"], ["7", "最近 7 天"], ["30", "最近 30 天"]], String(search.days)), "search-days");
+  const category = keyed(select(cell(), "分類", [["", "全部分類"], ...prefs.categories.map((c) => [c.id, c.name])], search.category), "search-category");
+  const run = async (more) => {
+    const text = q.value.trim();
+    if (!text) {
+      search.error = "請輸入關鍵字。";
+      focusKey = "search-q";
+      return shell();
+    }
+    if (!more) {
+      const toMs = Date.now();
+      Object.assign(search, { q: text, days: Number(days.value), category: category.value, cards: [], cursor: null, scanned: 0, done: false, toMs, fromMs: toMs - Number(days.value) * 86_400_000 });
+    }
+    const owner = search;
+    owner.error = "";
+    try {
+      const result = await searchActivities((path) => api(path, undefined, "GET", () => search === owner), {
+        q: search.q, category: search.category, fromMs: search.fromMs, toMs: search.toMs, cursor: more ? search.cursor : null,
+      });
+      owner.cards.push(...result.cards);
+      Object.assign(owner, { cursor: result.cursor, scanned: search.scanned + result.scanned, done: result.done, ran: true });
+    } catch (e) {
+      if (e === STALE) throw e;
+      owner.error =
+        e.status === 409 ? "日誌在搜尋期間被刪除或重設；請重新搜尋。"
+        : e.status === 404 || e.status === 405 ? "這台伺服器版本還不支援搜尋；請更新 PocketLog 伺服器。"
+        : e.message || "搜尋失敗，請重試。";
+      if (e.status === 409) Object.assign(owner, { cards: [], cursor: null, done: false, ran: false });
+    }
+    if (search !== owner) return;
+    focusKey = more ? "search-more" : "search-results";
+    await shell();
+  };
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    safe(() => run(false));
+  };
+  const submit = keyed(el("button", "搜尋", "primary"), "search-submit");
+  submit.type = "submit";
+  add(form, submit);
+  add(box, form, hint);
+  if (search.error) {
+    const error = el("p", search.error, "error");
+    error.setAttribute("role", "alert");
+    add(box, error);
+  }
+  if (search.ran) {
+    const results = keyed(el("div", null, "search-results"), "search-results");
+    results.tabIndex = -1;
+    const status = el(
+      "p",
+      search.cards.length
+        ? `找到 ${search.cards.length} 張卡片${search.done ? "，已搜尋整個期間。" : "，期間內還有尚未檢查的紀錄。"}`
+        : search.done ? "這段期間沒有符合的活動。" : `已檢查 ${search.scanned} 筆紀錄，尚未找到符合的活動；可以繼續搜尋。`,
+      "muted",
+    );
+    status.setAttribute("role", "status");
+    add(results, status);
+    if (search.cards.length) {
+      const list = el("ol", null, "activity-list");
+      search.cards.forEach((c) => {
+        const style = styleFor(c.category);
+        const b = keyed(btn("", () => editCard(c), "activity"), "search-" + cardKey(c));
+        b.style.setProperty("--cat", style.color);
+        b.setAttribute("aria-label", `${shortDate(dateKey(new Date(c.start_ms)))} ${eventLabel(c)}`);
+        add(
+          b,
+          el("span", `${shortDate(dateKey(new Date(c.start_ms)), false)} ${time(c.start_ms)}`, "activity-time"),
+          add(el("span", null, "activity-main"), el("strong", c.title), el("small", `${c.app} · ${style.name}`), c.summary ? el("small", c.summary) : null),
+          el("span", duration(c.end_ms - c.start_ms), "activity-length"),
+        );
+        add(list, add(el("li"), b));
+      });
+      add(results, list);
+    }
+    if (!search.done) add(results, keyed(btn("繼續搜尋", () => run(true)), "search-more"));
+    add(box, results);
+  }
+  add(parent, box);
+}
 function activityList(parent, data, showDate) {
   const cards = data.cards.filter((c) => !filter || c.category === filter);
   if (showDate) add(parent, el("h3", shortDate(data.date), "list-date"));
@@ -2046,6 +2175,8 @@ function editCard(c, originKey = document.activeElement?.dataset?.key || focusKe
                 return;
               }
               saved = true;
+              // Saved user edits always win, so open search results can reflect them directly.
+              if (search) search.cards = search.cards.map((x) => (x.id === c.id ? { ...x, ...submitted, source: "user" } : x));
               close();
               focusKey = originKey;
               await shell();
