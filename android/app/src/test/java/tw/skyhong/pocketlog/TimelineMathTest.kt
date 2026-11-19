@@ -46,6 +46,19 @@ class TimelineMathTest {
         assertEquals(listOf(Placement(0, 1), Placement(0, 1)), TimelineMath.lanes(listOf(Interval(0, 10), Interval(10, 20))))
     }
 
+    @Test fun weeklyDurationClipsDateBoundariesAndMergesOverlap() {
+        val day = LocalDate.of(2026, 11, 16)
+        val start = TimelineMath.dayStart(day, taipei)
+        val end = TimelineMath.dayStart(day.plusDays(1), taipei)
+        val items = listOf(
+            Interval(start - 60_000, start + 30_000),
+            Interval(start + 10_000, start + 60_000),
+            Interval(end - 30_000, end + 60_000),
+            Interval(end + 80_000, end + 90_000),
+        )
+        assertEquals(90_000L, TimelineMath.coveredInDay(day, taipei, items))
+    }
+
     @Test fun totalsMergeOverlapsAndFormatDurations() {
         val items = listOf(Interval(0, 60_000), Interval(30_000, 120_000), Interval(600_000, 660_000))
         assertEquals(180_000L, TimelineMath.covered(items))
