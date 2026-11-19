@@ -1096,6 +1096,10 @@ class MainActivity : Activity() {
             val tiles = ui.horizontal(slot, 8).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(12) }
             ui.stat(tiles, if (limitedDays > 0) "已載入的記錄" else "本週已記錄", TimelineMath.duration(days.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) }), null)
             ui.stat(tiles, "有活動的天數", "${days.count { cardsOf(it.second).isNotEmpty() }} / 7", null)
+            if (all.isNotEmpty()) ui.card(slot).apply {
+                ui.heading(this, "每日記錄時間")
+                addView(WeekDurationChart(this@MainActivity, week, today, zone), ui.lp())
+            }
             ui.card(slot).apply {
                 ui.heading(this, "一週節奏")
                 ui.meta(this, if (TimelineMath.weekUsesProgressAxis(first, zone)) "一天從 04:00 開始。這週有時間切換，各日長度不同；左側百分比表示當天實際經過的比例。點一天查看本地時間。" else "每欄是一天，從 04:00 開始。點一欄開啟那一天。", bottom = 8)
