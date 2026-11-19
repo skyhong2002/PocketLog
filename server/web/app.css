@@ -3339,3 +3339,174 @@ nav button {
     padding-right: 8px;
   }
 }
+
+/* Weekly review: both charts use the same journal-day boundaries. */
+.weekly-activity {
+  margin-bottom: 18px;
+}
+.week-visuals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+.week-visual {
+  min-width: 0;
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  background: linear-gradient(145deg, var(--panel) 46%, var(--wash));
+  padding: 14px;
+}
+.week-visual h3 {
+  margin: 0 0 14px;
+  font-size: 15px;
+}
+.week-chart {
+  --week-plot-height: 118px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 9px;
+}
+.week-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: var(--week-plot-height);
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.week-chart-points {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  column-gap: 3px;
+  background-image: linear-gradient(var(--edge), var(--edge)), linear-gradient(var(--edge), var(--edge)), linear-gradient(var(--edge), var(--edge));
+  background-size: 100% 1px;
+  background-position: 0 0, 0 calc(var(--week-plot-height) / 2), 0 calc(var(--week-plot-height) - 1px);
+  background-repeat: no-repeat;
+}
+.week-chart-day {
+  display: grid;
+  grid-template-rows: var(--week-plot-height) auto auto;
+  align-items: start;
+  justify-items: center;
+  gap: 4px;
+  min-width: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 1px 5px;
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+button.week-chart-day:hover {
+  background: color-mix(in srgb, var(--wash) 72%, transparent);
+}
+.week-chart-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.week-chart-bar {
+  width: 62%;
+  height: var(--week-height);
+  border-radius: 6px 6px 2px 2px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 58%, #fff), var(--accent-deep));
+}
+.week-chart-bar.is-empty {
+  height: 3px;
+  background: var(--edge);
+}
+.week-chart-value {
+  color: var(--muted);
+  line-height: 1.25;
+}
+.week-hours {
+  --week-gutter: 35px;
+  display: grid;
+  gap: 3px;
+}
+.week-hours-row,
+.week-hours-labels {
+  display: grid;
+  grid-template-columns: var(--week-gutter) repeat(var(--week-hours), minmax(0, 1fr));
+  gap: 2px;
+  align-items: center;
+}
+.week-hours-labels {
+  margin-left: calc(var(--week-gutter) + 2px);
+  grid-template-columns: repeat(var(--week-hours), minmax(0, 1fr));
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.week-hours-day {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.week-hours-cell {
+  height: 13px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent-deep) var(--week-intensity, 0%), var(--wash));
+}
+.week-hours-cell.is-future {
+  background: transparent;
+  border: 1px solid var(--edge);
+}
+.week-hours-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.week-hours-legend i {
+  width: 13px;
+}
+@media (max-width: 760px) {
+  .week-visuals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .week-visual {
+    padding: 12px;
+  }
+  .week-chart {
+    --week-plot-height: 102px;
+    gap: 5px;
+  }
+}
+.week-app-chart {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+.week-app-chart .donut {
+  width: min(100%, 176px);
+  height: auto;
+  aspect-ratio: 1;
+  margin: 4px auto;
+}
+.week-app-chart .legend li {
+  gap: 8px;
+}
+.week-app-chart .legend li > :last-child {
+  text-align: right;
+}
+@media (max-width: 500px) {
+  .week-app-chart {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.review-col .week-visuals { grid-template-columns: minmax(0, 1fr); }
+.week-app-chart .donut { border-radius: 50%; display: grid; place-items: center; }
+.week-app-chart .donut > div { display: grid; place-content: center; text-align: center; background: var(--panel); width: 70%; aspect-ratio: 1; border-radius: 50%; }
+.week-app-chart .legend { padding: 0; margin: 0; list-style: none; }
+.week-app-chart .legend li { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--edge); }

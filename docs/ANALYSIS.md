@@ -1,11 +1,22 @@
 # Private context analysis
 
 The Compose deployment includes a separate `pocketlog-worker` process with no
-owner API token. It shares the private SQLite volume, waits for completed sessions
-to settle for 12 minutes, and checks for work every 60 seconds. App-only timeline
-cards work without it. With no configured provider, it writes a maximum 300-character
-visible-text excerpt, labeled `local_excerpt`, and marks the raw context analyzed.
-Images alone have no semantic fallback; the card stays app-only in meaning.
+owner API token. It checks for work every 60 seconds. Android app usage sessions
+remain the source for app time totals. When automatic AI is enabled, the worker
+creates separate timeline cards directly from uploaded screen evidence. Cards can
+span app switches and do not need a matching Android usage session.
+
+The worker groups evidence into 15-minute windows after 12 minutes of settling.
+It first asks the provider for timestamped observations, then asks it to turn
+them into activity cards with concrete action titles. Frame numbers determine the
+time boundaries. A card cannot cross a gap of more than one minute between
+captures or overlap another generated card in its window. The previous
+nearby card from the same provider can inform wording across windows. Windows
+retain separate cards. Raw app-only cards fully contained in a generated card
+are omitted from the timeline, and raw app records remain available.
+
+Without owner automation, the existing per-session, legacy-consent or local
+text excerpt workflow still runs. Images alone have no semantic local fallback.
 
 Since 2026-11-16 raw observations are retained, not deleted after analysis.
 Analysis sets a `processed` flag; only unprocessed observations are pending.
@@ -57,16 +68,18 @@ rejected. System certificate verification remains enabled. The worker disables
 proxy environment inheritance and bounds connection/request time and response
 bytes. Do not put keys into Compose source files or commit a private override.
 
-With the automatic switch on, every finalized app session with pending context is
-summarized, including evidence uploaded before the switch was turned on.
-Observations sent by older clients with `external_ai_consent` bound to the current
-`provider_id` are still honored without the switch; otherwise a session gets only
-the local fallback. Turning the switch off advances the deletion epoch and drops
-jobs; a result whose switch was turned off mid-request is discarded. Legacy
-environment providers use `POCKETLOG_AI_AUTO=true`. Thumbnails still require
-separate capture consent. One request uses all retained evidence for the session
-(at most 200 captures, consecutive identical screens collapsed, at most 12,000
-characters) and up to six JPEGs spread across the session. Input images are max
+With the automatic switch on, pending evidence can be analyzed even if no app
+session uploaded. Two windows are attempted per worker pass. Each window uses up
+to 200 frames, 12,000 characters of screen text and six spread-out JPEGs. The
+second request uses only the observations, frame offsets and one nearby
+AI-generated card from the same provider. Older retained evidence is not
+automatically requeued. Late evidence can refresh its window; manually corrected
+windows retain their existing cards. Older per-capture grants remain limited to
+the legacy per-session workflow when automation is off.
+Turning the switch off advances the deletion epoch; the worker checks it
+between requests and before committing. Legacy environment providers use
+`POCKETLOG_AI_AUTO=true`. Thumbnails still require separate capture consent.
+Input images are max
 300 KiB (400,000 base64 characters); only JPEG decoding in the worker, dimensions
 at most 1440 by 1440, with a 16 MiB decoder allocation budget. Invalid images are skipped. The API never
 decodes images. Analysis-only raw context is never served; a separate explicit
@@ -77,7 +90,7 @@ all fields required, and `additionalProperties: false`; see
 [official OpenAI documentation](https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas).
 No model is selected automatically. Provider refusal, truncation, malformed JSON,
 unknown categories, excessive output lengths, network failures or HTTP errors
-retry at most four times before a local excerpt is saved. Requests are never
+are attempted at most four times. Exhausted capture windows leave raw app records and prior cards in place. The legacy per-session workflow uses a local excerpt after its retries. Requests are never
 logged, and prompts contain no API owner token or model tools.
 
 The worker commits only while source records still exist in the same deletion

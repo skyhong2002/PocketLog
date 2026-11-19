@@ -1463,38 +1463,22 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Seven equal full-width columns (~160 dp), value above each stacked bar, `—` and a baseline when empty. */
     private fun weekBars(parent: LinearLayout, days: List<Pair<LocalDate, JSONObject?>>) {
-        val split = days.map { (_, data) -> totals(cardsOf(data)) }
-        val covered = days.map { (_, data) -> TimelineMath.covered(intervals(cardsOf(data))) }
-        val max = split.maxOfOrNull { parts -> parts.sumOf { it.second } }?.coerceAtLeast(1) ?: 1
-        val barHeight = ui.dp(140)
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        parent.addView(row, ui.lp(top = 8))
-        days.forEachIndexed { i, (date, _) ->
-            val ms = covered[i]
-            val total = split[i].sumOf { it.second }
-            val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM; isClickable = true; isFocusable = true; minimumHeight = ui.dp(48)
-                background = ui.ripple(null, 8f)
-                contentDescription = "${TimelineMath.weekdayShort(date)}，${if (ms <= 0) "沒有記錄" else TimelineMath.duration(ms)}，開啟這一天"
-                setOnClickListener { if (!busy) { day = date; reviewWeekly = false; review() } }
+        val today = journalDay()
+        val chartDays = days.map { (date, data) -> WeekDurationDay(date, data != null, intervals(cardsOf(data))) }
+        parent.addView(WeekDurationChart(this, chartDays, today, zone), ui.lp(top = 4))
+        val list = ui.column(parent)
+        for (entry in chartDays) {
+            val ms = TimelineMath.coveredInDay(entry.date, zone, entry.intervals)
+            val detail = when {
+                entry.date > today -> "尚未到來"
+                !entry.available -> "暫時讀不到這天的記錄"
+                ms == 0L -> "沒有記錄"
+                else -> TimelineMath.duration(ms)
             }
-            // Value sits right above its bar inside a fixed-height track.
-            val track = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL }
-            // Bars take about 60% of the column width.
-            track.addOnLayoutChangeListener { v, l, _, r, _, _, _, _, _ -> val pad = ((r - l) * .2f).toInt(); if (v.paddingLeft != pad) v.post { v.setPadding(pad, 0, pad, 0) } }
-            ui.text(track, if (ms <= 0) "—" else TimelineMath.hours(ms), 11f, if (ms <= 0) Palette.MUTED else Palette.INK, bottom = 2).apply {
-                gravity = Gravity.CENTER; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ui.dp(2) }
-            }
-            split[i].reversed().forEach { (id, part) ->
-                track.addView(View(this).apply { setBackgroundColor(colorFor(id)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (barHeight * part.toFloat() / max).toInt().coerceAtLeast(ui.dp(2))))
-            }
-            cell.addView(track, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, barHeight + ui.dp(20)))
-            cell.addView(View(this).apply { setBackgroundColor(Palette.BORDER) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(1)))
-            ui.text(cell, TimelineMath.weekdayShort(date), 12f, if (date == journalDay()) Palette.INK else Palette.MUTED, bold = date == journalDay(), top = 4).apply { gravity = Gravity.CENTER; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
-            row.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            ui.row(list, md(entry.date), detail, onClick = if (entry.available && entry.date <= today) ({
+                if (!busy) { day = entry.date; reviewWeekly = false; review() }
+            }) else null)
         }
     }
 

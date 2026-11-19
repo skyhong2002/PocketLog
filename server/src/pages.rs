@@ -1,9 +1,7 @@
 //! Complete, bounded reads of derived activity cards: keyset pages and search.
 //!
-//! Activities are immutable after ingest (conflicting replays are refused) and only
-//! disappear through whole-journal deletion, which advances `journal_meta.epoch`.
-//! A cursor is therefore the last returned `(stored start_ms, id)` plus the epoch;
-//! a changed epoch invalidates it instead of silently skipping or repeating rows.
+//! A cursor uses the last returned `(stored start_ms, id)` and a revision that
+//! changes on journal deletion or replacement of capture-derived cards.
 //! Raw observations and screenshots are never read here.
 use super::*;
 
@@ -96,15 +94,17 @@ pub(super) async fn activities(
     let (from, to) = (p.from_ms, p.to_ms);
     state
         .database(move |db| {
+            let tx = db.transaction().map_err(storage_error)?;
+            let db = &tx;
             let epoch: i64 = db
-                .query_row("SELECT epoch FROM journal_meta", [], |r| r.get(0))
+                .query_row("SELECT epoch+(SELECT revision FROM screen_projection WHERE slot=1) FROM journal_meta", [], |r| r.get(0))
                 .map_err(storage_error)?;
             if p.epoch.is_some_and(|e| e != epoch) {
                 return Err(ApiError(StatusCode::CONFLICT, "cursor expired"));
             }
             let (after_start, after_id) = after.unwrap_or((i64::MIN, String::new()));
             let mut statement = db
-                .prepare("SELECT id, start_ms, end_ms, app, category FROM activities WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4) ORDER BY start_ms, id LIMIT ?5")
+                .prepare("SELECT id, start_ms, end_ms, app, category FROM visible_journal_activities WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4) ORDER BY start_ms, id LIMIT ?5")
                 .map_err(storage_error)?;
             let rows = statement
                 .query_map(
@@ -172,7 +172,7 @@ pub(super) async fn activities(
                 page.activities.truncate(keep);
                 let last = &page.activities[keep - 1];
                 let stored_start: i64 = db
-                    .query_row("SELECT start_ms FROM activities WHERE id=?", [&last.id], |r| {
+                    .query_row("SELECT start_ms FROM visible_journal_activities WHERE id=?", [&last.id], |r| {
                         r.get(0)
                     })
                     .map_err(storage_error)?;
@@ -198,7 +198,7 @@ fn last_key_is_final(
     };
     let more: bool = db
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM activities WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4))",
+            "SELECT EXISTS(SELECT 1 FROM visible_journal_activities WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4))",
             params![from, to, start, id],
             |r| r.get(0),
         )

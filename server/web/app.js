@@ -547,6 +547,25 @@ function metrics(cards, roleFor = (id) => styleFor(id).role) {
     categoryTotal: Object.values(totals).reduce((a, b) => a + b, 0),
   };
 }
+function weekActivityRows(days, today) {
+  return days.map(({ date, cards, truncated }) => {
+    const [start, end] = fullDayBounds(date);
+    const future = date > today;
+    const total = future ? 0 : mergedTime(cards.map(c => ({
+      start_ms: Math.max(start, c.start_ms),
+      end_ms: Math.min(end, c.end_ms),
+    }))).total;
+    const buckets = timelineTicks(date).map(({ at, label, offset }) => {
+      const to = Math.min(end, at + 3600000);
+      const intervals = cards
+        .filter(c => c.end_ms > at && c.start_ms < to)
+        .map(c => ({ start_ms: Math.max(at, c.start_ms), end_ms: Math.min(to, c.end_ms) }));
+      return { label, offset, ms: future ? 0 : mergedTime(intervals).total, capacity: to - at };
+    });
+    return { date, total, future, truncated, buckets };
+  });
+}
+
 /* Bounded search over GET /v1/activities. A page can hold few or no matches while
    more rows remain, so keep reading until enough matches, the end of the range,
    or the request budget; the returned cursor resumes exactly where this stopped. */
@@ -2102,9 +2121,10 @@ async function reviewPage(parent, seq) {
   add(layout, main, side);
   add(parent, layout);
   briefCard(main, saved, from, to);
-  if (week) weekBars(main, week.days);
+  if (week) add(main, weeklyActivityPanel(week.days));
   timeSplit(side, overview);
-  topApps(side, overview);
+  if (week) add(side, weeklyAppsPanel(overview?.apps));
+  else topApps(side, overview);
   topics(side, overview);
   askPanel(main, from, to);
 }
@@ -2205,6 +2225,42 @@ function timeSplit(parent, overview) {
   });
   add(box, chart);
 }
+function weeklyAppsPanel(apps) {
+  const top = panel("常用應用程式", "apps-card");
+  if (!apps) {
+    add(top, el("p", "目前無法載入 App 使用統計。", "muted"));
+    return top;
+  }
+  const ranked = apps.filter(item => item.duration_ms > 0).slice(0, 5);
+  if (!ranked.length) {
+    add(top, el("p", "這週沒有 App 使用時間。", "muted"));
+    return top;
+  }
+  const colors = ["#6d9f80", "#efc08a", "#85a8ce", "#b9a1d8", "#dfa4a7"];
+  const total = ranked.reduce((sum, item) => sum + item.duration_ms, 0);
+  const ring = el("div", null, "donut");
+  ring.setAttribute("aria-hidden", "true");
+  let start = 0;
+  ring.style.background = `conic-gradient(${ranked.map((item, index) => {
+    const end = start + 360 * item.duration_ms / total;
+    const stop = `${colors[index]} ${start}deg ${end}deg`;
+    start = end;
+    return stop;
+  }).join(",")})`;
+  add(ring, add(el("div"), el("small", "前五合計"), el("strong", duration(total))));
+  const legend = el("ul", null, "legend");
+  for (const [index, item] of ranked.entries()) {
+    const line = el("li");
+    line.style.setProperty("--cat", colors[index]);
+    add(legend, add(line,
+      add(el("span"), el("i", null, "dot"), document.createTextNode(appName(item.app))),
+      el("span", duration(item.duration_ms)),
+    ));
+  }
+  add(top, add(el("div", null, "week-app-chart"), ring, legend));
+  return top;
+}
+
 function topApps(parent, overview) {
   const box = panel("常用應用程式", "apps-card");
   add(parent, box);
@@ -2228,55 +2284,86 @@ function topics(parent, overview) {
   add(box, chips);
   add(parent, box);
 }
-function weekBars(parent, days) {
-  const box = panel("這週每天", "week-card");
-  add(parent, box);
-  const today = journalDate();
-  const totals = days.map((d) => metrics(d.cards).total);
-  const max = Math.max(1, ...totals);
-  const list = el("ol", null, "week-bars");
-  days.forEach((d, i) => {
-    const future = d.date > today;
-    const m = metrics(d.cards);
-    const empty = future || !totals[i];
-    const column = el("span", null, empty ? "week-column is-empty" : "week-column");
-    const fill = el("span", null, "week-fill");
-    fill.style.setProperty("--fill", `${(totals[i] / max) * 100}%`);
-    Object.entries(m.totals).sort((a, b) => b[1] - a[1]).forEach(([id, ms]) => {
-      const seg = el("i");
-      seg.style.setProperty("flex-grow", String(ms));
-      seg.style.setProperty("--cat", styleFor(id).color);
-      add(fill, seg);
-    });
-    const value = el("span", empty ? "—" : weekHours(totals[i]), "week-value");
-    add(column, value, fill);
-    const label = `週${WEEKDAYS[new Date(d.date + "T12:00:00").getDay()]}`;
-    const item = el("li");
-    const parts = [column, el("span", label, d.date === today ? "week-label today" : "week-label")];
-    if (future) {
-      const b = el("div", null, "week-day-bar future");
-      b.setAttribute("role", "img");
-      b.setAttribute("aria-label", `${shortDate(d.date)}：尚未到來`);
-      add(b, ...parts);
-      add(item, b);
-    } else {
-      const b = keyed(btn("", async () => {
-        day = d.date;
-        reviewMode = "day";
-        focusKey = "review-mode-day";
-        await shell();
-      }, "week-day-bar"), `week-${d.date}`);
-      b.setAttribute("aria-label", `${shortDate(d.date)}：${totals[i] ? `記錄 ${duration(totals[i])}` : "沒有記錄"}。開啟這一天的回顧`);
-      add(b, ...parts);
-      add(item, b);
+function weeklyActivityPanel(days) {
+  const rows = weekActivityRows(days, journalDate());
+  const scale = Math.max(3600000, ...rows.map(row => Math.ceil(row.total / 3600000) * 3600000));
+  const panelEl = panel("這週每天", "weekly-activity");
+  const charts = el("div", null, "week-visuals");
+  const durationChart = el("section", null, "week-visual");
+  const hourChart = el("section", null, "week-visual");
+  const bars = el("div", null, "week-chart");
+  const axis = el("div", null, "week-chart-axis");
+  axis.setAttribute("aria-hidden", "true");
+  for (const value of [scale, scale / 2, 0]) add(axis, el("span", duration(value)));
+  const points = el("div", null, "week-chart-points");
+  const heatmap = el("div", null, "week-hours");
+  const columns = Math.max(...rows.map(row => row.buckets.length), 24);
+  heatmap.style.setProperty("--week-hours", columns);
+  const hourLabels = el("div", null, "week-hours-labels");
+  const typical = rows.find(row => row.buckets.length === 24 && !row.buckets.some(bucket => bucket.offset));
+  if (typical) {
+    for (const index of [0, 6, 12, 18]) {
+      const caption = el("span", typical.buckets[index].label);
+      caption.style.gridColumn = index + 1;
+      add(hourLabels, caption);
     }
-    add(list, item);
-  });
-  add(box, list);
-  const elapsed = days.filter((d) => d.date <= today).length;
-  const sum = totals.reduce((n, ms, i) => n + (days[i].date <= today ? ms : 0), 0);
-  if (elapsed) add(box, el("p", weekAverage(sum, elapsed), "week-average"));
+  }
+  add(heatmap, hourLabels);
+  for (const row of rows) {
+    const date = row.date.slice(5).replace("-", "/");
+    const status = row.future ? "尚未到來" : row.total ? `記錄 ${duration(row.total)}` : "沒有資料";
+    const label = `${shortDate(row.date)}，${status}${row.truncated ? "，資料未完整載入" : ""}`;
+    const open = row.future ? el("div") : btn("", async () => {
+      day = row.date;
+      await go("timeline", "timeline-content");
+    });
+    open.className = "week-chart-day";
+    open.setAttribute("aria-label", row.future ? label : `${label}，開啟時間軸`);
+    if (row.future) open.setAttribute("role", "img");
+    open.title = label;
+    const band = el("span", null, row.total ? "week-chart-bar" : "week-chart-bar is-empty");
+    band.setAttribute("aria-hidden", "true");
+    band.style.setProperty("--week-height", `${row.total / scale * 100}%`);
+    const value = el("span", row.future ? "未到" : row.total ? duration(row.total) : "無資料", "week-chart-value");
+    add(open, add(el("span", null, "week-chart-track"), band), el("strong", date), value);
+    add(points, open);
+
+    const strip = el("div", null, "week-hours-row");
+    strip.setAttribute("role", "img");
+    const logged = row.buckets.filter(bucket => bucket.ms > 0);
+    strip.setAttribute("aria-label", `${label}${logged.map(({ label, offset, ms }) =>
+      `，${label}${offset ? " " + offset : ""} ${duration(ms)}`).join("")}`);
+    add(strip, el("span", date, "week-hours-day"));
+    for (const { label: hour, offset, ms, capacity } of row.buckets) {
+      const cell = el("span", null, row.future ? "week-hours-cell is-future" : "week-hours-cell");
+      const intensity = ms ? 18 + Math.round(72 * ms / capacity) : 0;
+      cell.style.setProperty("--week-intensity", `${intensity}%`);
+      cell.title = `${date} ${hour}${offset ? " " + offset : ""} · ${row.future ? "尚未到來" : ms ? duration(ms) : "沒有紀錄"}`;
+      add(strip, cell);
+    }
+    add(heatmap, strip);
+  }
+  add(durationChart, el("h3", "每日記錄時間"), add(bars, axis, points));
+  add(hourChart, el("h3", "一週活動時段"), heatmap);
+  const legend = el("div", null, "week-hours-legend");
+  add(legend, el("span", "沒有紀錄"));
+  for (const intensity of [0, 28, 49, 70, 90]) {
+    const swatch = el("i", null, "week-hours-cell");
+    swatch.style.setProperty("--week-intensity", `${intensity}%`);
+    add(legend, swatch);
+  }
+  add(legend, el("span", "該時段大部分有紀錄"));
+  add(hourChart, legend);
+  if (rows.some(row => row.buckets.some(bucket => bucket.offset)))
+    add(hourChart, el("p", "本週有時區切換。格子依各日實際經過的時間排列。", "muted"));
+  add(panelEl, add(charts, durationChart, hourChart));
+  const started = rows.filter(row => !row.future);
+  if (started.length) {
+    add(panelEl, el("p", weekAverage(started.reduce((sum, row) => sum + row.total, 0), started.length), "week-average"));
+  }
+  return panelEl;
 }
+
 function weekAverage(sum, elapsed) {
   return `平均每天 ${duration(sum / elapsed)}（已過 ${elapsed} 天）`;
 }
@@ -3847,7 +3934,7 @@ if (typeof module !== "undefined")
     timelineTicks, deviceConnectionState, loadDays, classificationRecovery, exportSnapshot,
     captureStatus, providerSettings, presetFor, aiLabel, appName, cardTitle, AI_PROVIDERS,
     timeAxis, isPrivateHost, originHints, proxyBase, collapseAppOnly, aiSummary, providerName, recordState, deviceStatus, storageLine, weekAverage, askDisclosure, badgeClass, modelsRequest, parseModels, topicsVisible,
-    askExamples, weekHours, gib, cardSummary,
+    askExamples, weekHours, weekActivityRows, gib, cardSummary,
     shortDate, weekRange, cardLength, cardTimes, cardBadges,
   };
 if (inBrowser) {

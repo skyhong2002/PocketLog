@@ -210,7 +210,7 @@ fn pending(db: &Connection, now: i64) -> Result<Vec<(String, String)>> {
     // Newest first, so fresh cards are labeled before the historical backlog.
     for page in 0..SCAN_PAGES {
         let titles: Vec<String> = db
-            .prepare("SELECT n.title FROM notes n JOIN activities a ON a.id=n.id WHERE n.edited IN (1,2) AND n.category<>'\"idle\"' ORDER BY a.start_ms DESC,a.id LIMIT ? OFFSET ?")
+            .prepare("SELECT n.title FROM notes n JOIN journal_activities a ON a.id=n.id WHERE n.edited IN (1,2) AND n.category<>'\"idle\"' ORDER BY a.start_ms DESC,a.id LIMIT ? OFFSET ?")
             .map_err(storage_error)?
             .query_map([SCAN_PAGE, page * SCAN_PAGE], |r| r.get(0))
             .map_err(storage_error)?

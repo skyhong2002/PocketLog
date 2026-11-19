@@ -174,7 +174,7 @@ after a timeout or 429/503 cannot duplicate data. A conflicting replay returns 4
 `GET /v1/activities?from_ms=…&to_ms=…[&limit=][&q=][&category=][&after_start_ms=&after_id=&epoch=]`
 (journal key or owner; collector keys refused). Range up to 30 days, any past
 start. Returns `{activities,cards,next_cursor,journal_epoch,scanned}`: the same
-clipped activities and derived cards as `/v1/timeline`, ordered by **stored**
+clipped activity intervals and derived cards for the paged projection, ordered by **stored**
 `start_ms` then `id`. `limit` 1–500, default 200. `next_cursor` is
 `{after_start_ms,after_id}` or null; pass it back with `epoch=journal_epoch`.
 
@@ -184,8 +184,11 @@ clipped activities and derived cards as `/v1/timeline`, ordered by **stored**
   activity uploaded during the read appears if it sorts after the cursor; one that
   sorts before it is missed until a later re-read (late phone sync). Card titles,
   summaries and categories reflect the moment each page was read.
-- **Invalidation:** journal deletion advances the epoch; a cursor from before it
-  returns `409 {"error":"cursor expired"}`. Discard partial results and restart.
+- **Capture-derived cards:** pages include capture-derived intervals paired with their cards.
+  Fully covered app-only rows are omitted. The legacy timeline keeps raw Android usage
+  in its separate `activities` array.
+- **Invalidation:** journal deletion or a change to the capture-derived projection advances
+  the pagination epoch. An older cursor returns `409 {"error":"cursor expired"}`. Discard partial results and restart.
 - **Bounds:** a request inspects at most 2,000 stored rows. A page over 480 KiB is
   shortened, never truncated: `next_cursor` then points at the last returned card.
 - **Search:** `q` (1–100 characters, trimmed) matches app, card title or summary,
