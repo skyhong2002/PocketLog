@@ -898,6 +898,99 @@ mod pipeline_tests {
         assert_eq!(count(&db, "screen_cards"), 0);
     }
     #[test]
+    fn visual_window_uses_one_step_and_can_continue_the_prior_card() {
+        use base64::Engine;
+        use serde_json::json;
+        let mut db = database();
+        let at = now_ms() / 900_000 * 900_000 - 3_600_000;
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode_image(&image::RgbImage::new(4, 4))
+            .unwrap();
+        let jpeg = base64::engine::general_purpose::STANDARD.encode(jpeg);
+        db.execute(
+            "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64) VALUES
+            ('one',?1,'org.example.ide','',1,?3),('two',?2,'org.example.chat','',1,?3)",
+            params![at - 10_000, at, jpeg],
+        )
+        .unwrap();
+        let reply = |title: &str, continuation: bool| {
+            json!({
+                "choices":[{"finish_reason":"stop","message":{"content":json!({
+                    "observations":[{"frame":0,"description":"核對測試項目"}],
+                    "cards":[{"first_frame":0,"last_frame":0,"title":title,
+                        "summary":"核對測試項目，確認下一輪要重跑的檢查。","category":"work","continue_previous":continuation}]
+                }).to_string()}}]
+            })
+        };
+        let (mut provider, handle) = provider_replies(
+            vec![
+                reply("核對測試項目", false),
+                reply("核對測試結果與重跑項目", true),
+            ],
+            None,
+        );
+        provider.env_automatic = true;
+        assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 2);
+        handle.join().unwrap();
+        let cards = crate::screen_cards::timeline(&db, at - 20_000, at + 20_000).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(
+            (cards[0].start_ms, cards[0].end_ms),
+            (at - 10_000, at + 10_000)
+        );
+        let title: String = db
+            .query_row("SELECT title FROM notes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(title, "核對測試結果與重跑項目");
+        assert_eq!(pending(&db), 0);
+    }
+
+    #[test]
+    fn invalid_visual_response_retries_via_the_two_step_workflow() {
+        use base64::Engine;
+        use serde_json::json;
+        let mut db = database();
+        let at = now_ms() / 900_000 * 900_000 - 3_600_000;
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode_image(&image::RgbImage::new(4, 4))
+            .unwrap();
+        let jpeg = base64::engine::general_purpose::STANDARD.encode(jpeg);
+        db.execute(
+            "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64) VALUES
+            ('one',?1,'org.example.editor','Deployment checklist',1,?2)",
+            params![at, jpeg],
+        )
+        .unwrap();
+        let reply = |body: serde_json::Value| {
+            json!({
+                "choices":[{"finish_reason":"stop","message":{"content":body.to_string()}}]
+            })
+        };
+        let (mut provider, handle) = provider_replies(
+            vec![
+                reply(json!({"unexpected": true})),
+                reply(json!({"observations":[{"frame":0,"description":"核對部署檢查表"}]})),
+                reply(
+                    json!({"cards":[{"first_frame":0,"last_frame":0,"title":"核對部署檢查表",
+                "summary":"確認部署前的檢查項目。","category":"work","continue_previous":false}]}),
+                ),
+            ],
+            None,
+        );
+        provider.env_automatic = true;
+        assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 0);
+        assert_eq!(pending(&db), 1);
+        assert_eq!(count(&db, "screen_cards"), 0);
+        db.execute("UPDATE screen_jobs SET next_ms=0", []).unwrap();
+        assert_eq!(process_with_provider(&mut db, Some(&provider)).unwrap(), 1);
+        handle.join().unwrap();
+        assert_eq!(pending(&db), 0);
+        assert_eq!(count(&db, "screen_cards"), 1);
+    }
+
+    #[test]
     fn topic_labels_require_automatic_switch_and_cover_every_title() {
         let mut db = database();
         seed(&db, 1);

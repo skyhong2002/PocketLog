@@ -104,7 +104,7 @@ pub(super) async fn activities(
             }
             let (after_start, after_id) = after.unwrap_or((i64::MIN, String::new()));
             let mut statement = db
-                .prepare("SELECT id, start_ms, end_ms, app, category FROM visible_journal_activities WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4) ORDER BY start_ms, id LIMIT ?5")
+                .prepare("SELECT id, start_ms, end_ms, app, category FROM visible_journal_activities_v2 WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4) ORDER BY start_ms, id LIMIT ?5")
                 .map_err(storage_error)?;
             let rows = statement
                 .query_map(
@@ -172,7 +172,7 @@ pub(super) async fn activities(
                 page.activities.truncate(keep);
                 let last = &page.activities[keep - 1];
                 let stored_start: i64 = db
-                    .query_row("SELECT start_ms FROM visible_journal_activities WHERE id=?", [&last.id], |r| {
+                    .query_row("SELECT start_ms FROM visible_journal_activities_v2 WHERE id=?", [&last.id], |r| {
                         r.get(0)
                     })
                     .map_err(storage_error)?;
@@ -198,7 +198,7 @@ fn last_key_is_final(
     };
     let more: bool = db
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM visible_journal_activities WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4))",
+            "SELECT EXISTS(SELECT 1 FROM visible_journal_activities_v2 WHERE end_ms > ?1 AND start_ms < ?2 AND (start_ms, id) > (?3, ?4))",
             params![from, to, start, id],
             |r| r.get(0),
         )

@@ -69,6 +69,44 @@ impl Preferences {
             })
     }
 
+    pub(super) fn model_categories(&self) -> Vec<serde_json::Value> {
+        self.categories
+            .iter()
+            .map(|style| {
+                let meaning = match style.id {
+                    Category::Work => {
+                        "Building, testing, debugging, reviewing or planning a work artifact."
+                    }
+                    Category::Learning => {
+                        "Studying, practicing or researching to understand a subject."
+                    }
+                    Category::Communication => {
+                        "Conversation, correspondence or meeting is the main activity."
+                    }
+                    Category::SocialMedia => {
+                        "Browsing social feeds or participating in a social platform."
+                    }
+                    Category::Entertainment => "Playing a game or consuming recreational media.",
+                    Category::NewsReading => {
+                        "Reading news, articles, books or other general content."
+                    }
+                    Category::LifeAdmin => {
+                        "Personal scheduling, errands, shopping or device management."
+                    }
+                    Category::Rest => "An explicitly observed break or rest activity.",
+                    Category::Idle => {
+                        "An explicitly observed inactive screen, never missing capture data."
+                    }
+                    Category::Unsorted => "Evidence does not support a specific activity category.",
+                    Category::Custom(_) => {
+                        "Owner-defined category. Use its label only if the activity clearly fits."
+                    }
+                };
+                serde_json::json!({"id":style.id,"label":style.name,"meaning":meaning})
+            })
+            .collect()
+    }
+
     fn matching_rule(&self, app: &str, title: &str) -> Option<&CategoryRule> {
         let title = title.to_lowercase();
         self.rules.iter().find(|rule| {

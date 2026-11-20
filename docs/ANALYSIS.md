@@ -6,14 +6,29 @@ remain the source for app time totals. When automatic AI is enabled, the worker
 creates separate timeline cards directly from uploaded screen evidence. Cards can
 span app switches and do not need a matching Android usage session.
 
-The worker groups evidence into 15-minute windows after 12 minutes of settling.
-It first asks the provider for timestamped observations, then asks it to turn
-them into activity cards with concrete action titles. Frame numbers determine the
-time boundaries. A card cannot cross a gap of more than one minute between
-captures or overlap another generated card in its window. The previous
-nearby card from the same provider can inform wording across windows. Windows
-retain separate cards. Raw app-only cards fully contained in a generated card
-are omitted from the timeline, and raw app records remain available.
+The worker groups evidence into 15-minute input windows after 12 minutes of
+settling. The card unit is the sustained activity. It uses the visible goal,
+artifacts and outcomes to write a title and summary, keeps short interruptions
+with their surrounding activity, and chooses the workspace category matching the
+dominant supported time. Isolated short captures can form a card. Within
+continuous evidence, an ordinary split requires ten minutes, with a three-minute
+exception for the final new activity. Gaps longer than one minute remain visible.
+
+Windows with valid screenshots first try direct visual timeline generation.
+A failed direct request falls back on the next attempt to extracting numbered
+observations and then generating the cards, the same path used for text-only
+windows. Both paths validate category IDs, coverage, frame indices and output
+bounds. A continuing goal can extend the latest nearby automatic card from the
+same provider within a 45-minute lookback, up to 60 minutes total. Extension
+retains the existing card ID and rebuilds its title and summary. Manual edits
+and already-extended windows are protected from late rewrites. Raw App-only
+cards fully inside a screen-derived card are hidden in timeline and search.
+Raw App records remain available for App totals.
+
+This workflow adapts the open-source Dayflow timeline generation strategy in
+[ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift)
+and [LLMService.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/LLMService.swift).
+PocketLog's one-minute evidence gap and existing capture limits apply to the port.
 
 Without owner automation, the existing per-session, legacy-consent or local
 text excerpt workflow still runs. Images alone have no semantic local fallback.
@@ -71,10 +86,10 @@ bytes. Do not put keys into Compose source files or commit a private override.
 With the automatic switch on, pending evidence can be analyzed even if no app
 session uploaded. Two windows are attempted per worker pass. Each window uses up
 to 200 frames, 12,000 characters of screen text and six spread-out JPEGs. The
-second request uses only the observations, frame offsets and one nearby
-AI-generated card from the same provider. Older retained evidence is not
-automatically requeued. Late evidence can refresh its window; manually corrected
-windows retain their existing cards. Older per-capture grants remain limited to
+generation request uses frame offsets, workspace category labels, and at most
+one nearby AI-generated card from the same provider. The two-step path sends
+only extracted observations in its second request. Older retained evidence is
+not automatically requeued. Late evidence can refresh an independent window. Older per-capture grants remain limited to
 the legacy per-session workflow when automation is off.
 Turning the switch off advances the deletion epoch; the worker checks it
 between requests and before committing. Legacy environment providers use
