@@ -124,14 +124,7 @@ fn evidence_content(
     for (index, frame) in frames.iter().enumerate() {
         let text = frame.text.chars().take(text_limit).collect::<String>();
         let image = if provider.image_support() && selected.contains(&index) {
-            let jpeg: Option<String> = db
-                .query_row(
-                    "SELECT jpeg_base64 FROM observations WHERE id=?",
-                    [&frame.id],
-                    |row| row.get(0),
-                )
-                .map_err(|_| ())?;
-            jpeg.filter(|value| analysis::valid_jpeg(value))
+            crate::screenshots::load_model_jpeg(db, &frame.id).map_err(|_| ())?
         } else {
             None
         };

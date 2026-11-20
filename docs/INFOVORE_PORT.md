@@ -14,7 +14,7 @@ that decision.
 | Foreground app observations | Incremental UsageStats reader; only after explicit consent and OS access; background reads no more often than 15 minutes |
 | App/session boundaries | Resume/pause, screen-off and shutdown events; completed intervals; deterministic IDs; segments capped at 20 minutes |
 | Visible screen text | Separate consent and explicit package allowlist; every 10 s while an allowed app is in front of an unlocked, interactive screen, plus app switches ≥5 s apart (owner decision; denser than infovore's 60 s) |
-| Screen JPEGs | On by default with screen text (Dayflow-style), can be turned off separately; same allowlist/exclusions; 720 px long edge, ≤300,000 bytes, mostly-black frames skipped (infovore bounds); retained on the server under the storage budget; no image read API except the separate replay opt-in |
+| Screen captures | On by default with screen text (Dayflow-style), can be turned off separately; same allowlist/exclusions; native-resolution lossless WebP when it fits ≤300,000 bytes, with bounded JPEG fallback and mostly-black frames skipped; retained on the server under the storage budget; no image read API except the separate replay opt-in |
 | Sensitive exclusions | Own app, password managers, authenticators, payment/banking patterns, user exclusions; password/editable fields and incomplete window traversal reject the whole window before content capture |
 | Secure/locked screen behavior | Locked/screen-off states reject capture; Android window screenshot failure rejects capture; no FLAG_SECURE bypass |
 | Pause | Visible settings switch; reset incremental cursor and remove queued context; no backfill across pause |

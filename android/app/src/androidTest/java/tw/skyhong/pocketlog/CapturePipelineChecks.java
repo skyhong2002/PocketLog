@@ -69,10 +69,13 @@ final class CapturePipelineChecks {
             }
             if(!observation.getString("text").contains("SYNTHETIC_READ_ONLY_CONTEXT") || !"org.example.pocketlogfixture".equals(observation.getString("app")) || observation.has("external_ai_consent") || observation.has("provider_id") || !observation.getBoolean("replay_consent"))
                 throw new IllegalStateException("Synthetic capture scope mismatch");
-            byte[] image=Base64.decode(observation.getString("jpeg_base64"),Base64.NO_WRAP);
-            if(image.length==0 || image.length>24*1024) throw new IllegalStateException("Captured image bounds failed");
+            JSONObject screenshot=observation.getJSONObject("screenshot");
+            String format=screenshot.getString("format");
+            if(!format.equals("webp") && !format.equals("jpeg")) throw new IllegalStateException("Unexpected capture format");
+            byte[] image=Base64.decode(screenshot.getString("base64"),Base64.NO_WRAP);
+            if(image.length==0 || image.length>RecordingRules.MAX_IMAGE_BYTES) throw new IllegalStateException("Captured image bounds failed");
             File folder=new File(test.getTargetContext().getExternalFilesDir(null),"ux-capture"); if(!folder.isDirectory()&&!folder.mkdirs()) throw new IllegalStateException("Fixture output unavailable");
-            try(FileOutputStream out=new FileOutputStream(new File(folder,"synthetic-window.jpg"))) { out.write(image); }
+            try(FileOutputStream out=new FileOutputStream(new File(folder,"synthetic-window."+format))) { out.write(image); }
             // Shift only this synthetic fixture's timestamp to avoid a12-minute settlement wait.
             long end=System.currentTimeMillis()-20L*60_000,start=end-60_000;
             observation.put("at_ms",end-1000);

@@ -1,11 +1,27 @@
 //! Separate opt-in, 24-hour screenshot archive. Analysis-only observations remain unreadable.
 use super::*;
+use crate::screenshots::{self, Format};
 use base64::Engine;
 use rusqlite::OptionalExtension;
 pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS image_replay(id TEXT PRIMARY KEY,at_ms INTEGER NOT NULL,app TEXT NOT NULL,jpeg TEXT NOT NULL,validated INTEGER NOT NULL DEFAULT 0);")
+    db.execute_batch("CREATE TABLE IF NOT EXISTS image_replay(id TEXT PRIMARY KEY,at_ms INTEGER NOT NULL,app TEXT NOT NULL,jpeg TEXT NOT NULL,validated INTEGER NOT NULL DEFAULT 0);")?;
+    let columns = db
+        .prepare("PRAGMA table_info(image_replay)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|column| column == "image_format") {
+        db.execute("ALTER TABLE image_replay ADD COLUMN image_format TEXT", [])?;
+    }
+    Ok(())
 }
-pub(super) fn insert(db: &Connection, id: &str, at: i64, app: &str, jpeg: &str) -> Result<()> {
+pub(super) fn insert(
+    db: &Connection,
+    id: &str,
+    at: i64,
+    app: &str,
+    encoded: &str,
+    format: Option<&str>,
+) -> Result<()> {
     let count: i64 = db
         .query_row("SELECT COUNT(*) FROM image_replay", [], |r| r.get(0))
         .map_err(storage_error)?;
@@ -16,8 +32,8 @@ pub(super) fn insert(db: &Connection, id: &str, at: i64, app: &str, jpeg: &str) 
         ));
     }
     db.execute(
-        "INSERT INTO image_replay(id,at_ms,app,jpeg) VALUES(?,?,?,?)",
-        params![id, at, app, jpeg],
+        "INSERT INTO image_replay(id,at_ms,app,jpeg,image_format) VALUES(?,?,?,?,?)",
+        params![id, at, app, encoded, format],
     )
     .map_err(storage_error)?;
     Ok(())
@@ -45,7 +61,7 @@ async fn list(
         Ok(Json(serde_json::json!({"images":rows,"retention_hours":24})))
     }).await
 }
-async fn bytes(state: AppState, id: String) -> Result<String> {
+async fn bytes(state: AppState, id: String) -> Result<(String, Option<String>)> {
     if !valid_id(&id) {
         return Err(invalid());
     }
@@ -53,9 +69,9 @@ async fn bytes(state: AppState, id: String) -> Result<String> {
         .database(move |db| {
             super::prune(db, now_ms())?;
             db.query_row(
-                "SELECT jpeg FROM image_replay WHERE id=? AND validated=1",
+                "SELECT jpeg,image_format FROM image_replay WHERE id=? AND validated=1",
                 [id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
             .map_err(storage_error)?
@@ -67,19 +83,26 @@ async fn read(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    Ok(Json(
-        serde_json::json!({"jpeg_base64":bytes(state,id).await?}),
-    ))
+    let (encoded, format) = bytes(state, id).await?;
+    Ok(Json(match format {
+        Some(format) => serde_json::json!({"screenshot":{"format":format,"base64":encoded}}),
+        None => serde_json::json!({"jpeg_base64":encoded}),
+    }))
 }
 async fn image(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse> {
-    let jpeg = bytes(state, id).await?;
+    let (encoded, format) = bytes(state, id).await?;
+    let content_type = match format.as_deref() {
+        None | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some(_) => return Err(storage_error("unknown replay image format")),
+    };
     let clear = base64::engine::general_purpose::STANDARD
-        .decode(jpeg)
+        .decode(encoded)
         .map_err(storage_error)?;
-    Ok(([(header::CONTENT_TYPE, "image/jpeg")], clear))
+    Ok(([(header::CONTENT_TYPE, content_type)], clear))
 }
 async fn remove(
     State(state): State<AppState>,
@@ -97,24 +120,28 @@ async fn remove(
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
-// Decoder runs only in the isolated worker. Re-encode to strip metadata before exposing a thumbnail.
+// Decoder runs only in the isolated worker. Re-encode to strip metadata before exposing the image.
 pub(crate) fn validate_pending(db: &mut Connection) -> Result<usize> {
     let epoch: i64 = db
         .query_row("SELECT epoch FROM journal_meta", [], |r| r.get(0))
         .map_err(storage_error)?;
 
-    let rows: Vec<(String, String)> = db
+    let rows: Vec<(String, String, Option<String>)> = db
         .prepare(
-            "SELECT id,jpeg FROM image_replay WHERE validated=0 AND at_ms>? ORDER BY at_ms LIMIT 6",
+            "SELECT id,jpeg,image_format FROM image_replay WHERE validated=0 AND at_ms>? ORDER BY at_ms LIMIT 6",
         )
         .map_err(storage_error)?
-        .query_map([now_ms() - DAY], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_map([now_ms() - DAY], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .map_err(storage_error)?
         .collect::<std::result::Result<_, _>>()
         .map_err(storage_error)?;
     let mut count = 0;
-    for (id, jpeg) in rows {
-        let sanitized = crate::analysis::sanitize_jpeg(&jpeg);
+    for (id, encoded, format) in rows {
+        let sanitized = match format.as_deref() {
+            None => screenshots::sanitize(&encoded, None),
+            Some(name) => Format::from_storage(name)
+                .and_then(|format| screenshots::sanitize(&encoded, Some(format))),
+        };
         let tx = db.transaction().map_err(storage_error)?;
         let current: i64 = tx
             .query_row("SELECT epoch FROM journal_meta", [], |r| r.get(0))
@@ -122,15 +149,14 @@ pub(crate) fn validate_pending(db: &mut Connection) -> Result<usize> {
         if current != epoch {
             continue;
         }
-        if let Some(jpeg) = sanitized {
-            tx.execute(
-                "UPDATE image_replay SET jpeg=?,validated=1 WHERE id=? AND at_ms>?",
-                params![jpeg, id, now_ms() - DAY],
+        if let Some((encoded, format)) = sanitized {
+            count += tx.execute(
+                "UPDATE image_replay SET jpeg=?,image_format=?,validated=1 WHERE id=? AND at_ms>? AND validated=0",
+                params![encoded, format.map(Format::name), id, now_ms() - DAY],
             )
             .map_err(storage_error)?;
-            count += 1;
         } else {
-            tx.execute("DELETE FROM image_replay WHERE id=?", [id])
+            tx.execute("DELETE FROM image_replay WHERE id=? AND validated=0", [id])
                 .map_err(storage_error)?;
         }
         tx.commit().map_err(storage_error)?;

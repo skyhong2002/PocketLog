@@ -95,12 +95,18 @@ struct Observation {
     /// when false so receipts for earlier payloads keep the same hash.
     #[serde(default, skip_serializing_if = "is_false")]
     protected_screen: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    screenshot: Option<Screenshot>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Screenshot {
+    format: crate::screenshots::Format,
+    base64: String,
 }
 /// Phones defer screenshot uploads until charging, so context may arrive up to
 /// three days after capture and must still be analysed.
 pub(crate) const MAX_CONTEXT_AGE: i64 = 3 * DAY;
-/// About 300 KiB of JPEG, matching infovore's per-capture screenshot bound.
-pub(crate) const MAX_JPEG_BASE64: usize = 400_000;
 /// Bounds the analysis backlog, not retained history.
 const MAX_PENDING_OBSERVATIONS: i64 = 20_000;
 fn is_false(value: &bool) -> bool {
@@ -108,6 +114,12 @@ fn is_false(value: &bool) -> bool {
 }
 async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> Result<StatusCode> {
     let now = now_ms();
+    let image = o
+        .screenshot
+        .as_ref()
+        .map(|s| s.base64.as_str())
+        .or(o.jpeg_base64.as_deref());
+    let format = o.screenshot.as_ref().map(|s| s.format.name());
     if !valid_id(&o.id)
         || o.at_ms <= now - MAX_CONTEXT_AGE
         || o.at_ms > now + 60_000
@@ -120,10 +132,11 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
         || o.text.len() > 8000
         || o.text.chars().count() > 2000
         || o.text.contains('\0')
-        || o.jpeg_base64.as_ref().is_some_and(|s| {
+        || o.screenshot.is_some() && o.jpeg_base64.is_some()
+        || image.is_some_and(|s| {
             !o.image_consent
                 || s.is_empty()
-                || s.len() > MAX_JPEG_BASE64
+                || s.len() > crate::screenshots::MAX_BASE64
                 || !s
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
@@ -131,13 +144,14 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
         || o.provider_id
             .as_ref()
             .is_some_and(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
-        || o.replay_consent && (!o.image_consent || o.jpeg_base64.is_none())
-        || o.protected_screen && o.jpeg_base64.is_some()
+        || o.replay_consent && (!o.image_consent || image.is_none())
+        || o.protected_screen && image.is_some()
         || !o.analysis_consent
     {
         return Err(invalid());
     }
     let hash = crate::hex_digest(serde_json::to_vec(&o).map_err(storage_error)?);
+    let image = o.screenshot.map(|s| s.base64).or(o.jpeg_base64);
     state
         .database(move |db| {
             let tx = db.transaction().map_err(storage_error)?;
@@ -176,7 +190,8 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                         &o.id,
                         o.at_ms,
                         &o.app,
-                        o.jpeg_base64.as_deref().ok_or_else(invalid)?,
+                        image.as_deref().ok_or_else(invalid)?,
+                        format,
                     )?;
                 }
                 tx.execute(
@@ -185,17 +200,18 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
                 )
                 .map_err(storage_error)?;
                 tx.execute(
-                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes,protected_screen) VALUES (?,?,?,?,?,?,?,0,?,?)",
+                    "INSERT INTO observations(id,at_ms,app,text,consent,jpeg_base64,provider_id,processed,jpeg_bytes,protected_screen,image_format) VALUES (?,?,?,?,?,?,?,0,?,?,?)",
                     params![
                         o.id,
                         o.at_ms,
                         o.app,
                         o.text,
                         if o.external_ai_consent { 2 } else { 1 },
-                        o.jpeg_base64,
+                        image,
                         o.provider_id,
-                        o.jpeg_base64.as_ref().map(|j| j.len() as i64),
-                        o.protected_screen
+                        image.as_ref().map(|j| j.len() as i64),
+                        o.protected_screen,
+                        format
                     ],
                 )
                 .map_err(storage_error)?;

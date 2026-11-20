@@ -12,6 +12,7 @@ mod journal;
 mod pages;
 mod replay;
 mod screen_cards;
+mod screenshots;
 mod storage;
 mod topics;
 mod web;

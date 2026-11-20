@@ -98,10 +98,13 @@ report suspected vulnerabilities privately through the repository owner.
 - Analysis-only raw context is private and retained on the server (text
   permanently; screenshots until the owner storage budget evicts the oldest), never
   readable/exportable by API. Context is sampled every 10 seconds and on app switches;
-  screenshots are at most 720 px / 300,000 bytes.
+  screenshots are at most 4,096 px per edge, 8.5 MP and 300,000 bytes. Android
+  prefers native-resolution lossless WebP and falls back to JPEG, reducing
+  dimensions if needed.
   Independent per-image `replay_consent` can additionally create a separate private
-  archive (256 images / 24 hours). Only worker-decoded, resized/re-encoded JPEGs
-  (480 px, 24 KiB, stripped metadata) become readable. No implicit archive of old
+  archive (256 images / 24 hours). Only worker-decoded and re-encoded images
+  become readable, with metadata stripped and a 300,000-byte image cap. Legacy
+  uploads still produce 480 px / 24 KiB JPEGs. No implicit archive of old
   images. Replay requires owner/journal-device authentication, remains no-store,
   is excluded from ordinary exports and is erased with the journal. This is not OCR
   masking. Default-on local suspected-secret text checks reject the whole window
@@ -111,7 +114,7 @@ report suspected vulnerabilities privately through the repository owner.
   marked processed, not deleted. Budget enforcement runs each worker pass; a stopped
   worker delays screenshot eviction, and freed SQLite pages are reused rather than
   returned to the filesystem. The API never decodes
-  JPEGs. Worker JPEG decoding bounds dimensions, encoded bytes and allocation.
+  images. Worker decoding bounds dimensions, pixel count, encoded bytes and allocation.
 - Optional model requests require server configuration and the owner's
   provider-bound automatic switch (legacy per-observation consent bound to the
   current provider is still honored). Cleaned card titles are also sent for topic

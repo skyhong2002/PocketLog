@@ -1563,14 +1563,23 @@ class MainActivity : Activity() {
 
     private fun loadReplayBitmap(api: PocketLogApi, item: JSONObject): Bitmap {
         val response = api.request("/v1/replay/${item.getString("id")}")
-        val encoded = response.optString("jpeg_base64")
-        require(encoded.length in 4..32_768)
+        val screenshot = response.optJSONObject("screenshot")
+        val encoded = screenshot?.getString("base64") ?: response.getString("jpeg_base64")
+        val mimeType = when (screenshot?.getString("format")) {
+            null, "jpeg" -> "image/jpeg"
+            "webp" -> "image/webp"
+            else -> error("Unsupported replay image format")
+        }
+        val maxBytes = if (screenshot == null) 24 * 1024 else RecordingRules.MAX_IMAGE_BYTES
+        require(encoded.length in 4..((maxBytes + 2) / 3 * 4))
         val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
         try {
-            require(bytes.size <= 24 * 1024)
+            require(bytes.size in 1..maxBytes)
             val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
             android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            require(bounds.outWidth in 1..480 && bounds.outHeight in 1..480 && bounds.outMimeType == "image/jpeg")
+            require(bounds.outMimeType == mimeType)
+            require(if (screenshot == null) bounds.outWidth in 1..480 && bounds.outHeight in 1..480
+                else ContextImage.fitsDimensions(bounds.outWidth, bounds.outHeight))
             return requireNotNull(android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
         } finally { bytes.fill(0) }
     }
@@ -2107,7 +2116,7 @@ class MainActivity : Activity() {
                 if (busy) { again(); return@switchRow }
                 toggleContext(s, again)
             }.also(::pad)
-            ui.switchRow(this, "保存截圖供回看", "在伺服器另存 24 小時內的縮圖，可從活動卡打開", s.replayConsent) { _ ->
+            ui.switchRow(this, "保存截圖供回看", "在伺服器另存 24 小時內的截圖，可從活動卡打開", s.replayConsent) { _ ->
                 if (busy) { again(); return@switchRow }
                 toggleReplay(s, again)
             }.also(::pad)
@@ -2264,7 +2273,7 @@ class MainActivity : Activity() {
         }
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.enabled) { autoRecordFlow(0) { settings() }; return }
-        confirm("記錄畫面文字與截圖？", "你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（最長邊 720 像素），畫面沒變就略過。有密碼或輸入欄位的畫面、鎖定畫面會略過；受保護的畫面只留文字。截圖可能含私人內容，請只允許你願意記錄的 app。內容加密存在手機，充電時上傳到你的伺服器並長期保存；伺服器開啟 AI 自動整理時會送給你設定的 AI。\n\n下一步會開啟 Android 輔助使用設定。", "同意", after) {
+        confirm("記錄畫面文字與截圖？", "你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（每張最多 300 KB，優先保留原始尺寸），畫面沒變就略過。有密碼或輸入欄位的畫面、鎖定畫面會略過；受保護的畫面只留文字。截圖可能含私人內容，請只允許你願意記錄的 app。內容加密存在手機，充電時上傳到你的伺服器並長期保存；伺服器開啟 AI 自動整理時會送給你設定的 AI。\n\n下一步會開啟 Android 輔助使用設定。", "同意", after) {
             task("開啟中…", { synchronized(SyncEngine.lock) { require(s.enabled); s.contextEnabled = true; s.analysisConsent = true; s.imagesEnabled = true } }, failed = { after() }) {
                 if (s.allowed.isEmpty()) autoRecordFlow(3) { settings() } else after()
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -2287,7 +2296,7 @@ class MainActivity : Activity() {
         }
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.imagesEnabled) { after(); notice("請先開啟截圖", Kind.WARN); return }
-        confirm("保存截圖供回看？", "之後的截圖會在伺服器另外保存一份縮圖（最多 24 小時、256 張），可以從活動卡打開回看。可能包含私人內容。關閉時不會刪除已保存的縮圖，它們會自然到期。", "同意", after) {
+        confirm("保存截圖供回看？", "之後的截圖會在伺服器另外保存一份截圖（最多 24 小時、256 張），可以從活動卡打開回看。可能包含私人內容。關閉時不會刪除已保存的截圖，它們會自然到期。", "同意", after) {
             task("更新…", { synchronized(SyncEngine.lock) { require(s.imagesEnabled); s.replayConsent = true; JournalQueue(this@MainActivity).clearContexts() } }, failed = { after() }) { after(); notice("已開啟保存截圖供回看") }
         }
     }

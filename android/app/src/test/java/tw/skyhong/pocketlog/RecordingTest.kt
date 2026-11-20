@@ -101,7 +101,8 @@ class RecordingTest {
         assertEquals(0L, RecordingRules.nextCaptureDelay(900_000, 1_000_000, appSwitch = true))
     }
     @Test fun imageBoundsFitTheServerContract() {
-        assertEquals(720, RecordingRules.MAX_IMAGE_EDGE)
+        assertEquals(4096, RecordingRules.MAX_IMAGE_EDGE)
+        assertEquals(8_500_000, RecordingRules.MAX_IMAGE_PIXELS)
         assertTrue((RecordingRules.MAX_IMAGE_BYTES + 2) / 3 * 4 <= RecordingRules.MAX_IMAGE_BASE64)
         assertTrue(RecordingRules.MAX_IMAGE_BASE64 + 4 * RecordingRules.MAX_TEXT + 1024 <= RecordingRules.MAX_UPLOAD_BODY)
         assertTrue(ScreenChange.isMostlyBlack(IntArray(100) { 0xff000000.toInt() }))

@@ -59,7 +59,7 @@ all of these remaining requirements shipped in this port.
 
 By owner decision PocketLog now follows infovore's phone capture model, sampling
 more densely: context every 10 seconds (infovore: 60 s) while an allowed app is in
-front of an unlocked screen and on app switches, 720 px / ≤300 KB screenshots, owner-enabled automatic
+front of an unlocked screen and on app switches, ≤300 KB screenshots with native-resolution WebP preferred, owner-enabled automatic
 summaries (replacing per-capture consent), model-labeled topic keywords, a permanent
 server journal and a 10 GiB default storage budget that removes the oldest
 screenshots first. Battery, Doze and physical-device acceptance of this cadence are

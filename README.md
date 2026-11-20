@@ -53,12 +53,12 @@ to your own tools. Manual mood entry is no longer part of the app.
 | Private Android connection | HTTPS anywhere, or plain http only to a VPN／private-network host (with a warning); no redirects, Keystore-protected credentials |
 | Self-hosted storage | Rust API + isolated worker, SQLite, Docker Compose; permanent journal, owner storage budget (default 10 GB) that removes oldest screenshots first, deletion |
 | App activity recording | Opt-in incremental UsageStats, pause, sensitive-app and custom exclusions |
-| Screen text and screenshots | Opt-in with an app allowlist through one guided 自動記錄 flow; screenshots on by default (can be turned off); every 10 s and on app switch, 720 px; unchanged screens skipped; protected/DRM windows kept as text only (`protected_screen`) |
+| Screen text and screenshots | Opt-in with an app allowlist through one guided 自動記錄 flow; screenshots on by default (can be turned off); every 10 s and on app switch, native-resolution lossless WebP when it fits 300 KB, with bounded JPEG fallback; unchanged screens skipped; protected/DRM windows kept as text only (`protected_screen`) |
 | Activity cards and AI | Source labels AI 整理 / 畫面文字 / 只有 app / 你改過, plus AI 整理中 and 受保護畫面（無截圖）; one-tap category edits; Mika-style AI setup on both clients (OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek or a custom OpenAI-compatible endpoint such as Ollama) with test-and-save, a provider-bound automatic-summary switch and an optional daily recap |
 | Battery and offline queue | AES-GCM queue/cache with retries and quarantine; screen captures upload while charging (or on unmetered networks above 256 MB) and are kept up to 72 h, other writes 24 h |
 | Export | Private JSON from 設定 › 資料 on both clients |
 | Device credentials | Owner-issued journal/collector keys, expiry and individual revocation; phone Keystore storage |
-| Short-term image replay | Independent opt-in; worker-sanitized 480 px thumbnails, 24 hours / 256 images |
+| Short-term image replay | Independent opt-in; worker-sanitized screenshots up to 300 KB, 24 hours / 256 images |
 | infovore publishing | Not enabled; PocketLog operates independently |
 
 See the [infovore port coverage](docs/INFOVORE_PORT.md), [analysis setup](docs/ANALYSIS.md),

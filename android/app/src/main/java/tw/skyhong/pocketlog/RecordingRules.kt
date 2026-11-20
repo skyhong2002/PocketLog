@@ -19,7 +19,8 @@ object RecordingRules {
     const val CONTEXT_MIN_GAP = 5 * 1000L
     // Android rejects takeScreenshot calls closer than about one second apart.
     const val SCREENSHOT_GAP = 1_100L
-    const val MAX_IMAGE_EDGE = 720
+    const val MAX_IMAGE_EDGE = 4096
+    const val MAX_IMAGE_PIXELS = 8_500_000
     // 300,000 bytes encode to exactly the server's 400,000 base64 characters.
     const val MAX_IMAGE_BYTES = 300_000
     const val MAX_IMAGE_BASE64 = 400_000

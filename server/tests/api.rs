@@ -2447,3 +2447,79 @@ async fn probe_requires_the_confirmed_current_provider_before_any_network_call()
         std::io::ErrorKind::WouldBlock
     );
 }
+
+#[tokio::test]
+async fn lossless_replay_preserves_pixels_and_uses_the_authenticated_image_route() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use image::{ExtendedColorType, Rgb, RgbImage, codecs::webp::WebPEncoder};
+
+    let dir = PrivateDirectory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("journal.sqlite");
+    let app = router(AppState::new(rusqlite::Connection::open(&path).unwrap(), TOKEN).unwrap());
+    let source = RgbImage::from_fn(1080, 2340, |x, y| {
+        if y % 36 < 3 && x % 120 < 80 {
+            Rgb([16, 40, 153])
+        } else {
+            Rgb([244, 247, 252])
+        }
+    });
+    let mut webp = Vec::new();
+    WebPEncoder::new_lossless(&mut webp)
+        .encode(
+            &source,
+            source.width(),
+            source.height(),
+            ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+    let observation = json!({
+        "id": "lossless",
+        "at_ms": chrono::Utc::now().timestamp_millis() - 500,
+        "app": "org.example.reader",
+        "text": "synthetic",
+        "analysis_consent": true,
+        "image_consent": true,
+        "replay_consent": true,
+        "screenshot": {"format":"webp", "base64": STANDARD.encode(webp)},
+    });
+    let mut ambiguous = observation.clone();
+    ambiguous["jpeg_base64"] = json!("AAAA");
+    assert_eq!(
+        call(&app, "POST", "/v1/observations", ambiguous, true)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", "/v1/observations", observation.clone(), true)
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+
+    let mut db = rusqlite::Connection::open(path).unwrap();
+    pocketlog_server::process_with_provider(&mut db, None).unwrap();
+    let (status, json) = call(&app, "GET", "/v1/replay/lossless", json!({}), true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["screenshot"]["format"], "webp");
+    let request = Request::get("/v1/replay/lossless/image")
+        .header("authorization", format!("Bearer {TOKEN}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(response.headers()["content-type"], "image/webp");
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(bytes.len() <= 300_000);
+    assert_eq!(
+        bytes.as_ref(),
+        STANDARD
+            .decode(json["screenshot"]["base64"].as_str().unwrap())
+            .unwrap()
+    );
+    assert_eq!(image::load_from_memory(&bytes).unwrap().into_rgb8(), source);
+}

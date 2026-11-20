@@ -69,7 +69,7 @@ category correction and safe retries; CI runs it against a disposable server.
 | POST | `/v1/activities` | `{activities:[{id,start_ms,end_ms,app,category}]}`, max 100; stable IDs, conflicting replay 409 and atomic rollback |
 | POST | `/v1/checkins` | `{id,at_ms,mood,energy}`, mood/energy 1–5; same ID replaces |
 | POST | `/v1/workspace/preview` | `{workspace,sample:{app,title,category,edited?}}`; test an unsaved draft with the server classifier, no persistence/model call |
-| POST | `/v1/observations` | `{id,at_ms,app,text,analysis_consent,external_ai_consent?,jpeg_base64?,image_consent?}`; private processing consent required; image consent defaults false; current Android omits legacy `external_ai_consent`; body limit 512 KiB |
+| POST | `/v1/observations` | `{id,at_ms,app,text,analysis_consent,external_ai_consent?,screenshot?,jpeg_base64?,image_consent?}`; private processing consent required; image consent defaults false; current Android omits legacy `external_ai_consent`; body limit 512 KiB |
 | POST | `/v1/cards` | `{id,title,summary,category}`; existing activity required; title 1–200 characters, summary ≤1,000; user edit wins over worker |
 | POST | `/v1/reflections` | `{id,at_ms,text}`, ≤2,000 characters; same ID replaces, blank text deletes |
 | GET | `/v1/timeline?from_ms=…&to_ms=…` | Any `from_ms` ≥ 0, up to 26 hours, clipped intervals; activities, checkins, derived cards, reflections and `truncated`; never raw context |
@@ -85,9 +85,11 @@ DST. Categories: `unsorted`, `work`, `learning`, `communication`, `social_media`
 are rejected; raw screenshots do not belong on `/v1/activities`.
 
 Context: one observation per request, ID ≤80 ASCII alphanumeric/dash/underscore,
-text ≤2,000 Unicode characters and 8,000 UTF-8 bytes. Optional base64 JPEG ≤400,000
-characters (about 300 KB); image consent required. The API bounds opaque input; JPEG
-decoding belongs to the isolated worker. Raw timestamps must fall within 72 hours (phones defer
+text ≤2,000 Unicode characters and 8,000 UTF-8 bytes. Optional `screenshot: {format: "webp" | "jpeg", base64}` or legacy `jpeg_base64`.
+Supply at most one image, with image consent and at most 400,000 base64 characters
+(300,000 decoded bytes). The API bounds opaque input. The worker validates the image
+with a 4,096 px edge and 8.5 MP pixel cap (1,440 px edge for legacy uploads).
+Upgrade the API and worker before installing Android clients that send `screenshot`. Raw timestamps must fall within 72 hours (phones defer
 screenshot uploads until charging) and no more than 60 seconds in the future. Same-ID same-content replay succeeds without
 duplicating retained raw content; conflicting payload returns 409. Receipt hashes
 are retained permanently.
@@ -107,7 +109,7 @@ queries return at most 1,000 of each record type and cap serialized output at
 480 KiB; `truncated` is true if anything is omitted. Exports use this same contract
 and are not guaranteed complete when truncated; `GET /v1/activities` pages
 the same cards completely. Import/restore remains planned.
-Observations may set `protected_screen:true` (no `jpeg_base64` allowed) when the
+Observations may set `protected_screen:true` (no image allowed) when the
 phone saw a secure/DRM window, such as a video app, that returns no pixels; only its
 text is sent. Cards then report `protected_screen:true`. Cards generated from screen batches report `screen_derived:true`. Older servers may omit these fields.
 Cards identify `source` as `app_only`, `local_excerpt`, `ai` or `user`. AI output
@@ -308,11 +310,13 @@ management, which requires owner token/browser session. Body limit remains 64 Ki
   (unanalyzed) context/jobs/unvalidated replay; analyzed history is kept. Explicit check-ins/reflections remain available.
   Phones apply on existing sync cadence; offline stop is not immediate.
 - Observation optional `replay_consent:true` additionally requires image consent
-  and a JPEG. Independent archive, max256 / 24h; pending images are unreadable.
-  Worker validates, resizes/re-encodes, strips metadata and bounds to 480px/24KiB.
-  `GET /v1/replay?from_ms=…&to_ms=…` lists validated metadata; GET
-  `/v1/replay/{id}` returns `{jpeg_base64}`; GET `/v1/replay/{id}/image` returns
-  authenticated image/jpeg. DELETE `/v1/replay/{id}` removes the archive copy.
+  and an image. Independent archive, max 256 / 24 h. Pending images are unreadable.
+  The worker re-encodes to strip metadata, preserving resolution when the output fits
+  within 300,000 bytes. Legacy uploads still produce 480 px / 24 KiB JPEGs.
+  `GET /v1/replay?from_ms=…&to_ms=…` lists validated metadata. GET
+  `/v1/replay/{id}` returns `{screenshot: {format, base64}}` for new captures or
+  `{jpeg_base64}` for legacy captures. GET `/v1/replay/{id}/image` serves the
+  authenticated WebP or JPEG. DELETE `/v1/replay/{id}` removes the archive copy.
   Ordinary analysis-only images remain unreadable. No images in ordinary exports.
 - `GET/POST /v1/devices`, `DELETE /v1/devices/{id}`: owner only. POST body
   `{label,scope:"journal"|"collector",days:1..90}`; returns one-time `{id,token,scope,expires_ms}`.

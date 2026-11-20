@@ -37,6 +37,10 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
             [],
         )?;
     }
+    // Keep the existing image payload and quota columns for legacy rows.
+    if !columns.iter().any(|c| c == "image_format") {
+        db.execute("ALTER TABLE observations ADD COLUMN image_format TEXT", [])?;
+    }
     db.execute_batch(
         "CREATE INDEX IF NOT EXISTS observations_pending ON observations(processed,at_ms);
          CREATE INDEX IF NOT EXISTS observations_images ON observations(at_ms,jpeg_bytes) WHERE jpeg_bytes IS NOT NULL;
@@ -138,7 +142,7 @@ pub(crate) fn enforce(db: &Connection) -> Result<usize> {
                 break;
             }
             tx.execute(
-                "UPDATE observations SET jpeg_base64=NULL,jpeg_bytes=NULL WHERE id=?",
+                "UPDATE observations SET jpeg_base64=NULL,jpeg_bytes=NULL,image_format=NULL WHERE id=?",
                 [&id],
             )
             .map_err(storage_error)?;

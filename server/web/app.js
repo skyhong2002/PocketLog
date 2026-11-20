@@ -2059,7 +2059,7 @@ function cardDetail(box, c, { current, saved, heading = true, closer = null }) {
   cardThumbs(thumbs, c, current).catch(() => {});
   return title;
 }
-/* Replay thumbnails exist only when the phone separately kept them (24 hours). */
+/* Replay images exist only when the phone separately kept them (24 hours). */
 async function cardThumbs(holder, c, current) {
   const now = Date.now();
   const from = c.start_ms, to = Math.min(c.end_ms, now);
@@ -2069,13 +2069,17 @@ async function cardThumbs(holder, c, current) {
   if (!images.length || !current()) return;
   const grid = el("div", null, "thumb-grid");
   images.forEach((i) => {
+    const link = el("a");
+    link.href = `/v1/replay/${encodeURIComponent(i.id)}/image`;
+    link.target = "_blank";
+    link.rel = "noopener";
     const img = el("img");
-    img.src = `/v1/replay/${encodeURIComponent(i.id)}/image`;
+    img.src = link.href;
     img.alt = `${appName(i.app)} ${time(i.at_ms)} 的截圖`;
     img.loading = "lazy";
-    add(grid, img);
+    add(grid, add(link, img));
   });
-  add(holder, el("h3", "截圖"), grid, el("p", "手機另外同意保存的回放縮圖，保留 24 小時。", "hint"));
+  add(holder, el("h3", "截圖"), grid, el("p", "點選截圖可在新分頁查看完整尺寸。截圖保留 24 小時。", "hint"));
 }
 function editCard(c) {
   modal(cardTitle(c), (p) => {

@@ -475,7 +475,15 @@ pub fn process_with_provider(
     };
     result.map_err(|_| "context processing failed")
 }
-type ContextRow = (String, String, i64, Option<String>, Option<String>, bool);
+struct ContextRow {
+    id: String,
+    text: String,
+    consent: i64,
+    has_image: bool,
+    provider_id: Option<String>,
+    processed: bool,
+}
+
 const MAX_CONTEXTS: i64 = 200;
 const MAX_IMAGES: usize = 6;
 const MAX_EVIDENCE_CHARS: usize = 12_000;
@@ -529,42 +537,42 @@ fn run(db: &mut Connection, provider: Option<&Provider>) -> Result<usize> {
         // All retained evidence for the session, so late uploads re-summarize the whole
         // activity rather than overwriting it with a partial view. Sessions are at most
         // 20 minutes, about one capture every ten seconds.
-        let contexts:Vec<ContextRow>=db.prepare("SELECT o.id,o.text,o.consent,o.jpeg_base64,o.provider_id,o.processed FROM observations o JOIN activities a ON a.id=? AND o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms ORDER BY o.at_ms LIMIT ?").map_err(storage_error)?
-            .query_map(params![&id, MAX_CONTEXTS],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
-        if !contexts.iter().any(|c| !c.5) {
+        let contexts:Vec<ContextRow>=db.prepare("SELECT o.id,o.text,o.consent,o.jpeg_base64 IS NOT NULL,o.provider_id,o.processed FROM observations o JOIN activities a ON a.id=? AND o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms ORDER BY o.at_ms LIMIT ?").map_err(storage_error)?
+            .query_map(params![&id, MAX_CONTEXTS],|r|Ok(ContextRow {
+                id: r.get(0)?, text: r.get(1)?, consent: r.get(2)?, has_image: r.get(3)?,
+                provider_id: r.get(4)?, processed: r.get(5)?,
+            })).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
+        if !contexts.iter().any(|c| !c.processed) {
             continue;
         }
-        let text = evidence_text(contexts.iter().map(|c| c.1.as_str()));
+        let text = evidence_text(contexts.iter().map(|c| c.text.as_str()));
         // Legacy per-capture consent still works; otherwise the owner's automatic switch applies.
         let consented = provider.is_some_and(|p| {
             contexts
                 .iter()
-                .filter(|c| !c.5)
-                .all(|c| c.2 == 2 && c.4 == p.id)
+                .filter(|c| !c.processed)
+                .all(|c| c.consent == 2 && c.provider_id == p.id)
         });
         let automatic = !consented && provider.is_some_and(|p| p.automatic());
-        let eligible = provider.is_some_and(|p| p.current()) && (consented || automatic);
-        // Decode only here, outside the HTTP process, with strict JPEG dimensions/allocation bounds.
-        let images = spread(
-            contexts
-                .iter()
-                .filter_map(|c| c.3.as_ref())
-                .filter(|jpeg| valid_jpeg(jpeg))
-                .cloned()
-                .collect(),
-            MAX_IMAGES,
-        );
+        let mut images = Vec::new();
+        if provider.is_some_and(|p| p.image_support && p.current() && (consented || automatic)) {
+            // Read only the sampled image payloads and decode them one at a time.
+            for context in spread(
+                contexts.iter().filter(|c| c.has_image).collect(),
+                MAX_IMAGES,
+            ) {
+                images.extend(crate::screenshots::load_model_jpeg(db, &context.id)?);
+            }
+        }
         let current_epoch: i64 = db
             .query_row("SELECT epoch FROM journal_meta", [], |r| r.get(0))
             .map_err(storage_error)?;
         if current_epoch != epoch {
             break;
         }
-        let result = if eligible {
-            provider.map(|p| p.summarize(&app, &text, &images))
-        } else {
-            None
-        };
+        let result = provider
+            .filter(|p| p.current() && (consented || automatic && p.automatic()))
+            .map(|p| p.summarize(&app, &text, &images));
         if matches!(result, Some(Err(()))) && attempts < 4 {
             db.execute(
                 "UPDATE analysis_jobs SET next_ms=? WHERE id=?",
@@ -609,7 +617,7 @@ fn run(db: &mut Connection, provider: Option<&Provider>) -> Result<usize> {
         let exists: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM observations WHERE id=?)",
-                [&contexts[0].0],
+                [&contexts[0].id],
                 |r| r.get(0),
             )
             .map_err(storage_error)?;
@@ -623,7 +631,7 @@ fn run(db: &mut Connection, provider: Option<&Provider>) -> Result<usize> {
         for context in contexts {
             tx.execute(
                 "UPDATE observations SET processed=1 WHERE id=?",
-                [context.0],
+                [context.id],
             )
             .map_err(storage_error)?;
         }
@@ -1082,71 +1090,6 @@ mod pipeline_tests {
         assert_eq!(count(&db, "analysis_jobs"), 0);
         drop(db);
         std::fs::remove_file(path).unwrap();
-    }
-}
-
-// Parsing untrusted images is confined to the worker binary in deployment. Only JPEG is supported.
-fn decode_jpeg(value: &str) -> Option<image::DynamicImage> {
-    use base64::Engine;
-    if value.len() > crate::journal::MAX_JPEG_BASE64 {
-        return None;
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(value)
-        .ok()?;
-    if bytes.len() > 300 * 1024 {
-        return None;
-    }
-    let mut reader =
-        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Jpeg);
-    let mut limits = image::Limits::default();
-    // Phones send at most 720 px on the long edge; allow headroom for rotated frames.
-    limits.max_image_width = Some(1440);
-    limits.max_image_height = Some(1440);
-    limits.max_alloc = Some(16 * 1024 * 1024);
-    reader.limits(limits);
-    reader.decode().ok()
-}
-pub(super) fn valid_jpeg(value: &str) -> bool {
-    decode_jpeg(value).is_some()
-}
-pub(crate) fn sanitize_jpeg(value: &str) -> Option<String> {
-    use base64::Engine;
-    let image = decode_jpeg(value)?.thumbnail(480, 480);
-    for quality in [60, 40, 25] {
-        let mut bytes = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality)
-            .encode_image(&image)
-            .ok()?;
-        if bytes.len() <= 24 * 1024 {
-            return Some(base64::engine::general_purpose::STANDARD.encode(bytes));
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod image_tests {
-    use super::*;
-    use base64::Engine;
-    fn jpeg(width: u32, height: u32) -> String {
-        let mut bytes = Vec::new();
-        let image = image::RgbImage::new(width, height);
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 30)
-            .encode_image(&image)
-            .unwrap();
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    }
-    #[test]
-    fn worker_restricts_image_type_dimensions_and_encoded_size() {
-        assert!(valid_jpeg(&jpeg(16, 16)));
-        assert!(valid_jpeg(&jpeg(720, 1440)));
-        assert!(!valid_jpeg(&jpeg(1500, 1)));
-        assert!(!valid_jpeg("not base64!"));
-        assert!(!valid_jpeg(
-            &base64::engine::general_purpose::STANDARD.encode(b"not a jpeg")
-        ));
-        assert!(!valid_jpeg(&"A".repeat(400_001)));
     }
 }
 
