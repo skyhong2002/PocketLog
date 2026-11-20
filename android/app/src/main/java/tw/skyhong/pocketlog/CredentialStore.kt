@@ -36,8 +36,9 @@ class CredentialStore(context: Context) {
             .putString("ciphertext", Base64.encodeToString(encrypted, Base64.NO_WRAP)).commit())
     }
     fun load(): Credentials? {
-        val encrypted = preferences.getString("ciphertext", null) ?: return null
-        val iv = preferences.getString("iv", null) ?: error("Connection needs resetting")
+        val snapshot = preferences.all
+        val encrypted = snapshot["ciphertext"] as? String ?: return null
+        val iv = snapshot["iv"] as? String ?: error("Connection needs resetting")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP))) }
         val clear = cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP))
         try {

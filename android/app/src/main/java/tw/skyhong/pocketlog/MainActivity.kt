@@ -10,12 +10,18 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.InsetDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextUtils
+import android.text.SpannableStringBuilder
+import android.text.style.ImageSpan
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -68,6 +74,7 @@ class MainActivity : Activity() {
     private lateinit var shell: LinearLayout
     private lateinit var header: LinearLayout
     private lateinit var headerDivider: View
+    private lateinit var timelineDateBar: LinearLayout
     /** Short date/period that the sticky header shows once the page is scrolled. */
     private var headerSubtitle: TextView? = null
     private var stickyPeriod: String? = null
@@ -81,12 +88,14 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     /** Update checks and downloads never wait behind journal reads. */
+    private val statusExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updateChecking = false
     private val appNames = LocalAppNames()
     private val appIcons = android.util.LruCache<String, Bitmap>(LocalAppNames.MAX_PACKAGES)
+    private val fallbackIcons = android.util.LruCache<String, Bitmap>(LocalAppNames.MAX_PACKAGES)
     private var busy = false
-    private var generation = 0
+    @Volatile private var generation = 0
     private var statusVersion = 0
     private var navWanted = false
     private var barsBottom = 0
@@ -106,6 +115,7 @@ class MainActivity : Activity() {
     /** Last known server state of automatic AI summaries; null until read (or offline). */
     private var aiAutomatic: Boolean? = null
     private var aiConfigured: Boolean? = null
+    private var waitingCaptures = 0
     /** Visible result of the last 測試並儲存, shown once on the AI page. */
     private var aiResult: Pair<String, Kind>? = null
     private var day = TimelineMath.journalDay()
@@ -137,8 +147,6 @@ class MainActivity : Activity() {
             pendingAsk = it.ask; pendingBrief = it.brief; exportBytes = it.export
         }
         applyScreenProtection()
-        // Upgrade path: existing screen-context grants include screenshots by default.
-        runCatching { synchronized(SyncEngine.lock) { RecordingSettings(this).applyScreenshotDefault() } }
         window.setDecorFitsSystemWindows(false)
         ui = Ui(this)
         restoreTab = state?.getString("tab")?.let { name -> Tab.entries.firstOrNull { it.name == name } }
@@ -178,8 +186,12 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         // Observe permission restoration before the next normal scan; never query old events here.
-        executor.execute {
-            runCatching { synchronized(SyncEngine.lock) { UsageCollector(this@MainActivity).reconcilePermission() } }
+        statusExecutor.execute {
+            runCatching { synchronized(SyncEngine.lock) {
+                // Upgrade path: existing screen-context grants include screenshots by default.
+                RecordingSettings(this).applyScreenshotDefault()
+                UsageCollector(this@MainActivity).reconcilePermission()
+            } }
                 .onFailure { runOnUiThread { if (!isDestroyed) notice("無法更新權限狀態，請稍後再同步一次。", Kind.ERROR) } }
         }
         // Returning from Android permission screens: show the new permission state.
@@ -203,6 +215,8 @@ class MainActivity : Activity() {
             setPadding(ui.dp(8), ui.dp(6), ui.dp(12), ui.dp(6))
         }
         shell.addView(header, ui.lp())
+        timelineDateBar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        shell.addView(timelineDateBar, ui.lp())
         // A divider appears once content scrolls under the header, so text is never visually cut.
         headerDivider = View(this@MainActivity).apply { setBackgroundColor(Palette.BORDER); visibility = View.INVISIBLE }
         shell.addView(headerDivider, ui.lp(height = 1))
@@ -218,7 +232,10 @@ class MainActivity : Activity() {
         // Keep a readable column on tablets and landscape; phones keep the 16 dp gutter.
         scroll.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
             val side = maxOf(ui.dp(16), (right - left - ui.dp(720)) / 2)
-            if (page.paddingLeft != side) page.post { page.setPadding(side, page.paddingTop, side, page.paddingBottom) }
+            if (page.paddingLeft != side) page.post {
+                page.setPadding(side, page.paddingTop, side, page.paddingBottom)
+                timelineDateBar.setPadding(side, 0, side, 0)
+            }
         }
         shell.addView(scroll, ui.lp(height = 0, weight = 1f))
 
@@ -289,6 +306,7 @@ class MainActivity : Activity() {
         if (tab != null) this.tab = tab
         refreshOnResume = refresh
         header.removeAllViews()
+        timelineDateBar.removeAllViews(); timelineDateBar.visibility = View.GONE
         when {
             back != null -> header.addView(iconButton(R.drawable.ic_back, "返回") { handleBack() })
             logo -> header.addView(ui.logo(36).apply { (layoutParams as LinearLayout.LayoutParams).setMargins(ui.dp(8), 0, ui.dp(12), 0) })
@@ -378,6 +396,7 @@ class MainActivity : Activity() {
         val token = generation
         slot.removeAllViews(); ui.spinnerRow(slot, message)
         executor.execute {
+            if (token != generation) return@execute
             val result = runCatching(work)
             runOnUiThread {
                 if (token != generation || isDestroyed || isFinishing) return@runOnUiThread
@@ -663,7 +682,7 @@ class MainActivity : Activity() {
     private fun boot() {
         val body = screen("PocketLog", "私人活動日誌", nav = false, logo = true)
         val slot = ui.column(body)
-        load(slot, "開啟加密的連線資料…", { synchronized(SyncEngine.lock) { CredentialStore(this@MainActivity).load() } }) { saved ->
+        load(slot, "開啟加密的連線資料…", { CredentialStore(this@MainActivity).load() }) { saved ->
             credentials = saved
             if (saved == null) setup() else { SyncEngine.schedule(this@MainActivity); enterWorkspace() }
         }
@@ -673,7 +692,7 @@ class MainActivity : Activity() {
 
     private fun confirmReset(title: String = "重設這支手機？", message: String = "金鑰失效或連線資料損毀時使用。會停止記錄、刪除還沒上傳的資料，然後重新連線。伺服器上的記錄不會被刪除。") {
         dialog().setTitle(title).setMessage(message).setNegativeButton("取消", null).setPositiveButton("清除並重新設定") { _, _ ->
-            task("清除這支手機的資料…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); CredentialStore(this@MainActivity).clear(); RecordingSettings(this@MainActivity).clearRejectedCredentials() } }) {
+            task("清除這支手機的資料…", { SyncEngine.clearLocal(this@MainActivity) { CredentialStore(this@MainActivity).clear(); RecordingSettings(this@MainActivity).clearRejectedCredentials() } }) {
                 clearDrafts(); credentials = null; workspace = null; loaded = null; aiAutomatic = null; aiConfigured = null; setup(); notice("已清除這支手機的連線與待上傳資料；伺服器上的記錄仍保留。", Kind.INFO)
             }
         }.showSecure()
@@ -800,26 +819,38 @@ class MainActivity : Activity() {
 
     private fun home() {
         loaded = null
-        val body = screen("時間軸", null, Tab.TIMELINE, refresh = null,
-            action = Triple(R.drawable.ic_sync, "重新整理") { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { home() } })
-        stickyPeriod = dateTitle(day)
-        dateNav(body) { day = it; home() }
+        val selected = day
+        lateinit var slot: LinearLayout
+        val body = screen("時間軸", null, Tab.TIMELINE,
+            action = Triple(R.drawable.ic_sync, "重新整理") {
+                SyncEngine.schedule(this@MainActivity)
+                if (loaded == null) home() else reloadTimeline(slot, { api().request(dayPath(selected)) }, { readJournal(dayPath(selected)) })
+            })
+        timelineDateBar.visibility = View.VISIBLE
+        dateNav(timelineDateBar) { day = it; home() }
         ui.button(body, "搜尋活動", Tone.OUTLINE) { openSearchDialog() }.apply {
             layoutParams = wrap(); setPadding(ui.dp(16), 0, ui.dp(16), 0)
         }
         val status = ui.column(body)
-        val slot = ui.column(body)
+        slot = ui.column(body)
         refreshOnResume = { statusLine(status) }
-        load(slot, "讀取時間軸…", {
-            val latest = runCatching { api().request("/v1/workspace") }.getOrNull()
-            latest to readJournal(dayPath())
-        }) { (latest, data) ->
-            if (latest != null) workspace = latest
+        load(slot, "讀取時間軸…", { readJournal(dayPath(selected)) }) { data ->
             renderTimeline(slot, data)
             startTimelineWatch(slot, data)
-            statusLine(status)
+            statusLine(status, query = false)
         }
-        statusLine(status)
+        statusLine(status) { latest ->
+            val previous = workspace?.optLong("revision")
+            workspace = latest
+            val data = loaded
+            if (data != null && previous != latest.optLong("revision")) {
+                val y = scroll.scrollY
+                slot.removeAllViews()
+                renderTimeline(slot, data, false)
+                startTimelineWatch(slot, data)
+                slot.post { if (slot.isAttachedToWindow) scroll.scrollTo(0, y) }
+            }
+        }
     }
 
     private data class SearchResult(
@@ -915,8 +946,7 @@ class MainActivity : Activity() {
     }
 
     /** The one tappable status line. Local state renders at once; AI and upload counts follow. */
-    /** The one tappable status line. Local state renders at once; AI and upload counts follow. */
-    private fun statusLine(parent: LinearLayout) {
+    private fun statusLine(parent: LinearLayout, query: Boolean = true, workspaceUpdated: ((JSONObject) -> Unit)? = null) {
         val token = generation
         val s = RecordingSettings(this)
         fun draw(waiting: Int) {
@@ -941,14 +971,25 @@ class MainActivity : Activity() {
             row.contentDescription = text
             parent.addView(row, ui.lp(bottom = 12))
         }
-        draw(0)
-        if (credentials == null) return
-        executor.execute {
-            val waiting = runCatching { synchronized(SyncEngine.lock) { SyncEngine.waitingCaptures(this) } }.getOrDefault(0)
-            val ai = runCatching { api().request("/v1/ai") }.getOrNull()
+        draw(waitingCaptures)
+        if (!query) return
+        val connection = credentials ?: return
+        statusExecutor.execute {
+            if (token != generation) return@execute
+            val waiting = runCatching { SyncEngine.waitingCaptures(this) }.getOrDefault(0)
+            val ai = runCatching { PocketLogApi(connection).request("/v1/ai") }.getOrNull()
             runOnUiThread {
-                if (ai != null) rememberAi(ai)
-                if (token == generation && !isDestroyed && parent.isAttachedToWindow) draw(waiting)
+                if (token == generation && !isDestroyed && parent.isAttachedToWindow) {
+                    if (ai != null) rememberAi(ai)
+                    waitingCaptures = waiting
+                    draw(waiting)
+                }
+            }
+            if (workspaceUpdated != null && token == generation) {
+                val latest = runCatching { PocketLogApi(connection).request("/v1/workspace") }.getOrNull()
+                runOnUiThread {
+                    if (latest != null && token == generation && !isDestroyed && parent.isAttachedToWindow) workspaceUpdated(latest)
+                }
             }
         }
     }
@@ -1018,28 +1059,36 @@ class MainActivity : Activity() {
     }
 
     private fun reloadTimeline(slot: LinearLayout, checkRead: () -> JSONObject, reloadRead: () -> JSONObject) {
-        timelineWatch?.close(); timelineWatch = null
-        val outerY = scroll.scrollY
-        load(slot, "讀取最新活動…", reloadRead) { fresh ->
-            renderTimeline(slot, fresh)
-            startTimelineWatch(slot, fresh, checkRead, reloadRead)
-            slot.post {
-                scroll.scrollTo(0, outerY)
-                slot.isFocusableInTouchMode = true; slot.requestFocus()
+        if (busy) return
+        task("正在更新活動…", reloadRead, failed = { error ->
+            if (error is ApiFailure && error.status in setOf(401, 403)) {
+                loaded = null
+                timelineWatch?.close()
+                timelineWatch = null
+                slot.removeAllViews()
+                ui.empty(slot, "無法載入", describe(error), "重試") { home() }
             }
+        }) { fresh ->
+            val outerY = scroll.scrollY
+            slot.removeAllViews()
+            renderTimeline(slot, fresh, false)
+            startTimelineWatch(slot, fresh, checkRead, reloadRead)
+            slot.post { if (slot.isAttachedToWindow) scroll.scrollTo(0, outerY) }
         }
     }
 
-    private fun renderTimeline(slot: LinearLayout, data: JSONObject) {
+    private fun renderTimeline(slot: LinearLayout, data: JSONObject) = renderTimeline(slot, data, true)
+
+    private fun renderTimeline(slot: LinearLayout, data: JSONObject, jumpToActivity: Boolean) {
         loaded = data
         if (data.optBoolean("offline")) ui.banner(slot, "離線中：顯示手機上的副本，伺服器可能有更新。", Kind.WARN)
         if (data.optBoolean("truncated")) ui.banner(slot, "這天的資料太多，只顯示一部分，統計可能不完整。", Kind.WARN)
         if (data.optBoolean("pending_card_edits")) ui.banner(slot, "你的修改已存在手機，正在等待上傳。", Kind.INFO)
         val list = cardsOf(data)
-        if (list.isEmpty()) { emptyDay(slot); return }
+        if (list.isEmpty()) emptyDay(slot)
 
         // Day summary: recorded time and one stacked category bar labelled by its top categories.
-        ui.card(slot).apply {
+        if (list.isNotEmpty()) ui.card(slot).apply {
             val tracked = TimelineMath.covered(intervals(list))
             ui.text(this, "已記錄 ${TimelineMath.duration(tracked)}", 20f, bold = true)
             val all = totals(list)
@@ -1061,31 +1110,29 @@ class MainActivity : Activity() {
         val head = ui.horizontal(slot, 8).apply { (layoutParams as LinearLayout.LayoutParams).bottomMargin = ui.dp(12) }
         val count = ui.text(head, "", 16f, bold = true).apply { layoutParams = ui.lp(0, weight = 1f) }
         lateinit var filter: Button
-        val holder = ui.column(slot)
+        val from = TimelineMath.dayStart(day, zone)
+        val to = TimelineMath.dayStart(day.plusDays(1), zone)
+        val axis = DayTimelineView(this, from, to)
+        var shown = emptyList<JSONObject>()
+        val hourMs = 3_600_000L
+        for (at in generateSequence(from) { (it + hourMs).takeIf { next -> next < to } } + sequenceOf(to)) {
+            val tick = ui.text(null, clock(at), 13f, Palette.MUTED).apply {
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                contentDescription = if (at == to) "隔天 ${clock(at)}" else clock(at)
+                isAccessibilityHeading = true
+                if (at < to) setOnClickListener {
+                    val rows = shown.filter { it.getLong("start_ms") < at + hourMs && it.getLong("end_ms") > at }
+                    if (rows.isNotEmpty()) hourDetails(clock(at), rows)
+                }
+            }
+            axis.addTick(at, tick)
+        }
         fun draw() {
-            val shown = list.filter { categoryFilter == null || it.getString("category") == categoryFilter }
+            shown = list.filter { categoryFilter == null || it.getString("category") == categoryFilter }
             count.text = if (categoryFilter == null) "${list.size} 張活動卡" else "${shown.size} / ${list.size} 張活動卡"
             filter.text = "篩選：${categoryFilter?.let(::label) ?: "全部"} ▾"
-            holder.removeAllViews()
-            var pastMidnight = false
-            val groups = TimelineMath.collapse(shown.map { TimelineMath.Slot(it.optString("app"), it.getLong("start_ms"), it.getLong("end_ms"),
-                it.optString("source") == "app_only" && !it.optBoolean("pending_context") && !it.optBoolean("pending_edit") && !it.optBoolean("protected_screen"),
-                it.getString("category")) })
-            groups.forEachIndexed { i, members ->
-                val card = shown[members.first()]
-                val late = TimelineMath.afterMidnight(day, zone, card.getLong("start_ms"))
-                if (late && !pastMidnight) {
-                    pastMidnight = true
-                    // Neutral grey divider before cards after midnight.
-                    val divider = ui.horizontal(holder, 8).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = ui.dp(if (i > 0) 4 else 0); bottomMargin = ui.dp(8) } }
-                    divider.addView(View(this@MainActivity).apply { setBackgroundColor(Palette.BORDER) }, ui.lp(0, 1, weight = 1f))
-                    ui.text(divider, "隔天凌晨", 12f, Palette.MUTED).apply {
-                        isAccessibilityHeading = true; background = ui.shape(Palette.HAIRLINE, 10f); setPadding(ui.dp(10), ui.dp(2), ui.dp(10), ui.dp(2))
-                    }.layoutParams = wrap()
-                    divider.addView(View(this@MainActivity).apply { setBackgroundColor(Palette.BORDER) }, ui.lp(0, 1, weight = 1f))
-                }
-                if (members.size > 1) groupRow(holder, members.map { shown[it] }) else cardRow(holder, card)
-            }
+            val times = intervals(shown)
+            axis.setBlocks(times.zip(TimelineMath.lanes(times)), shown.map(::timelineBlock))
         }
         filter = ui.button(head, "", Tone.CHIP) {
             val options = listOf<String?>(null) + present
@@ -1095,6 +1142,94 @@ class MainActivity : Activity() {
                 }.setNegativeButton("取消", null).showSecure()
         }.apply { layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(38)); minHeight = ui.dp(38); minimumHeight = ui.dp(38); setPadding(ui.dp(14), 0, ui.dp(14), 0); textSize = 13f }
         draw()
+        slot.addView(axis, ui.lp())
+        if (jumpToActivity && list.isNotEmpty() && page.indexOfChild(slot) >= 0) {
+            val anchor = if (day == journalDay()) list.last() else list.first()
+            val start = anchor.getLong("start_ms")
+            val hour = from + ((start - from).coerceAtLeast(0) / hourMs) * hourMs
+            val token = generation
+            axis.post {
+                if (token == generation && axis.isAttachedToWindow && scroll.scrollY == 0) {
+                    scroll.scrollTo(0, slot.top + axis.top + axis.y(hour) - ui.dp(24))
+                }
+            }
+        }
+    }
+
+    private fun timelineIcon(app: String, category: String): Bitmap? {
+        if (app.isBlank()) return null
+        appIcons.get(app)?.let { return it }
+        fallbackIcons.get(app)?.let { return it }
+        val size = ui.dp(18)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = Palette.tint(appColor(app, category), .25f)
+        val radius = ui.dp(5).toFloat()
+        canvas.drawRoundRect(0f, 0f, size.toFloat(), size.toFloat(), radius, radius, paint)
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = size * .64f
+        paint.color = Palette.INK
+        val name = appNames.name(app)
+        canvas.drawText(name.substring(0, name.offsetByCodePoints(0, 1)),
+            size / 2f, (size - paint.ascent() - paint.descent()) / 2f, paint)
+        fallbackIcons.put(app, bitmap)
+        return bitmap
+    }
+
+    private fun timelineBlock(card: JSONObject): View {
+        val app = card.optString("app")
+        val title = cardTitle(card)
+        val start = card.getLong("start_ms")
+        val end = card.getLong("end_ms")
+        val range = timeRange(start, end)
+        val category = card.getString("category")
+        val badges = badges(card)
+        val fill = Palette.tint(colorFor(category), .14f)
+        val stripe = ui.dp(4)
+        val surface = LayerDrawable(arrayOf(ui.shape(appColor(app, category), 5f),
+            InsetDrawable(ui.shape(fill, 4f), stripe, 0, 0, 0)))
+        return TextView(this).apply {
+            textSize = 13f
+            setTextColor(Palette.INK)
+            gravity = Gravity.TOP
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            val height = TimelineMath.timeOffset(start, end, ui.dp(DayTimelineView.HOUR_DP))
+            val line = lineHeight
+            val padding = if (height >= line + ui.dp(8)) ui.dp(4) else 0
+            setPadding(ui.dp(9), padding, ui.dp(4), 0)
+            if (height >= line) {
+                val caption = SpannableStringBuilder()
+                timelineIcon(app, category)?.let { bitmap ->
+                    val icon = BitmapDrawable(resources, bitmap).apply { setBounds(0, 0, ui.dp(14), ui.dp(14)) }
+                    caption.append("  ")
+                    caption.setSpan(ImageSpan(icon, ImageSpan.ALIGN_BASELINE), 0, 1, 0)
+                }
+                caption.append(title)
+                if (height >= line * 2 + padding) {
+                    caption.append("\n").append(clock(start)).append("–").append(clock(end))
+                    badges.firstOrNull()?.let { caption.append(" · ").append(it) }
+                }
+                text = caption
+            }
+            background = ui.ripple(surface, 5f)
+            contentDescription = (listOf(title, range, label(category)) + badges).joinToString("，")
+            isFocusable = true
+            setOnClickListener { if (!busy) cardDetail(card) }
+        }
+    }
+
+    private fun hourDetails(hour: String, cards: List<JSONObject>) {
+        val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
+        ui.heading(content, hour)
+        lateinit var detail: android.app.Dialog
+        cards.forEach { card ->
+            val range = timeRange(card.getLong("start_ms"), card.getLong("end_ms"))
+            ui.row(content, cardTitle(card), range) { detail.dismiss(); cardDetail(card) }
+        }
+        detail = sheet(content)
     }
 
     private fun emptyDay(slot: LinearLayout) {
@@ -1145,39 +1280,6 @@ class MainActivity : Activity() {
         if (summary.isNotBlank()) ui.text(column, summary, 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         row.contentDescription = (listOfNotNull(title, time, label(category).takeIf { showCategory }) + badges + summary).filter { it.isNotBlank() }.joinToString("，")
         parent.addView(row, ui.lp(bottom = 12))
-    }
-
-    /** Several short app-only uses of one app shown as one card: `N 次 · 總時長`; tap lists them. */
-    private fun groupRow(parent: LinearLayout, cards: List<JSONObject>) {
-        val first = cards.first(); val start = first.getLong("start_ms"); val end = cards.last().getLong("end_ms")
-        val total = cards.sumOf { it.getLong("end_ms") - it.getLong("start_ms") }
-        val title = cardTitle(first)
-        val app = first.optString("app")
-        val category = first.getString("category")
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; minimumHeight = ui.dp(56)
-            isClickable = true; isFocusable = true; clipToOutline = true
-            background = ui.ripple(ui.shape(Palette.PAPER, 14f, Palette.BORDER), 14f); setOnClickListener { if (!busy) groupDetail(cards) }
-        }
-        row.addView(View(this).apply { setBackgroundColor(appColor(app, category)) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
-        val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f); setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(10)) }
-        val meta = ui.flow(column, 6).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0; bottomMargin = ui.dp(4) } }
-        val time = "${clock(start)}–${clock(end)} · ${cards.size} 次 · ${TimelineMath.duration(total)}"
-        ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        if (category != "unsorted") categoryChip(meta, category)
-        appTitle(column, app, title, category, 17f, bold = true)
-        row.contentDescription = listOfNotNull(title, time, label(category).takeIf { category != "unsorted" }, "點開看每一次").joinToString("，")
-        parent.addView(row, ui.lp(bottom = 12))
-    }
-
-    private fun groupDetail(cards: List<JSONObject>) {
-        val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
-        val first = cards.first()
-        appTitle(content, first.optString("app"), cardTitle(first), first.getString("category"), 19f, bold = true)
-        ui.text(content, "${cards.size} 次 · ${TimelineMath.duration(cards.sumOf { it.getLong("end_ms") - it.getLong("start_ms") })}", 14f, Palette.INK, top = 4, bottom = 8)
-        lateinit var list: android.app.Dialog
-        cards.forEach { card -> ui.row(content, timeRange(card.getLong("start_ms"), card.getLong("end_ms")), null) { list.dismiss(); cardDetail(card) } }
-        list = sheet(content)
     }
 
     /** Soft category chip with a colour dot. */
@@ -1784,7 +1886,7 @@ class MainActivity : Activity() {
             }
             quietAction(deletes, "永久刪除伺服器上的全部記錄", Palette.DANGER) {
                 confirm("永久刪除全部記錄？", "會刪除伺服器上所有活動、截圖與文字，並停止記錄、清除這支手機的待上傳資料。無法復原。", "全部刪除") {
-                    task("刪除中…", { synchronized(SyncEngine.lock) { SyncEngine.clearLocal(this@MainActivity); api().request("/v1/journal", method = "DELETE") } }) { clearDrafts(); settings(); notice("已刪除伺服器上的全部記錄，記錄已停止。", Kind.INFO) }
+                    task("刪除中…", { SyncEngine.clearLocal(this@MainActivity) { api().request("/v1/journal", method = "DELETE") } }) { clearDrafts(); settings(); notice("已刪除伺服器上的全部記錄，記錄已停止。", Kind.INFO) }
                 }
             }
         }
@@ -2083,7 +2185,7 @@ class MainActivity : Activity() {
         }
         ui.groupLabel(body, "時間軸沒有活動時")
         ui.card(body).apply {
-            ui.body(this, "1. 確認「設定 → 記錄 → 自動記錄」已開啟，兩個 Android 權限都已允許。\n2. 確認這個 app 有在「記錄哪些 app」裡，而且沒有被排除。\n3. app 使用時段大約每 15 分鐘整理一次，由 Android 決定時間；可在時間軸右上角同步。\n4. 截圖要等充電時才上傳，AI 整理後活動卡才會有標題與摘要。\n5. 換了 AI 設定後，要重新打開「自動整理新截圖」。")
+            ui.body(this, "1. 確認「設定 → 記錄 → 自動記錄」已開啟，兩個 Android 權限都已允許。\n2. 確認這個 app 有在「記錄哪些 app」裡，而且沒有被排除。\n3. app 使用時段大約每 15 分鐘整理一次，由 Android 決定時間；可在設定的同步區手動上傳。\n4. 截圖要等充電時才上傳，AI 整理後活動卡才會有標題與摘要。\n5. 換了 AI 設定後，要重新打開「自動整理新截圖」。")
         }
         ui.groupLabel(body, "目前限制")
         ui.card(body).apply {
@@ -2711,7 +2813,7 @@ class MainActivity : Activity() {
         replayDialog?.dismiss(); replayDialog = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
-        executor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
+        executor.shutdown(); statusExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
         super.onDestroy()
     }
 }

@@ -28,8 +28,23 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
     // Timeline reads need all retained writes, including edits behind the upload batch.
     internal fun pendingReflections(credentials: Credentials): List<Entry> =
         readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections"))
-    internal fun pendingJournalEdits(credentials: Credentials): List<Entry> =
-        readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections", "/v1/cards"))
+    /** Read-only snapshot for timeline reads. An upload can acknowledge a file while we read it. */
+    internal fun pendingJournalEdits(credentials: Credentials, now: Long = System.currentTimeMillis()): List<Entry> {
+        val target = destination(credentials)
+        val editPaths = setOf("/v1/reflections", "/v1/cards")
+        return files.names("q_").asSequence().filter { name ->
+            val at = name.split('_', limit = 3).getOrNull(1)?.toLongOrNull() ?: 0
+            !name.endsWith(CONTEXT_SUFFIX) && at > now - RecordingRules.RAW_TTL && at <= now + 60_000
+        }.mapNotNull { name ->
+            val bytes = runCatching { files.read(name) }.getOrNull() ?: return@mapNotNull null
+            try {
+                val data = JSONObject(String(bytes, Charsets.UTF_8))
+                if (data.optString("destination") == target && data.optString("path") in editPaths) {
+                    Entry(name, data)
+                } else null
+            } catch (_: Exception) { null } finally { bytes.fill(0) }
+        }.take(RecordingRules.MAX_QUEUE_RECORDS).toList()
+    }
     private fun readEntries(credentials: Credentials, limit: Int, paths: Set<String>? = null, skipObservations: Boolean = false): List<Entry> {
         prune()
         val skipContext = skipObservations || (paths != null && CONTEXT_PATH !in paths)
