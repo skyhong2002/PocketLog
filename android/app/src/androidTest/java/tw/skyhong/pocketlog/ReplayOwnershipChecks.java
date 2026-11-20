@@ -76,8 +76,8 @@ final class ReplayOwnershipChecks {
     }
     private void show(Bitmap bitmap) throws Exception {
         JSONObject item=new JSONObject().put("id","synthetic-owned-media").put("app","org.example.synthetic").put("at_ms",System.currentTimeMillis());
-        Method method=MainActivity.class.getDeclaredMethod("showReplayBitmap",Bitmap.class,JSONObject.class);method.setAccessible(true);
-        test.runOnMainSync(()->{try {method.invoke(activity,bitmap,item);}catch(Exception e){throw new RuntimeException(e);}});
+        Method method=MainActivity.class.getDeclaredMethod("showReplayBitmap",Bitmap.class,JSONObject.class,Function0.class);method.setAccessible(true);
+        test.runOnMainSync(()->{try {method.invoke(activity,bitmap,item,(Function0<Unit>) () -> Unit.INSTANCE);}catch(Exception e){throw new RuntimeException(e);}});
     }
     private AlertDialog preview() throws Exception { Field f=MainActivity.class.getDeclaredField("replayDialog");f.setAccessible(true);return (AlertDialog)f.get(activity); }
     private void settle() throws Exception { test.waitForIdleSync();Thread.sleep(300);test.waitForIdleSync(); }
