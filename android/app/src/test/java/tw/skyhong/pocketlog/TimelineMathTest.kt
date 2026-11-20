@@ -5,7 +5,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import tw.skyhong.pocketlog.TimelineMath.Interval
-import tw.skyhong.pocketlog.TimelineMath.Placement
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -51,16 +50,23 @@ class TimelineMathTest {
         assertFalse(TimelineMath.inHistory(today.plusDays(1), today))
     }
 
-    @Test fun overlappingIntervalsGetDistinctLanesWithoutWideningLaterCards() {
-        val placements = TimelineMath.lanes(listOf(Interval(0, 100), Interval(50, 150), Interval(120, 200), Interval(300, 400)))
-        assertEquals(Placement(0, 2), placements[0])
-        assertEquals(Placement(1, 2), placements[1])
-        assertEquals(Placement(0, 2), placements[2])
-        assertEquals(Placement(0, 1), placements[3])
-        // Caller order is preserved even if input is unsorted.
-        assertEquals(listOf(Placement(0, 1), Placement(0, 1)), TimelineMath.lanes(listOf(Interval(10, 20), Interval(0, 5))))
-        // Touching intervals do not overlap.
-        assertEquals(listOf(Placement(0, 1), Placement(0, 1)), TimelineMath.lanes(listOf(Interval(0, 10), Interval(10, 20))))
+    @Test fun denseHoursExpandAndEveryCardKeepsSpace() {
+        val hour = 3_600_000L
+        val positions = TimelineMath.readableAxis(
+            listOf(0, hour, hour * 2, hour * 3),
+            listOf(Interval(100, 220) to 60, Interval(200, 250) to 68, Interval(hour * 2 + 400, hour * 2 + 500) to 60),
+            96, 24, 6,
+        )
+        assertEquals(listOf(24, 170, 266, 362), positions.ticks)
+        assertEquals(listOf(30, 96, 272), positions.blocks)
+    }
+
+    @Test fun onlyShortNearbyAppRecordsAreGroupedInsideOneWindow() {
+        fun record(minute: Int, group: Boolean = true) =
+            TimelineMath.TimelineEntry(Interval(minute * 60_000L, minute * 60_000L + 20_000), group)
+        val entries = listOf(record(1), record(2), record(6), record(7, false), record(8), record(9), record(10))
+        assertEquals(listOf(listOf(0, 1), listOf(2), listOf(3), listOf(4, 5), listOf(6)),
+            TimelineMath.displayGroups(entries, 0))
     }
 
     @Test fun weeklyDurationClipsDateBoundariesAndMergesOverlap() {

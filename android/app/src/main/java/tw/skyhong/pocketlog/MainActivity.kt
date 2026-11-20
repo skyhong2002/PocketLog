@@ -11,7 +11,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.LayerDrawable
 import android.os.Bundle
@@ -20,8 +19,6 @@ import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextUtils
-import android.text.SpannableStringBuilder
-import android.text.style.ImageSpan
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -844,11 +841,7 @@ class MainActivity : Activity() {
             workspace = latest
             val data = loaded
             if (data != null && previous != latest.optLong("revision")) {
-                val y = scroll.scrollY
-                slot.removeAllViews()
-                renderTimeline(slot, data, false)
-                startTimelineWatch(slot, data)
-                slot.post { if (slot.isAttachedToWindow) scroll.scrollTo(0, y) }
+                replaceTimeline(slot, data) { startTimelineWatch(slot, data) }
             }
         }
     }
@@ -1069,11 +1062,22 @@ class MainActivity : Activity() {
                 ui.empty(slot, "無法載入", describe(error), "重試") { home() }
             }
         }) { fresh ->
-            val outerY = scroll.scrollY
-            slot.removeAllViews()
-            renderTimeline(slot, fresh, false)
-            startTimelineWatch(slot, fresh, checkRead, reloadRead)
-            slot.post { if (slot.isAttachedToWindow) scroll.scrollTo(0, outerY) }
+            replaceTimeline(slot, fresh) { startTimelineWatch(slot, fresh, checkRead, reloadRead) }
+        }
+    }
+
+    private fun replaceTimeline(slot: LinearLayout, data: JSONObject, watch: () -> Unit) {
+        val oldY = scroll.scrollY
+        val oldAxis = slot.findViewWithTag<DayTimelineView>("day-axis")
+        val anchor = oldAxis?.scrollAnchor(oldY - slot.top - oldAxis.top)
+        slot.removeAllViews()
+        renderTimeline(slot, data, false)
+        watch()
+        slot.post {
+            if (!slot.isAttachedToWindow) return@post
+            val axis = slot.findViewWithTag<DayTimelineView>("day-axis")
+            val y = if (axis != null && anchor != null) slot.top + axis.top + axis.scrollPosition(anchor) else oldY
+            scroll.scrollTo(0, y)
         }
     }
 
@@ -1112,7 +1116,7 @@ class MainActivity : Activity() {
         lateinit var filter: Button
         val from = TimelineMath.dayStart(day, zone)
         val to = TimelineMath.dayStart(day.plusDays(1), zone)
-        val axis = DayTimelineView(this, from, to)
+        val axis = DayTimelineView(this).apply { tag = "day-axis" }
         var shown = emptyList<JSONObject>()
         val hourMs = 3_600_000L
         for (at in generateSequence(from) { (it + hourMs).takeIf { next -> next < to } } + sequenceOf(to)) {
@@ -1129,10 +1133,20 @@ class MainActivity : Activity() {
         }
         fun draw() {
             shown = list.filter { categoryFilter == null || it.getString("category") == categoryFilter }
-            count.text = if (categoryFilter == null) "${list.size} 張活動卡" else "${shown.size} / ${list.size} 張活動卡"
-            filter.text = "篩選：${categoryFilter?.let(::label) ?: "全部"} ▾"
             val times = intervals(shown)
-            axis.setBlocks(times.zip(TimelineMath.lanes(times)), shown.map(::timelineBlock))
+            val entries = shown.zip(times).map { (card, time) ->
+                TimelineMath.TimelineEntry(time, card.optString("source") == "app_only" &&
+                    !card.optBoolean("pending_edit") && time.end - time.start <= 120_000)
+            }
+            val groups = TimelineMath.displayGroups(entries, from).map { members -> members.map(shown::get) }
+            count.text = "${groups.size} 張活動卡"
+            count.contentDescription = "${groups.size} 張活動卡，包含 ${shown.size} 筆紀錄"
+            filter.text = "篩選：${categoryFilter?.let(::label) ?: "全部"} ▾"
+            val windows = groups.map { cards ->
+                TimelineMath.Interval(cards.first().getLong("start_ms").coerceAtMost(to - 1),
+                    cards.maxOf { it.getLong("end_ms") })
+            }
+            axis.setBlocks(windows, groups.map(::timelineBlock))
         }
         filter = ui.button(head, "", Tone.CHIP) {
             val options = listOf<String?>(null) + present
@@ -1177,47 +1191,65 @@ class MainActivity : Activity() {
         return bitmap
     }
 
-    private fun timelineBlock(card: JSONObject): View {
-        val app = card.optString("app")
-        val title = cardTitle(card)
-        val start = card.getLong("start_ms")
-        val end = card.getLong("end_ms")
-        val range = timeRange(start, end)
-        val category = card.getString("category")
-        val badges = badges(card)
-        val fill = Palette.tint(colorFor(category), .14f)
-        val stripe = ui.dp(4)
-        val surface = LayerDrawable(arrayOf(ui.shape(appColor(app, category), 5f),
-            InsetDrawable(ui.shape(fill, 4f), stripe, 0, 0, 0)))
-        return TextView(this).apply {
-            textSize = 13f
-            setTextColor(Palette.INK)
-            gravity = Gravity.TOP
-            maxLines = 2
-            ellipsize = TextUtils.TruncateAt.END
-            includeFontPadding = false
-            val height = TimelineMath.timeOffset(start, end, ui.dp(DayTimelineView.HOUR_DP))
-            val line = lineHeight
-            val padding = if (height >= line + ui.dp(8)) ui.dp(4) else 0
-            setPadding(ui.dp(9), padding, ui.dp(4), 0)
-            if (height >= line) {
-                val caption = SpannableStringBuilder()
-                timelineIcon(app, category)?.let { bitmap ->
-                    val icon = BitmapDrawable(resources, bitmap).apply { setBounds(0, 0, ui.dp(14), ui.dp(14)) }
-                    caption.append("  ")
-                    caption.setSpan(ImageSpan(icon, ImageSpan.ALIGN_BASELINE), 0, 1, 0)
-                }
-                caption.append(title)
-                if (height >= line * 2 + padding) {
-                    caption.append("\n").append(clock(start)).append("–").append(clock(end))
-                    badges.firstOrNull()?.let { caption.append(" · ").append(it) }
-                }
-                text = caption
-            }
-            background = ui.ripple(surface, 5f)
-            contentDescription = (listOf(title, range, label(category)) + badges).joinToString("，")
+    private fun timelineBlock(cards: List<JSONObject>): View {
+        val first = cards.first()
+        val single = cards.size == 1
+        val start = first.getLong("start_ms")
+        val end = cards.maxOf { it.getLong("end_ms") }
+        val apps = cards.map { it.optString("app") }.distinct()
+        val app = apps.singleOrNull().orEmpty()
+        val names = apps.take(2).joinToString("、", transform = appNames::name)
+        val title = when {
+            single -> cardTitle(first)
+            apps.size == 1 -> "使用 $names"
+            apps.size == 2 -> names
+            else -> "${names}等 ${apps.size} 個 App"
+        }
+        val category = cards.map { it.getString("category") }.distinct().singleOrNull()
+        val summary = if (single) cardSummary(first) else ""
+        val badge = cards.firstOrNull { it.optBoolean("pending_context") }?.let { "AI 整理中" }
+            ?: if (single) badges(first).firstOrNull() else if (cards.any { it.optBoolean("protected_screen") }) "受保護畫面" else null
+        val meta = listOfNotNull(
+            "${clock(start)}–${clock(end)}",
+            if (single) TimelineMath.duration(end - start) else "${cards.size} 筆",
+            category?.takeUnless { it == "unsorted" }?.let(::label),
+            badge,
+        ).joinToString(" · ")
+        val categoryColor = category?.let(::colorFor) ?: Palette.FALLBACK_CATEGORY
+        val fill = Palette.tint(categoryColor, .20f)
+        val stripe = if (app.isNotBlank()) appColor(app, category ?: "unsorted") else categoryColor
+        val surface = LayerDrawable(arrayOf(ui.shape(stripe, 9f), InsetDrawable(ui.shape(fill, 7f), ui.dp(4), 0, 0, 0)))
+        return ui.column(null).apply {
+            background = ui.ripple(surface, 9f)
+            setPadding(ui.dp(13), ui.dp(7), ui.dp(9), ui.dp(7))
+            gravity = Gravity.CENTER_VERTICAL
             isFocusable = true
-            setOnClickListener { if (!busy) cardDetail(card) }
+            contentDescription = listOf(title, meta, summary).filter { it.isNotBlank() }.joinToString("，")
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            val row = ui.horizontal(this, 6)
+            timelineIcon(app, category ?: "unsorted")?.let { bitmap ->
+                row.addView(ImageView(this@MainActivity).apply {
+                    setImageBitmap(bitmap)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LinearLayout.LayoutParams(ui.dp(17), ui.dp(17)))
+            }
+            ui.text(row, title, 15f, bold = true).apply {
+                layoutParams = ui.lp(0, weight = 1f)
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            ui.text(this, meta, 12f, Palette.MUTED).importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            if (summary.isNotBlank()) ui.text(this, summary, 13f, Palette.MUTED, top = 2).apply {
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            setOnClickListener {
+                if (!busy) {
+                    if (single) cardDetail(first) else hourDetails("${clock(start)}–${clock(end)}", cards)
+                }
+            }
         }
     }
 

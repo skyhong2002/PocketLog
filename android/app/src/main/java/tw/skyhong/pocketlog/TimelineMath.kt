@@ -45,9 +45,6 @@ object TimelineMath {
         return result
     }
 
-    /** Lane placement for one interval: [lane] within a cluster of [lanes] mutually overlapping columns. */
-    data class Placement(val lane: Int, val lanes: Int)
-
     fun journalDay(now: ZonedDateTime = ZonedDateTime.now()): LocalDate =
         if (now.hour < DAY_START_HOUR) now.toLocalDate().minusDays(1) else now.toLocalDate()
 
@@ -78,6 +75,53 @@ object TimelineMath {
     /** `16:00–16:14 · 14 分`; a range inside one minute shows only its start: `01:26 · 不到 1 分`. */
     fun rangeLabel(startClock: String, endClock: String, ms: Long): String =
         (if (ms < 60_000 || startClock == endClock) startClock else "$startClock–$endClock") + " · " + duration(ms)
+    data class TimelineEntry(val interval: Interval, val canGroup: Boolean)
+
+    /** Bound short App-only groups to ten minutes. A gap or a summarized activity closes a group. */
+    fun displayGroups(entries: List<TimelineEntry>, from: Long): List<List<Int>> {
+        val groups = mutableListOf<MutableList<Int>>()
+        val window = 10 * 60_000L
+        var groupEnd = Long.MIN_VALUE
+        entries.forEachIndexed { index, entry ->
+            val start = entry.interval.start
+            val first = groups.lastOrNull()?.firstOrNull()?.let(entries::get)
+            if (entry.canGroup && first?.canGroup == true &&
+                (start - from) / window == (first.interval.start - from) / window &&
+                start - groupEnd <= 90_000
+            ) {
+                groups.last().add(index)
+                groupEnd = maxOf(groupEnd, entry.interval.end)
+            } else {
+                groups.add(mutableListOf(index))
+                groupEnd = entry.interval.end
+            }
+        }
+        return groups
+    }
+
+    data class AxisGeometry(val ticks: List<Int>, val blocks: List<Int>)
+
+    /** Place readable cards within their start hour, extending that hour only when needed. */
+    fun readableAxis(ticks: List<Long>, blocks: List<Pair<Interval, Int>>, scale: Int, inset: Int, gap: Int): AxisGeometry {
+        val positions = mutableListOf<Int>()
+        val starts = mutableListOf<Int>()
+        var top = inset
+        var index = 0
+        ticks.zipWithNext().forEach { (from, to) ->
+            starts.add(top)
+            var free = top + gap
+            while (index < blocks.size && blocks[index].first.start < to) {
+                val (interval, height) = blocks[index++]
+                val at = maxOf(free, top + timeOffset(from, interval.start, scale))
+                positions.add(at)
+                free = at + height + gap
+            }
+            top = maxOf(free, top + timeOffset(from, to, scale))
+        }
+        starts.add(top)
+        return AxisGeometry(starts, positions)
+    }
+
     /** Elapsed time on a linear axis, including across midnight and DST changes. */
     fun timeOffset(from: Long, at: Long, hourHeight: Int): Int =
         ((at - from).coerceAtLeast(0).toDouble() * hourHeight / 3_600_000).roundToInt()
@@ -88,33 +132,6 @@ object TimelineMath {
     fun weekStart(day: LocalDate): LocalDate = day.minusDays((day.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
 
     fun inHistory(day: LocalDate, today: LocalDate): Boolean = day <= today && day >= today.minusDays(HISTORY_DAYS)
-
-    /**
-     * Assigns overlapping intervals to side-by-side lanes. Clusters are maximal runs of transitively
-     * overlapping intervals; every member of a cluster shares its lane count so widths stay aligned.
-     * Results keep the caller's order.
-     */
-    fun lanes(intervals: List<Interval>): List<Placement> {
-        val order = intervals.indices.sortedWith(compareBy({ intervals[it].start }, { intervals[it].end }))
-        val result = arrayOfNulls<Placement>(intervals.size)
-        var cluster = mutableListOf<Pair<Int, Int>>()
-        var laneEnds = mutableListOf<Long>()
-        var clusterEnd = Long.MIN_VALUE
-        fun flush() {
-            cluster.forEach { (index, lane) -> result[index] = Placement(lane, laneEnds.size) }
-            cluster = mutableListOf(); laneEnds = mutableListOf()
-        }
-        for (index in order) {
-            val item = intervals[index]
-            if (cluster.isNotEmpty() && item.start >= clusterEnd) flush()
-            var lane = laneEnds.indexOfFirst { it <= item.start }
-            if (lane < 0) { lane = laneEnds.size; laneEnds += item.end } else laneEnds[lane] = item.end
-            cluster += index to lane
-            clusterEnd = if (cluster.size == 1) item.end else maxOf(clusterEnd, item.end)
-        }
-        flush()
-        return result.map { requireNotNull(it) }
-    }
 
     /** Longest continuous span after merging touching or overlapping intervals. */
     fun longestMerged(intervals: List<Interval>): Long {

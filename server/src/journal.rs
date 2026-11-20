@@ -271,7 +271,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 ),
                 None => (a.app.clone(), String::new(), a.category.clone(), "app_only"),
             };
-            let category = preferences.classify(category, &a.app, &title, source == "user");
+            let category = preferences.classify(category, &a.app, &title, source == "user", source == "app_only");
             Ok(Card {
                 id: a.id.clone(),
                 start_ms: a.start_ms,
@@ -397,11 +397,13 @@ fn category_totals(db: &Connection, from: i64, to: i64) -> Result<Vec<CategoryTo
         let edited: i64 = row.get(3).map_err(storage_error)?;
         let start: i64 = row.get(4).map_err(storage_error)?;
         let end: i64 = row.get(5).map_err(storage_error)?;
+        let priority: i64 = row.get(6).map_err(storage_error)?;
         let category = preferences.classify(
             serde_json::from_str(&raw).map_err(storage_error)?,
             &app,
             &title,
             edited == 1,
+            priority == 0,
         );
         // Smaller indices have higher precedence according to the query order.
         let index = categories.len();
@@ -505,6 +507,40 @@ mod pending_context_tests {
             params![id, at, app],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn app_defaults_apply_to_unannotated_usage_in_cards_and_overview() {
+        let (state, mut activity) = setup();
+        let db = state.db.lock().unwrap();
+        activity.app = "com.discord".into();
+        activity.category = Category::Unsorted;
+        db.execute(
+            r#"UPDATE activities SET app=?1, category='"unsorted"' WHERE id=?2"#,
+            params![activity.app, activity.id],
+        )
+        .unwrap();
+        assert_eq!(
+            cards(&db, std::slice::from_ref(&activity)).unwrap()[0].category,
+            Category::Communication
+        );
+        assert_eq!(
+            category_totals(&db, 100, 200).unwrap()[0].category,
+            Category::Communication
+        );
+        db.execute(
+            r#"INSERT INTO notes VALUES (?1,'Private title','','"unsorted"',1)"#,
+            [&activity.id],
+        )
+        .unwrap();
+        assert_eq!(
+            cards(&db, &[activity]).unwrap()[0].category,
+            Category::Unsorted
+        );
+        assert_eq!(
+            category_totals(&db, 100, 200).unwrap()[0].category,
+            Category::Unsorted
+        );
     }
 
     #[test]
