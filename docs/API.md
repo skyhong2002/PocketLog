@@ -124,6 +124,8 @@ SQLite is plaintext inside the private volume. Use encrypted host storage and
 backups. SQL deletion cannot erase provider copies, exports, SSD history or
 snapshots. See [security boundaries](SECURITY.md).
 
+An unclassified App-only interval may receive a default category for a known Android package. Explicit classification rules and stored corrections take precedence. Browser and launcher usage stay unclassified without further evidence.
+
 ## Compatibility
 
 - `/v1` only changes additively: new routes, new optional request fields and new

@@ -53,13 +53,20 @@ impl Preferences {
         app: &str,
         title: &str,
         edited: bool,
+        app_only: bool,
     ) -> Category {
         if edited {
             return category;
         }
         self.matching_rule(app, title)
             .map(|rule| rule.category.clone())
-            .unwrap_or(category)
+            .unwrap_or_else(|| {
+                if app_only && category == Category::Unsorted {
+                    app_category(app)
+                } else {
+                    category
+                }
+            })
     }
 
     fn matching_rule(&self, app: &str, title: &str) -> Option<&CategoryRule> {
@@ -74,6 +81,33 @@ impl Preferences {
         })
     }
 }
+// Apply conservative defaults only when usage metadata is the entire record.
+fn app_category(app: &str) -> Category {
+    match app {
+        "com.facebook.katana"
+        | "com.instagram.android"
+        | "com.instagram.barcelona"
+        | "com.reddit.frontpage"
+        | "com.twitter.android" => Category::SocialMedia,
+        "com.discord"
+        | "com.facebook.orca"
+        | "com.google.android.gm"
+        | "com.google.android.apps.messaging"
+        | "com.whatsapp"
+        | "jp.naver.line.android"
+        | "org.telegram.messenger"
+        | "com.Slack"
+        | "com.microsoft.teams"
+        | "us.zoom.videomeetings" => Category::Communication,
+        "com.google.android.youtube"
+        | "com.netflix.mediaclient"
+        | "com.spotify.music"
+        | "tv.twitch.android.app" => Category::Entertainment,
+        "com.google.android.apps.maps" | "com.google.android.calendar" => Category::LifeAdmin,
+        _ => Category::Unsorted,
+    }
+}
+
 pub(super) fn ensure_category(db: &Connection, category: &Category) -> Result<()> {
     if matches!(category, Category::Custom(_))
         && !load(db)?.categories.iter().any(|c| &c.id == category)
