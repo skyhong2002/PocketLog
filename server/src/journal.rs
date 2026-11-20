@@ -1,5 +1,6 @@
 //! Private context and user corrections. Raw context is never returned by a read route.
 use super::*;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -222,6 +223,7 @@ pub(super) struct Card {
     /// Some captured evidence came from a protected (secure/DRM) window, so the card
     /// was understood from app and screen text without screenshots.
     protected_screen: bool,
+    screen_derived: bool,
 }
 impl Card {
     pub(super) fn is_app_only(&self) -> bool {
@@ -236,16 +238,16 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
         .map(|a| {
             // Timeline activities may be clipped to the requested window. Match
             // pending raw evidence against the stored activity's full interval.
-            let (pending_context, protected_screen): (bool, bool) = db
+            let (pending_context, protected_screen, screen_derived) = db
                 .query_row(
-                    "SELECT COALESCE(MAX(pending),0),COALESCE(MAX(protected),0) FROM (
-                        SELECT o.processed=0 AS pending,o.protected_screen AS protected
+                    "SELECT COALESCE(MAX(pending),0),COALESCE(MAX(protected),0),COALESCE(MAX(derived),0) FROM (
+                        SELECT o.processed=0 AS pending,o.protected_screen AS protected,0 AS derived
                         FROM activities a JOIN observations o ON o.app=a.app AND o.at_ms>=a.start_ms AND o.at_ms<a.end_ms
                         WHERE a.id=?1
-                        UNION ALL SELECT 0,protected_screen FROM screen_cards WHERE id=?1
+                        UNION ALL SELECT 0,protected_screen,1 FROM screen_cards WHERE id=?1
                      )",
                     [&a.id],
-                    |r| Ok((r.get::<_, i64>(0)? != 0, r.get::<_, i64>(1)? != 0)),
+                    |r| Ok((r.get::<_, i64>(0)? != 0, r.get::<_, i64>(1)? != 0, r.get::<_, i64>(2)? != 0)),
                 )
                 .map_err(storage_error)?;
             let note: Option<(String, String, String, i64)> = db
@@ -281,6 +283,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 source,
                 pending_context,
                 protected_screen,
+                screen_derived,
             })
         })
         .collect()
@@ -367,6 +370,75 @@ struct AppTotal {
     app: String,
     duration_ms: i64,
 }
+// Count journal wall time once, giving corrections and screen evidence precedence
+// over broad usage intervals. App totals are computed separately from raw usage.
+fn category_totals(db: &Connection, from: i64, to: i64) -> Result<Vec<CategoryTotal>> {
+    let preferences = workspace::load(db)?;
+    let mut stmt = db
+        .prepare(
+            "SELECT COALESCE(n.category,a.category),a.app,COALESCE(n.title,a.app),
+                COALESCE(n.edited,0),MAX(a.start_ms,?1),MIN(a.end_ms,?2),
+                CASE WHEN n.edited=1 THEN 3 WHEN c.id IS NOT NULL THEN 2
+                     WHEN n.id IS NOT NULL THEN 1 ELSE 0 END AS priority
+         FROM journal_activities a
+         LEFT JOIN notes n ON n.id=a.id
+         LEFT JOIN screen_cards c ON c.id=a.id
+         WHERE a.end_ms>?1 AND a.start_ms<?2 AND a.end_ms>a.start_ms
+         ORDER BY priority DESC, MAX(a.start_ms,?1) DESC, a.id DESC LIMIT 100000",
+        )
+        .map_err(storage_error)?;
+    let mut rows = stmt.query([from, to]).map_err(storage_error)?;
+    let mut categories = Vec::new();
+    let mut edges = Vec::new();
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        let raw: String = row.get(0).map_err(storage_error)?;
+        let app: String = row.get(1).map_err(storage_error)?;
+        let title: String = row.get(2).map_err(storage_error)?;
+        let edited: i64 = row.get(3).map_err(storage_error)?;
+        let start: i64 = row.get(4).map_err(storage_error)?;
+        let end: i64 = row.get(5).map_err(storage_error)?;
+        let category = preferences.classify(
+            serde_json::from_str(&raw).map_err(storage_error)?,
+            &app,
+            &title,
+            edited == 1,
+        );
+        // Smaller indices have higher precedence according to the query order.
+        let index = categories.len();
+        categories.push(serde_json::to_string(&category).map_err(storage_error)?);
+        edges.push((start, index, true));
+        edges.push((end, index, false));
+    }
+    edges.sort_unstable();
+    let mut active = BTreeSet::<usize>::new();
+    let mut totals = BTreeMap::<&str, i64>::new();
+    let mut previous = from;
+    for (at, index, starts) in edges {
+        if at > previous
+            && let Some(&winner) = active.first()
+        {
+            *totals.entry(&categories[winner]).or_default() += at - previous;
+        }
+        if starts {
+            active.insert(index);
+        } else {
+            active.remove(&index);
+        }
+        previous = at;
+    }
+    let mut result = totals
+        .into_iter()
+        .map(|(category, duration_ms)| {
+            Ok(CategoryTotal {
+                category: serde_json::from_str(category).map_err(storage_error)?,
+                duration_ms,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    result.sort_by_key(|row| std::cmp::Reverse(row.duration_ms));
+    Ok(result)
+}
+
 async fn overview(
     State(state): State<AppState>,
     Query(w): Query<Window>,
@@ -381,17 +453,7 @@ async fn overview(
     }
     state.database(move |db| {
         super::prune(db,now)?;
-        let preferences=workspace::load(db)?;
-        let mut totals=std::collections::BTreeMap::<String,i64>::new();
-        let mut stmt=db.prepare("SELECT COALESCE(n.category,a.category),a.app,COALESCE(n.title,a.app),COALESCE(n.edited,0),MIN(a.end_ms,?2)-MAX(a.start_ms,?1) FROM activities a LEFT JOIN notes n ON n.id=a.id WHERE a.end_ms>?1 AND a.start_ms<?2 LIMIT 100000").map_err(storage_error)?;
-        let rows=stmt.query_map([w.from_ms,w.to_ms],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?))).map_err(storage_error)?;
-        for row in rows {
-            let (category,app,title,edited,duration)=row.map_err(storage_error)?;
-            let category=preferences.classify(serde_json::from_str(&category).map_err(storage_error)?,&app,&title,edited==1);
-            *totals.entry(serde_json::to_string(&category).map_err(storage_error)?).or_default()+=duration;
-        }
-        let mut categories:Vec<CategoryTotal>=totals.into_iter().map(|(category,duration_ms)|Ok(CategoryTotal{category:serde_json::from_str(&category).map_err(storage_error)?,duration_ms})).collect::<Result<_>>()?;
-        categories.sort_by_key(|a| std::cmp::Reverse(a.duration_ms));
+        let categories = category_totals(db, w.from_ms, w.to_ms)?;
         let apps:Vec<AppTotal>=db.prepare("SELECT app,SUM(MIN(end_ms,?2)-MAX(start_ms,?1)) FROM activities WHERE end_ms>?1 AND start_ms<?2 GROUP BY app ORDER BY 2 DESC,app LIMIT 20").map_err(storage_error)?
             .query_map([w.from_ms,w.to_ms],|r|Ok(AppTotal {app:r.get(0)?,duration_ms:r.get(1)?})).map_err(storage_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(storage_error)?;
         let (checkins,mood,energy):(i64,Option<f64>,Option<f64>)=db.query_row("SELECT COUNT(*),AVG(mood),AVG(energy) FROM checkins WHERE at_ms>=? AND at_ms<?",[w.from_ms,w.to_ms],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(storage_error)?;
@@ -443,6 +505,40 @@ mod pending_context_tests {
             params![id, at, app],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn category_wall_time_prefers_screen_evidence_and_corrections() {
+        let (state, _) = setup();
+        let db = state.db.lock().unwrap();
+        db.execute_batch(
+            r#"DELETE FROM activities;
+               INSERT INTO activities VALUES
+                   ('raw',100,400,'org.example.reader','"unsorted"'),
+                   ('manual',225,250,'org.example.reader','"unsorted"');
+               INSERT INTO screen_cards VALUES
+                   ('screen',0,200,300,'org.example.reader','"work"',NULL,0),
+                   ('standalone',0,425,475,'org.example.other','"communication"',NULL,0);
+               INSERT INTO notes VALUES
+                   ('manual','Correction','Manual note','"news_reading"',1),
+                   ('screen','Screen evidence','Observed work','"work"',2);"#,
+        )
+        .unwrap();
+
+        let totals = category_totals(&db, 175, 450).unwrap();
+        let actual: Vec<_> = totals
+            .iter()
+            .map(|row| (&row.category, row.duration_ms))
+            .collect();
+        assert_eq!(
+            actual,
+            vec![
+                (&Category::Unsorted, 125),
+                (&Category::Work, 75),
+                (&Category::Communication, 25),
+                (&Category::NewsReading, 25),
+            ]
+        );
     }
 
     #[test]

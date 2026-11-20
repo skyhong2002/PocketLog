@@ -7,6 +7,9 @@ import android.app.DatePickerDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -81,6 +84,7 @@ class MainActivity : Activity() {
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updateChecking = false
     private val appNames = LocalAppNames()
+    private val appIcons = android.util.LruCache<String, Bitmap>(LocalAppNames.MAX_PACKAGES)
     private var busy = false
     private var generation = 0
     private var statusVersion = 0
@@ -432,11 +436,10 @@ class MainActivity : Activity() {
     private fun style(id: String): JSONObject? = workspace?.optJSONArray("categories")?.let { s -> (0 until s.length()).map { s.getJSONObject(it) }.firstOrNull { it.optString("id") == id } }
     private fun label(id: String): String = style(id)?.optString("name")?.takeIf { it.isNotBlank() } ?: categoryLabels.getOrElse(baseCategories.indexOf(id)) { id }
     private fun colorFor(id: String): Int = style(id)?.let { Palette.parse(it.optString("color")) } ?: Palette.parse(defaultColors.getOrNull(baseCategories.indexOf(id)))
-    private fun sourceLabel(card: JSONObject) = sourceException(card) ?: "AI 整理"
     /** Only exceptions are shown on cards; the normal `AI 整理` is not. */
     private fun sourceException(card: JSONObject): String? = when {
         card.optBoolean("pending_edit") -> "你改過 · 待同步"
-        else -> when (card.optString("source")) { "user" -> "你改過"; "ai" -> null; "local_excerpt" -> "畫面文字"; else -> "只有 app" }
+        else -> when (card.optString("source")) { "user" -> "你改過"; "ai" -> null; "local_excerpt" -> "畫面文字"; else -> null }
     }
     /** At most one exception badge; while AI is still working only `AI 整理中` shows. */
     private fun badgeKind(text: String) = when (text) { "AI 整理中" -> Ui.Badge.ACCENT; "受保護畫面" -> Ui.Badge.AMBER; else -> Ui.Badge.NEUTRAL }
@@ -446,7 +449,7 @@ class MainActivity : Activity() {
         else -> sourceException(card)
     })
     private fun cardSummary(card: JSONObject): String =
-        card.optString("summary").ifBlank { if (card.optBoolean("pending_context")) "正在整理這段活動…" else if (card.optString("source") == "app_only") "只知道使用了這個應用程式" else "" }
+        card.optString("summary").takeUnless { card.optString("source") == "app_only" }.orEmpty()
     /** `01:26–01:40 · 14 分`, or `01:26 · 不到 1 分` for a zero-length range. */
     private fun timeRange(start: Long, end: Long): String = TimelineMath.rangeLabel(clock(start), clock(end), end - start)
     private fun lastSyncText(ms: Long): String = when {
@@ -462,15 +465,70 @@ class MainActivity : Activity() {
         val apps = data.optJSONArray("apps")
         val packages = cardsOf(data).asSequence().map { it.optString("app") } +
             (0 until (apps?.length() ?: 0)).asSequence().map { apps!!.getJSONObject(it).optString("app") }
-        appNames.prepare(packages) { app ->
-            val info = packageManager.getApplicationInfo(app, android.content.pm.PackageManager.ApplicationInfoFlags.of(0))
-            packageManager.getApplicationLabel(info).toString()
-        }
+        prepareApps(packages)
         return data
     }
+
+    private fun prepareApps(packages: Sequence<String>) {
+        check(Looper.myLooper() != Looper.getMainLooper())
+        appNames.prepare(packages) { app ->
+            val info = packageManager.getApplicationInfo(app, android.content.pm.PackageManager.ApplicationInfoFlags.of(0))
+            if (appIcons.get(app) == null) runCatching {
+                val size = ui.dp(28)
+                val icon = packageManager.getApplicationIcon(info)
+                val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                icon.setBounds(0, 0, size, size)
+                icon.draw(Canvas(bitmap))
+                appIcons.put(app, bitmap)
+            }
+            packageManager.getApplicationLabel(info).toString()
+        }
+    }
+
+    private fun appColor(app: String, category: String): Int {
+        if (app.isBlank()) return colorFor(category)
+        val hash = app.hashCode().toUInt() * 0x9e3779b9u
+        return Color.HSVToColor(floatArrayOf((hash shr 16).toFloat() * (360f / 65536f), .53f, .70f))
+    }
+
+    private fun appTitle(parent: LinearLayout, app: String, title: String, category: String, size: Float, bold: Boolean) {
+        val row = ui.horizontal(parent, 8).apply {
+            if (parent.orientation == LinearLayout.HORIZONTAL) layoutParams = ui.lp(0, weight = 1f)
+        }
+        if (app.isNotBlank()) {
+            val bitmap = appIcons.get(app)
+            val icon = if (bitmap != null) ImageView(this).apply { setImageBitmap(bitmap) } else TextView(this).apply {
+                val name = appNames.name(app)
+                text = name.substring(0, name.offsetByCodePoints(0, 1))
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(Palette.INK)
+                background = ui.shape(Palette.tint(appColor(app, category), .20f), 7f)
+            }
+            icon.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            row.addView(icon, LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)))
+        }
+        ui.text(row, title, size, bold = bold).apply {
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = ui.lp(0, weight = 1f)
+        }
+    }
+
     private fun intervals(list: List<JSONObject>) = list.map { TimelineMath.Interval(it.getLong("start_ms"), it.getLong("end_ms")) }
+    private fun categoryIntervals(list: List<JSONObject>) = TimelineMath.categoryIntervals(list.map { card ->
+        val source = card.optString("source")
+        val priority = when {
+            source == "user" -> 3
+            card.optBoolean("screen_derived") -> 2
+            source == "ai" || source == "local_excerpt" -> 1
+            else -> 0
+        }
+        TimelineMath.CategoryInterval(card.getLong("start_ms"), card.getLong("end_ms"), card.getString("category"), priority, card.getString("id"))
+    })
     private fun totals(list: List<JSONObject>): List<Pair<String, Long>> =
-        list.groupBy { it.getString("category") }.map { (id, rows) -> id to rows.sumOf { it.getLong("end_ms") - it.getLong("start_ms") } }.sortedByDescending { it.second }
+        categoryIntervals(list).groupBy { it.category }
+            .map { (id, rows) -> id to rows.sumOf { it.end - it.start } }.sortedByDescending { it.second }
     private fun watcher(after: (String) -> Unit) = object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -497,22 +555,6 @@ class MainActivity : Activity() {
         ui.text(box, message, 14f, ink)
         if (action != null && onAction != null) ui.button(box, action, Tone.TEXT) { onAction() }.apply {
             layoutParams = wrap(); setPadding(0, ui.dp(8), ui.dp(8), ui.dp(8))
-        }
-    }
-
-    /** `● 分類 | bar (≥ 40% width) | 1 小時 · 25%`, one line on every width, numbers right-aligned. */
-    private fun categoryBars(parent: ViewGroup, totals: List<Pair<String, Long>>) {
-        val sum = totals.sumOf { it.second }.coerceAtLeast(1)
-        totals.forEach { (id, ms) ->
-            val percent = (ms.toDouble() / sum * 100).roundToInt()
-            val row = ui.horizontal(parent, 8).apply { minimumHeight = ui.dp(46); isScreenReaderFocusable = true; contentDescription = "${label(id)}，${TimelineMath.duration(ms)}，$percent%" }
-            ui.text(row, label(id), 14f).apply {
-                maxLines = 1; ellipsize = TextUtils.TruncateAt.END; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 8), null, null, null); compoundDrawablePadding = ui.dp(6)
-            }.layoutParams = LinearLayout.LayoutParams(ui.dp(84), ViewGroup.LayoutParams.WRAP_CONTENT)
-            // Fixed label and value columns, so every track ends on the same line.
-            row.addView(bar(ms.toFloat() / sum, colorFor(id)), ui.lp(0, ui.dp(8), weight = 1f))
-            ui.text(row, "${TimelineMath.duration(ms)} · $percent%", 12f, Palette.INK).apply { gravity = Gravity.END; isSingleLine = true; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }.layoutParams = LinearLayout.LayoutParams(ui.dp(112), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
     }
 
@@ -835,15 +877,12 @@ class MainActivity : Activity() {
             val next = data.optJSONObject("next_cursor")
             cursor = next?.let { TimelineSearch.Cursor(it.getLong("after_start_ms"), it.getString("after_id"), data.getLong("journal_epoch")) }
         }
-        return SearchResult(cards.take(TimelineSearch.MAX_RESULTS), scanned, cursor)
+        val found = cards.take(TimelineSearch.MAX_RESULTS)
+        prepareApps(found.asSequence().map { it.optString("app") })
+        return SearchResult(found, scanned, cursor)
     }
 
     private fun renderSearch(slot: LinearLayout, result: SearchResult, query: String, days: Long, category: String?) {
-        val apps = result.cards.asSequence().map { it.optString("app") }.filter { it.isNotBlank() }
-        appNames.prepare(apps) { app ->
-            packageManager.getApplicationInfo(app, android.content.pm.PackageManager.ApplicationInfoFlags.of(0))
-                .let(packageManager::getApplicationLabel).toString()
-        }
         val rangeLabel = when (days) { 1L -> "最近 1 天"; 7L -> "最近 7 天"; else -> "最近 30 天" }
         ui.meta(slot, "$rangeLabel · ${category?.let(::label) ?: "全部分類"}", bottom = 4)
         if (result.cards.isEmpty() && result.cursor == null) {
@@ -1030,7 +1069,8 @@ class MainActivity : Activity() {
             holder.removeAllViews()
             var pastMidnight = false
             val groups = TimelineMath.collapse(shown.map { TimelineMath.Slot(it.optString("app"), it.getLong("start_ms"), it.getLong("end_ms"),
-                it.optString("source") == "app_only" && !it.optBoolean("pending_context") && !it.optBoolean("pending_edit")) })
+                it.optString("source") == "app_only" && !it.optBoolean("pending_context") && !it.optBoolean("pending_edit") && !it.optBoolean("protected_screen"),
+                it.getString("category")) })
             groups.forEachIndexed { i, members ->
                 val card = shown[members.first()]
                 val late = TimelineMath.afterMidnight(day, zone, card.getLong("start_ms"))
@@ -1079,29 +1119,31 @@ class MainActivity : Activity() {
         }
     }
 
-    /** A separate card: neutral background, 4 dp left category stripe, time row, title, summary. */
+    /** App identity has a stable stripe and icon. The chip shows the activity category. */
     private fun cardRow(parent: LinearLayout, c: JSONObject) {
         val start = c.getLong("start_ms"); val end = c.getLong("end_ms")
         val title = cardTitle(c)
+        val app = c.optString("app")
+        val category = c.getString("category")
+        val showCategory = !c.optBoolean("pending_context") && (category != "unsorted" || c.optString("source") != "app_only")
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; minimumHeight = ui.dp(56)
             isClickable = true; isFocusable = true; clipToOutline = true
             background = ui.ripple(ui.shape(Palette.PAPER, 14f, Palette.BORDER), 14f); setOnClickListener { if (!busy) cardDetail(c) }
         }
-        row.addView(View(this).apply { setBackgroundColor(colorFor(c.getString("category"))) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
+        row.addView(View(this).apply { setBackgroundColor(appColor(app, category)) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
         val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f); setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(10)) }
         // Row 1: time · duration, soft category chip and at most one badge.
         val meta = ui.flow(column, 6).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0; bottomMargin = ui.dp(4) } }
         val time = timeRange(start, end)
         ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        if (!c.optBoolean("pending_context")) categoryChip(meta, c.getString("category"))
+        if (showCategory) categoryChip(meta, category)
         val badges = badges(c)
         badges.forEach { ui.badge(meta, it, badgeKind(it)) }
-        // App-only titles are just the app's name: regular weight, not the bold AI-title weight.
-            ui.text(column, title, 17f, Palette.INK, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+        appTitle(column, app, title, category, 17f, bold = true)
         val summary = cardSummary(c)
         if (summary.isNotBlank()) ui.text(column, summary, 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        row.contentDescription = (listOf(title, time, label(c.getString("category"))) + badges + summary).filter { it.isNotBlank() }.joinToString("，")
+        row.contentDescription = (listOfNotNull(title, time, label(category).takeIf { showCategory }) + badges + summary).filter { it.isNotBlank() }.joinToString("，")
         parent.addView(row, ui.lp(bottom = 12))
     }
 
@@ -1110,27 +1152,28 @@ class MainActivity : Activity() {
         val first = cards.first(); val start = first.getLong("start_ms"); val end = cards.last().getLong("end_ms")
         val total = cards.sumOf { it.getLong("end_ms") - it.getLong("start_ms") }
         val title = cardTitle(first)
+        val app = first.optString("app")
+        val category = first.getString("category")
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; minimumHeight = ui.dp(56)
             isClickable = true; isFocusable = true; clipToOutline = true
             background = ui.ripple(ui.shape(Palette.PAPER, 14f, Palette.BORDER), 14f); setOnClickListener { if (!busy) groupDetail(cards) }
         }
-        row.addView(View(this).apply { setBackgroundColor(colorFor(first.getString("category"))) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
+        row.addView(View(this).apply { setBackgroundColor(appColor(app, category)) }, LinearLayout.LayoutParams(ui.dp(4), ViewGroup.LayoutParams.MATCH_PARENT))
         val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f); setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(10)) }
         val meta = ui.flow(column, 6).apply { (layoutParams as LinearLayout.LayoutParams).apply { topMargin = 0; bottomMargin = ui.dp(4) } }
         val time = "${clock(start)}–${clock(end)} · ${cards.size} 次 · ${TimelineMath.duration(total)}"
         ui.text(meta, time, 13f, Palette.MUTED).layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        categoryChip(meta, first.getString("category"))
-        ui.badge(meta, "只有應用程式")
-        ui.text(column, title, 17f, Palette.INK, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
-        ui.text(column, "只知道使用了這個應用程式", 14f, Palette.MUTED, top = 2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        row.contentDescription = "$title，$time，${label(first.getString("category"))}，只有應用程式，點開看每一次"
+        if (category != "unsorted") categoryChip(meta, category)
+        appTitle(column, app, title, category, 17f, bold = true)
+        row.contentDescription = listOfNotNull(title, time, label(category).takeIf { category != "unsorted" }, "點開看每一次").joinToString("，")
         parent.addView(row, ui.lp(bottom = 12))
     }
 
     private fun groupDetail(cards: List<JSONObject>) {
         val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
-        ui.text(content, cardTitle(cards.first()), 19f, bold = true)
+        val first = cards.first()
+        appTitle(content, first.optString("app"), cardTitle(first), first.getString("category"), 19f, bold = true)
         ui.text(content, "${cards.size} 次 · ${TimelineMath.duration(cards.sumOf { it.getLong("end_ms") - it.getLong("start_ms") })}", 14f, Palette.INK, top = 4, bottom = 8)
         lateinit var list: android.app.Dialog
         cards.forEach { card -> ui.row(content, timeRange(card.getLong("start_ms"), card.getLong("end_ms")), null) { list.dismiss(); cardDetail(card) } }
@@ -1157,7 +1200,7 @@ class MainActivity : Activity() {
         val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
         val start = card.getLong("start_ms"); val end = card.getLong("end_ms")
         val app = card.optString("app")
-        ui.text(content, cardTitle(card), 19f, bold = true)
+        appTitle(content, app, cardTitle(card), card.getString("category"), 19f, bold = true)
         ui.text(content, listOfNotNull(appNames.name(app).takeIf { app.isNotBlank() }, timeRange(start, end)).joinToString(" · "), 14f, Palette.INK, top = 4)
         val summary = card.optString("summary")
         cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
@@ -1166,6 +1209,7 @@ class MainActivity : Activity() {
             card.optBoolean("pending_context") -> "AI 整理中：還有新的截圖或文字等 AI 整理，稍後再看。"
             card.optBoolean("protected_screen") -> "受保護畫面：沒有截圖，只依 app 名稱與畫面文字整理。"
             card.optString("source") in setOf("ai", "local_excerpt") -> "AI 整理，可能有誤，請核對。"
+            card.optString("source") == "app_only" -> "這段只有 App 使用時間。"
             else -> null
         }
         note?.let { ui.text(content, it, 13f, Palette.MUTED, top = 4) }
@@ -1320,7 +1364,7 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- 回顧
 
-    private data class ReviewData(val overview: JSONObject, val ai: JSONObject?, val briefs: JSONObject?, val days: List<Pair<LocalDate, JSONObject?>>?, val conversation: JSONObject?)
+    private data class ReviewData(val overview: JSONObject, val ai: JSONObject?, val briefs: JSONObject?, val days: List<Pair<LocalDate, JSONObject?>>, val conversation: JSONObject?)
     private fun periodKey(weekly: Boolean) = if (weekly) "w:${TimelineMath.weekStart(day)}" else "d:$day"
 
     private fun review() {
@@ -1341,7 +1385,8 @@ class MainActivity : Activity() {
             val ai = runCatching { api.request("/v1/ai") }.getOrNull()
             val briefs = runCatching { api.request("/v1/briefs?from_ms=$from&to_ms=$to") }.getOrNull()
             val today = journalDay()
-            val days = if (!weekly) null else (0L..6L).map { first.plusDays(it) }.map { d ->
+            val dates = if (weekly) (0L..6L).map { first.plusDays(it) } else listOf(first)
+            val days = dates.map { d ->
                 d to if (d > today || !TimelineMath.inHistory(d, today)) null else runCatching { readJournal(dayPath(d)) }.getOrNull()
             }
             val conversation = conversations[key]?.let { id -> runCatching { api.request("/v1/conversations/$id") }.getOrNull() }
@@ -1358,6 +1403,19 @@ class MainActivity : Activity() {
         val aiOn = ai?.optBoolean("enabled") == true
         val aiHost = AiProviders.host(ai?.optString("endpoint"))
         val period = if (weekly) "這週" else if (day == journalDay()) "今天" else "這天"
+
+        val categoryTotals = data.overview.optJSONArray("categories") ?: JSONArray()
+        val rows = (0 until categoryTotals.length()).map {
+            categoryTotals.getJSONObject(it).let { total -> total.getString("category") to total.getLong("duration_ms") }
+        }.filter { it.second > 0 }
+        ui.card(slot).apply {
+            ui.heading(this, "時間分配")
+            if (rows.isEmpty()) ui.body(this, "這段時間沒有活動。") else categoryDistribution(this, rows)
+        }
+        ui.card(slot).apply {
+            ui.heading(this, if (weekly) "這週的活動時段" else "當天的活動時段")
+            activityTracks(this, data.days, weekly)
+        }
 
         // AI 回顧
         ui.card(slot).apply {
@@ -1392,21 +1450,14 @@ class MainActivity : Activity() {
             }
         }
 
-        // 這週每天 (week only), right after the recap.
-        data.days?.let { days -> ui.card(slot).apply { ui.heading(this, "這週每天"); weekBars(this, days) } }
-        // Average over the days of this week that have started (today counts).
-        data.days?.let { days ->
-            val started = days.filter { it.first <= journalDay() }
-            if (started.isNotEmpty()) ui.text((slot.getChildAt(slot.childCount - 1) as LinearLayout), "平均每天 ${TimelineMath.duration(started.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) } / started.size)}（已過 ${started.size} 天）", 14f, Palette.INK, top = 8)
-        }
-
-        // 時間分配
-        val categoriesJson = data.overview.optJSONArray("categories") ?: JSONArray()
-        val rows = (0 until categoriesJson.length()).map { categoriesJson.getJSONObject(it).let { c -> c.getString("category") to c.getLong("duration_ms") } }.filter { it.second > 0 }
-        ui.card(slot).apply {
-            ui.heading(this, "時間分配")
-            ui.text(this, if (weekly) TimelineMath.weekLabel(TimelineMath.weekStart(day)) else dateTitle(day), 13f, Palette.MUTED, bottom = 4)
-            if (rows.isEmpty()) ui.text(this, "這段時間沒有活動。", 14f, Palette.MUTED) else categoryBars(this, rows)
+        if (weekly) ui.card(slot).apply {
+            ui.heading(this, "這週每天")
+            weekBars(this, data.days)
+            val started = data.days.filter { it.first <= journalDay() }
+            if (started.isNotEmpty() && started.all { (_, data) -> data != null && !data.optBoolean("truncated") }) {
+                val average = started.sumOf { TimelineMath.covered(intervals(cardsOf(it.second))) } / started.size
+                ui.text(this, "平均每天 ${TimelineMath.duration(average)}", 14f, Palette.INK, top = 8)
+            }
         }
 
         // 常用 app and 主題
@@ -1416,7 +1467,8 @@ class MainActivity : Activity() {
             for (i in 0 until minOf(5, apps.length())) {
                 val a = apps.getJSONObject(i)
                 val row = ui.horizontal(this, 8).apply { minimumHeight = ui.dp(36) }
-                ui.text(row, appNames.name(a.getString("app")), 15f).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }.layoutParams = ui.lp(0, weight = 1f)
+                val app = a.getString("app")
+                appTitle(row, app, appNames.name(app), "unsorted", 15f, bold = false)
                 ui.text(row, TimelineMath.duration(a.getLong("duration_ms")), 14f, Palette.INK).apply { gravity = Gravity.END }.layoutParams = wrap()
             }
         }
@@ -1461,6 +1513,98 @@ class MainActivity : Activity() {
             ui.text(this, "會把問題和這段時間的活動卡送到 $aiHost" + "（不含截圖）。".toList().joinToString("\u2060"), 13f, Palette.MUTED, top = 2)
             if (turns.length() > 0) quietAction(this, "開始新的對話", Palette.ACCENT_DARK) { conversations.remove(key); review() }
         }
+    }
+
+    private fun categoryDistribution(parent: LinearLayout, totals: List<Pair<String, Long>>) {
+        val sum = totals.sumOf { it.second }
+        val sideBySide = resources.configuration.screenWidthDp >= 340 && resources.configuration.fontScale <= 1.2f
+        val layout = if (sideBySide) ui.horizontal(parent, 12) else parent
+        val ringSize = ui.dp(128)
+        layout.addView(CategoryRing(this, totals.map { colorFor(it.first) to it.second }),
+            LinearLayout.LayoutParams(ringSize, ringSize).apply { gravity = Gravity.CENTER })
+        val list = ui.column(layout)
+        if (sideBySide) list.layoutParams = ui.lp(0, weight = 1f)
+        totals.forEach { (category, ms) ->
+            val percent = (ms.toDouble() / sum * 100).roundToInt()
+            val row = ui.horizontal(list, 6).apply { minimumHeight = ui.dp(36) }
+            row.addView(ui.swatch(colorFor(category), 8))
+            val column = ui.column(row).apply { layoutParams = ui.lp(0, weight = 1f) }
+            ui.text(column, label(category), 13f, bold = true)
+            ui.text(column, "${TimelineMath.duration(ms)} · $percent%", 12f, Palette.MUTED)
+        }
+    }
+
+    private fun activityTracks(parent: LinearLayout, days: List<Pair<LocalDate, JSONObject?>>, weekly: Boolean) {
+        val date = days.first().first
+        val showProgress = if (weekly) TimelineMath.weekUsesProgressAxis(date, zone) else TimelineMath.dayLength(date, zone) != 86_400_000L
+        val labels = if (showProgress) listOf("04:00", "¼", "½", "¾", "04:00") else listOf("04", "10", "16", "22", "04")
+        val axis = ui.horizontal(parent, 8).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
+        axis.addView(View(this), ui.lp(ui.dp(76), 1))
+        val ticks = ui.horizontal(axis, 0).apply { layoutParams = ui.lp(0, weight = 1f) }
+        labels.forEachIndexed { index, text ->
+            ui.text(ticks, text, 11f, Palette.MUTED).apply {
+                gravity = when (index) { 0 -> Gravity.START; labels.lastIndex -> Gravity.END; else -> Gravity.CENTER }
+                layoutParams = ui.lp(0, weight = if (index == 0 || index == labels.lastIndex) .5f else 1f)
+            }
+        }
+
+        fun track(name: String, d: LocalDate, marked: List<TimelineMath.CategoryInterval>, available: Boolean, details: String) {
+            val row = ui.horizontal(parent, 8).apply {
+                minimumHeight = ui.dp(30)
+                isScreenReaderFocusable = true
+                contentDescription = "$name，$details"
+            }
+            ui.text(row, name, 12f).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+                .layoutParams = ui.lp(ui.dp(76))
+            val spans = marked.map {
+                ChartSpan(TimelineMath.dayFraction(d, zone, it.start), TimelineMath.dayFraction(d, zone, it.end), colorFor(it.category))
+            }
+            row.addView(ActivityTrack(this, spans, available), ui.lp(0, ui.dp(24), weight = 1f))
+        }
+
+        val today = journalDay()
+        val categoryIds = linkedSetOf<String>()
+        days.forEach { (d, data) ->
+            val available = data != null
+            val marked = categoryIntervals(cardsOf(data))
+            categoryIds += marked.map { it.category }
+            if (weekly) {
+                val detail = when {
+                    d > today -> "尚未到來"
+                    !available -> "暫時讀不到記錄"
+                    marked.isEmpty() -> "沒有記錄"
+                    else -> marked.groupBy { it.category }.entries.joinToString("，") { (id, entries) ->
+                        "${label(id)} ${TimelineMath.duration(entries.sumOf { it.end - it.start })}"
+                    }
+                }
+                val dayLabel = TimelineMath.weekdayShort(d)
+                val suffix = when {
+                    d > today -> " · 未到"
+                    !available -> " · 缺資料"
+                    else -> ""
+                }
+                track(dayLabel + suffix, d, marked, available, detail)
+            } else if (marked.isEmpty()) {
+                ui.body(parent, if (available) "這天沒有活動。" else "暫時讀不到這天的記錄。")
+            } else {
+                marked.groupBy { it.category }.forEach { (id, entries) ->
+                    val detail = entries.take(5).joinToString("、") { "${clock(it.start)}–${clock(it.end)}" } +
+                        if (entries.size > 5) "，共 ${entries.size} 段" else ""
+                    track(label(id), d, entries, true, detail)
+                }
+            }
+        }
+        if (weekly && categoryIds.isNotEmpty()) {
+            val legend = ui.flow(parent, 10)
+            categoryIds.forEach { id ->
+                ui.text(legend, label(id), 12f, Palette.MUTED).apply {
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(dot(colorFor(id), 7), null, null, null)
+                    compoundDrawablePadding = ui.dp(4)
+                }.layoutParams = wrap()
+            }
+        }
+        if (days.any { (_, data) -> data?.optBoolean("truncated") == true }) ui.meta(parent, "部分活動未載入，圖表只顯示已載入的時段。", top = 4)
+        if (showProgress) ui.meta(parent, "夏令時間切換日使用當天經過的時間比例。", top = 4)
     }
 
     private fun weekBars(parent: LinearLayout, days: List<Pair<LocalDate, JSONObject?>>) {

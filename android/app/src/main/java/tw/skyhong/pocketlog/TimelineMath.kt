@@ -14,6 +14,36 @@ object TimelineMath {
     const val OVERVIEW_DAYS = 28L
 
     data class Interval(val start: Long, val end: Long)
+    data class CategoryInterval(val start: Long, val end: Long, val category: String, val priority: Int, val id: String)
+
+    /** Give each instant to the highest-priority activity, matching the overview endpoint. */
+    fun categoryIntervals(intervals: List<CategoryInterval>): List<CategoryInterval> {
+        data class Edge(val at: Long, val index: Int, val starts: Boolean)
+        val ranked = intervals.filter { it.end > it.start }.sortedWith(
+            compareByDescending<CategoryInterval> { it.priority }.thenByDescending { it.start }.thenByDescending { it.id }
+        )
+        val edges = ranked.flatMapIndexed { index, interval ->
+            listOf(Edge(interval.start, index, true), Edge(interval.end, index, false))
+        }.sortedBy { it.at }
+        val active = java.util.TreeSet<Int>()
+        val result = mutableListOf<CategoryInterval>()
+        var previous = edges.firstOrNull()?.at ?: return emptyList()
+        for ((at, index, starts) in edges) {
+            if (at > previous && active.isNotEmpty()) {
+                val winner = ranked[active.first()]
+                val last = result.lastOrNull()
+                if (last != null && last.end == previous && last.category == winner.category) {
+                    result[result.lastIndex] = last.copy(end = at)
+                } else {
+                    result.add(winner.copy(start = previous, end = at))
+                }
+            }
+            if (starts) active.add(index) else active.remove(index)
+            previous = at
+        }
+        return result
+    }
+
     /** Lane placement for one interval: [lane] within a cluster of [lanes] mutually overlapping columns. */
     data class Placement(val lane: Int, val lanes: Int)
 
@@ -48,7 +78,7 @@ object TimelineMath {
     fun rangeLabel(startClock: String, endClock: String, ms: Long): String =
         (if (ms < 60_000 || startClock == endClock) startClock else "$startClock–$endClock") + " · " + duration(ms)
     /** One card for the collapse rule: only app-only cards (not pending, not edited) may merge. */
-    data class Slot(val app: String, val start: Long, val end: Long, val appOnly: Boolean)
+    data class Slot(val app: String, val start: Long, val end: Long, val appOnly: Boolean, val category: String = "")
     const val COLLAPSE_GAP_MS = 5 * 60_000L
     /**
      * Groups of indices in the given (chronological) order. Consecutive app-only cards of the same app
@@ -58,7 +88,7 @@ object TimelineMath {
         val groups = mutableListOf<MutableList<Int>>()
         slots.forEachIndexed { i, slot ->
             val last = groups.lastOrNull()?.last()?.let { slots[it] }
-            if (last != null && slot.appOnly && last.appOnly && last.app == slot.app && slot.app.isNotBlank() && slot.start - last.end <= gap)
+            if (last != null && slot.appOnly && last.appOnly && last.app == slot.app && last.category == slot.category && slot.app.isNotBlank() && slot.start - last.end <= gap)
                 groups.last() += i
             else groups += mutableListOf(i)
         }
