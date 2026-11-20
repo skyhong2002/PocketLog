@@ -86,6 +86,7 @@ class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     /** Update checks and downloads never wait behind journal reads. */
     private val statusExecutor = Executors.newSingleThreadExecutor()
+    private val replayExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updateChecking = false
     private val appNames = LocalAppNames()
@@ -118,6 +119,7 @@ class MainActivity : Activity() {
     private var day = TimelineMath.journalDay()
     private var loaded: JSONObject? = null
     private var replayDialog: AlertDialog? = null
+    private var activityDetail: android.app.Dialog? = null
     private var reviewWeekly = false
     private var questionDrafts = EditorDrafts(20, 1000)
     /** One conversation per reviewed period (day or week), kept in memory only. */
@@ -1334,19 +1336,23 @@ class MainActivity : Activity() {
         val content = ui.column(null).apply { setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(8)) }
         val start = card.getLong("start_ms"); val end = card.getLong("end_ms")
         val app = card.optString("app")
-        appTitle(content, app, cardTitle(card), card.getString("category"), 19f, bold = true)
-        ui.text(content, listOfNotNull(appNames.name(app).takeIf { app.isNotBlank() }, timeRange(start, end)).joinToString(" · "), 14f, Palette.INK, top = 4)
+        val title = cardTitle(card)
+        val appName = appNames.name(app)
+        appTitle(content, app, title, card.getString("category"), 19f, bold = true)
+        ui.text(content, listOfNotNull(appName.takeIf { app.isNotBlank() && it != title }, timeRange(start, end)).joinToString(" · "), 14f, Palette.INK, top = 4)
         val summary = card.optString("summary")
         cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
         lateinit var detail: android.app.Dialog
         val note = when {
             card.optBoolean("pending_context") -> "AI 整理中：還有新的截圖或文字等 AI 整理，稍後再看。"
-            card.optBoolean("protected_screen") -> "受保護畫面：沒有截圖，只依 app 名稱與畫面文字整理。"
+            card.optBoolean("protected_screen") -> "受保護的畫面只依 App 名稱與畫面文字整理。"
             card.optString("source") in setOf("ai", "local_excerpt") -> "AI 整理，可能有誤，請核對。"
-            card.optString("source") == "app_only" -> "這段只有 App 使用時間。"
             else -> null
         }
         note?.let { ui.text(content, it, 13f, Palette.MUTED, top = 4) }
+        val replay = ui.column(content).apply {
+            (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(14)
+        }
         ui.text(content, "分類", 15f, Palette.INK, bold = true, top = 12).isAccessibilityHeading = true
         ui.text(content, "你選的分類會優先於自動分類。點一下就會儲存。", 13f, Palette.MUTED, bottom = 4)
         val current = card.getString("category")
@@ -1355,12 +1361,13 @@ class MainActivity : Activity() {
         val chips = ui.flow(content, 6)
         ids.forEach { id ->
             val on = id == current
-            ui.button(chips, (if (on) "✓ " else "") + label(id), Tone.CHIP) {
+            ui.button(chips, label(id), Tone.CHIP) {
                 if (!on) saveCard(card, cardTitleForSave(card), summary, id) { detail.dismiss() }
             }.apply {
-                textSize = 13f; setPadding(ui.dp(12), 0, ui.dp(12), 0); gravity = Gravity.CENTER
-                isSingleLine = true; ellipsize = TextUtils.TruncateAt.END
-                background = ui.ripple(android.graphics.drawable.InsetDrawable(ui.shape(if (on) Palette.ACCENT_SOFT else Palette.PAPER, 16f, if (on) null else Palette.BORDER), 0, ui.dp(8), 0, ui.dp(8)), 16f)
+                textSize = 13f; gravity = Gravity.CENTER
+                background = ui.ripple(ui.shape(if (on) Palette.ACCENT_SOFT else Palette.PAPER, 20f, Palette.BORDER), 20f)
+                setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4))
+                maxLines = 2; ellipsize = TextUtils.TruncateAt.END
                 setTextColor(if (on) Palette.ACCENT_DARK else Palette.INK)
                 if (on) typeface = android.graphics.Typeface.DEFAULT_BOLD
                 isSelected = on; contentDescription = "${label(id)}，${if (on) "目前分類" else "改成這個分類"}"
@@ -1369,8 +1376,14 @@ class MainActivity : Activity() {
         quietAction(content, "修改文字", Palette.ACCENT_DARK) { detail.dismiss(); editCardText(card) }.apply {
             setCompoundDrawablesRelative(scaled(R.drawable.ic_edit, 18, Palette.ACCENT_DARK), null, null, null); compoundDrawablePadding = ui.dp(6)
         }
-        if (RecordingSettings(this).replayConsent) quietAction(content, "看截圖", Palette.ACCENT_DARK) { replayForCard(card) }
+        activityDetail?.dismiss()
         detail = sheet(content)
+        activityDetail = detail
+        val dispose = showActivityReplay(replay, detail, card)
+        detail.setOnDismissListener {
+            dispose()
+            if (activityDetail === detail) activityDetail = null
+        }
     }
 
     private fun cardTitleForSave(card: JSONObject) = RecordingRules.cap(cardTitle(card), 200)
@@ -1417,30 +1430,149 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Thumbnails exist only when the separate replay consent saved them; never raw analysis images. */
-    private fun replayForCard(card: JSONObject) {
-        val app = card.optString("app")
-        task("讀取截圖…", { api().request("/v1/replay?from_ms=${card.getLong("start_ms")}&to_ms=${card.getLong("end_ms")}") }) { data ->
-            val rows = data.getJSONArray("images")
-            val images = (0 until rows.length()).map { rows.getJSONObject(it) }.filter { app.isBlank() || it.optString("app") == app }
-            if (images.isEmpty()) { notice("這段時間沒有保存的截圖（只保存 24 小時）。", Kind.INFO); return@task }
-            dialog().setTitle("保存的截圖").setItems(images.map { stamp(it.getLong("at_ms")) }.toTypedArray()) { _, index -> openReplay(images[index]) }
-                .setNegativeButton("關閉", null).showSecure()
+    /** Replay loads only saved thumbnails for the lifetime of this activity detail. */
+    private fun showActivityReplay(panel: LinearLayout, owner: android.app.Dialog, card: JSONObject): () -> Unit {
+        ui.heading(panel, "畫面")
+        val slot = ui.column(panel)
+        val connection = credentials
+        val window = ReplayFrames.window(card, System.currentTimeMillis())
+        if (window == null || connection == null) {
+            ui.meta(slot, if (window == null) "這段活動已超過截圖的 24 小時保存期限。" else "目前無法讀取保存的截圖。")
+            return {}
+        }
+
+        val replay = PocketLogApi(connection)
+        var request = 0
+        var future: java.util.concurrent.Future<*>? = null
+        var bitmap: Bitmap? = null
+        var picture: ImageView? = null
+        var active = true
+
+        fun clearImage() {
+            picture?.setImageDrawable(null)
+            picture = null
+            bitmap?.recycle()
+            bitmap = null
+        }
+
+        fun <T> read(work: () -> T, discard: (T) -> Unit = {}, deliver: (Result<T>) -> Unit) {
+            val id = ++request
+            future?.cancel(false)
+            future = replayExecutor.submit {
+                val result = runCatching(work)
+                runOnUiThread {
+                    if (active && id == request && owner.isShowing && !isFinishing && !isDestroyed) deliver(result)
+                    else result.onSuccess(discard)
+                }
+            }
+        }
+
+        fun failed(parent: LinearLayout, error: Throwable, missing: String, retry: () -> Unit) {
+            val message = when (error) {
+                is ApiFailure -> if (error.status == 404) missing else describe(error)
+                is IllegalArgumentException -> "截圖格式無法顯示。"
+                else -> describe(error)
+            }
+            ui.meta(parent, message)
+            quietAction(parent, "重試") { retry() }
+        }
+
+        lateinit var refresh: (String?) -> Unit
+        fun showAt(items: List<JSONObject>, index: Int) {
+            clearImage()
+            slot.removeAllViews()
+            val item = items[index]
+            val previewHeight = minOf(ui.dp(220), resources.displayMetrics.heightPixels / 3)
+            val photoRow = ui.column(slot).apply {
+                minimumHeight = previewHeight
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            ui.spinnerRow(photoRow, "讀取截圖…")
+            val meta = ui.horizontal(slot, 4)
+            if (items.size > 1) {
+                ui.button(meta, "上一張", Tone.TEXT) { showAt(items, index - 1) }.apply {
+                    layoutParams = wrap()
+                    isEnabled = index > 0
+                }
+            }
+            ui.text(meta, "${clock(item.getLong("at_ms"))}" + if (items.size > 1) " · ${index + 1}/${items.size}" else "",
+                13f, Palette.MUTED).apply { gravity = Gravity.CENTER; layoutParams = ui.lp(0, weight = 1f) }
+            if (items.size > 1) {
+                ui.button(meta, "下一張", Tone.TEXT) { showAt(items, index + 1) }.apply {
+                    layoutParams = wrap()
+                    isEnabled = index + 1 < items.size
+                }
+            }
+
+            read({ loadReplayBitmap(replay, item) }, Bitmap::recycle) { result ->
+                photoRow.removeAllViews()
+                result.onSuccess { image ->
+                    bitmap = image
+                    picture = ImageView(this).apply {
+                        background = ui.shape(Palette.CANVAS, 12f, Palette.BORDER)
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        setImageBitmap(image)
+                        contentDescription = "放大 ${clock(item.getLong("at_ms"))} 的截圖"
+                        isFocusable = true
+                        setOnClickListener {
+                            if (!busy && !image.isRecycled) {
+                                image.copy(Bitmap.Config.ARGB_8888, false)?.let { enlarged ->
+                                    showReplayBitmap(enlarged, item) { refresh(item.getString("id")) }
+                                }
+                            }
+                        }
+                    }.also { photoRow.addView(it, ui.lp(height = previewHeight)) }
+                }.onFailure { error ->
+                    failed(photoRow, error, "這張截圖已到期或被刪除。") {
+                        if (error is ApiFailure && error.status == 404) refresh(item.getString("id"))
+                        else showAt(items, index)
+                    }
+                }
+            }
+        }
+
+        refresh = refresh@ { removed ->
+            if (!active || !owner.isShowing) return@refresh
+            clearImage()
+            slot.removeAllViews()
+            ui.spinnerRow(slot, "尋找這段活動的截圖…")
+            read({ ReplayFrames.matching(replay.request(window), card) }) { result ->
+                slot.removeAllViews()
+                result.onSuccess { rows ->
+                    val items = rows.filterNot { it.getString("id") == removed }
+                    if (items.isEmpty()) {
+                        val message = when {
+                            removed != null -> "這段活動已沒有保存的截圖。"
+                            card.optBoolean("protected_screen") -> "這段沒有保存的截圖，部分畫面可能受保護。"
+                            card.optBoolean("pending_context") -> "目前沒有可回看的截圖。剛保存的畫面需要等伺服器處理。"
+                            else -> "這段時間沒有保存可回看的截圖。"
+                        }
+                        ui.meta(slot, message)
+                        if (card.optBoolean("pending_context")) quietAction(slot, "重新檢查") { refresh(null) }
+                    } else showAt(items, 0)
+                }.onFailure { error -> failed(slot, error, "目前無法讀取保存的截圖。") { refresh(removed) } }
+            }
+        }
+        refresh(null)
+        return {
+            active = false
+            future?.cancel(false)
+            clearImage()
         }
     }
 
-    private fun openReplay(item: JSONObject) {
-        task("讀取截圖…", work = {
-            val response = api().request("/v1/replay/${item.getString("id")}")
-            val bytes = android.util.Base64.decode(response.getString("jpeg_base64"), android.util.Base64.DEFAULT)
-            try {
-                require(bytes.size <= 24576)
-                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                require(bounds.outWidth in 1..480 && bounds.outHeight in 1..480)
-                requireNotNull(android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
-            } finally { bytes.fill(0) }
-        }, failed = { replayUnavailable(it) }, discard = { it.recycle() }) { bitmap -> showReplayBitmap(bitmap, item) }
+    private fun loadReplayBitmap(api: PocketLogApi, item: JSONObject): Bitmap {
+        val response = api.request("/v1/replay/${item.getString("id")}")
+        val encoded = response.optString("jpeg_base64")
+        require(encoded.length in 4..32_768)
+        val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+        try {
+            require(bytes.size <= 24 * 1024)
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            require(bounds.outWidth in 1..480 && bounds.outHeight in 1..480 && bounds.outMimeType == "image/jpeg")
+            return requireNotNull(android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+        } finally { bytes.fill(0) }
     }
 
     /** A missing image is normal under expiry or deletion by another client. */
@@ -1448,15 +1580,18 @@ class MainActivity : Activity() {
         if (error is ApiFailure && error.status == 404) notice("這張截圖已到期或被刪除。", Kind.WARN)
     }
 
-    private fun showReplayBitmap(bitmap: android.graphics.Bitmap, item: JSONObject) {
+    private fun showReplayBitmap(bitmap: Bitmap, item: JSONObject, onDeleted: () -> Unit) {
         replayDialog?.dismiss()
         val image = ImageView(this).apply {
             setImageBitmap(bitmap)
-            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "${appNames.name(item.getString("app"))} ${stamp(item.getLong("at_ms"))} 的截圖"
         }
         var confirmation: AlertDialog? = null
-        val preview = dialog().setTitle(stamp(item.getLong("at_ms"))).setView(image)
+        val frame = FrameLayout(this).apply {
+            addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, resources.displayMetrics.heightPixels / 2))
+        }
+        val preview = dialog().setTitle(stamp(item.getLong("at_ms"))).setView(frame)
             .setNegativeButton("關閉", null).setPositiveButton("刪除", null).create()
         preview.setOnDismissListener {
             confirmation?.dismiss(); confirmation = null
@@ -1476,7 +1611,7 @@ class MainActivity : Activity() {
                     .setPositiveButton("刪除") { _, _ ->
                         if (replayDialog === preview && preview.isShowing && !isDestroyed && !isFinishing) {
                             preview.dismiss()
-                            task("刪除截圖…", { api().request("/v1/replay/${item.getString("id")}", method = "DELETE") }, failed = { replayUnavailable(it) }) { notice("已刪除截圖") }
+                            task("刪除截圖…", { api().request("/v1/replay/${item.getString("id")}", method = "DELETE") }, failed = { replayUnavailable(it) }) { onDeleted(); notice("已刪除截圖") }
                         }
                     }.create()
                 confirmation = confirm
@@ -2843,9 +2978,10 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         timelineWatch?.close(); timelineWatch = null
         replayDialog?.dismiss(); replayDialog = null
+        activityDetail?.dismiss(); activityDetail = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
-        executor.shutdown(); statusExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
+        executor.shutdown(); statusExecutor.shutdown(); replayExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
         super.onDestroy()
     }
 }
