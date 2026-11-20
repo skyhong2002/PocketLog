@@ -5,6 +5,7 @@ uv run --with pillow --with cairosvg --with fonttools --with brotli scripts/gene
 """
 import io
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import cairosvg
 from PIL import Image
@@ -20,18 +21,37 @@ logo = (ASSETS / "logo.svg").read_bytes()
 (ROOT / "server/web/logo.svg").write_bytes(logo)
 
 
-def rendered(size):
-    return cairosvg.svg2png(bytestring=logo, output_width=size, output_height=size)
+def rendered(size, source=logo):
+    return cairosvg.svg2png(bytestring=source, output_width=size, output_height=size)
 
 
 for filename, size in [("icon.png", 1024), ("icon-source.png", 1024), ("favicon.png", 256)]:
     (ASSETS / filename).write_bytes(rendered(size))
 (ROOT / "server/web/logo.png").write_bytes(rendered(256))
-# Android supplies its own mask. Fill the corner area behind the rounded tile.
+# Keep the complete rounded artwork for the in-app header.
 art = Image.new("RGBA", (1024, 1024), "#6F997E")
 art.alpha_composite(Image.open(io.BytesIO(rendered(1024))))
 (RES / "drawable-nodpi").mkdir(exist_ok=True)
 art.convert("RGB").save(RES / "drawable-nodpi/ic_launcher_art.png", optimize=True)
+
+# Android masks the icon. Keep the gradient full bleed and inset only the mark.
+svg_namespace = "http://www.w3.org/2000/svg"
+ET.register_namespace("", svg_namespace)
+backdrop = ET.fromstring(logo)
+for child in list(backdrop):
+    if child.tag not in {f"{{{svg_namespace}}}defs", f"{{{svg_namespace}}}rect"}:
+        backdrop.remove(child)
+backdrop.find(f"{{{svg_namespace}}}rect").attrib.pop("rx", None)
+
+mark = ET.fromstring(logo)
+inset = ET.Element(f"{{{svg_namespace}}}g", {"transform": "translate(28.16 28.16) scale(.78)"})
+for child in list(mark):
+    mark.remove(child)
+    if child.tag not in {f"{{{svg_namespace}}}defs", f"{{{svg_namespace}}}rect"}:
+        inset.append(child)
+mark.append(inset)
+for name, layer in [("ic_launcher_backdrop.png", backdrop), ("ic_launcher_mark.png", mark)]:
+    (RES / "drawable-nodpi" / name).write_bytes(rendered(1024, ET.tostring(layer)))
 
 # Keep wordmarks portable while using the actual selected C font, not fallback text.
 font = instantiateVariableFont(
