@@ -4,6 +4,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlin.math.roundToInt
 
 /** Pure timeline arithmetic shared by native views; no Android types so it stays unit-testable. */
 object TimelineMath {
@@ -77,31 +78,13 @@ object TimelineMath {
     /** `16:00–16:14 · 14 分`; a range inside one minute shows only its start: `01:26 · 不到 1 分`. */
     fun rangeLabel(startClock: String, endClock: String, ms: Long): String =
         (if (ms < 60_000 || startClock == endClock) startClock else "$startClock–$endClock") + " · " + duration(ms)
-    /** One card for the collapse rule: only app-only cards (not pending, not edited) may merge. */
-    data class Slot(val app: String, val start: Long, val end: Long, val appOnly: Boolean, val category: String = "")
-    const val COLLAPSE_GAP_MS = 5 * 60_000L
-    /**
-     * Groups of indices in the given (chronological) order. Consecutive app-only cards of the same app
-     * whose gap is at most five minutes form one group; everything else stays a group of one.
-     */
-    fun collapse(slots: List<Slot>, gap: Long = COLLAPSE_GAP_MS): List<List<Int>> {
-        val groups = mutableListOf<MutableList<Int>>()
-        slots.forEachIndexed { i, slot ->
-            val last = groups.lastOrNull()?.last()?.let { slots[it] }
-            if (last != null && slot.appOnly && last.appOnly && last.app == slot.app && last.category == slot.category && slot.app.isNotBlank() && slot.start - last.end <= gap)
-                groups.last() += i
-            else groups += mutableListOf(i)
-        }
-        return groups
-    }
+    /** Elapsed time on a linear axis, including across midnight and DST changes. */
+    fun timeOffset(from: Long, at: Long, hourHeight: Int): Int =
+        ((at - from).coerceAtLeast(0).toDouble() * hourHeight / 3_600_000).roundToInt()
 
     /** Compact hours for the week bars: `4.1 時`. */
     fun hours(ms: Long): String = "%.1f 時".format(java.util.Locale.ROOT, ms.coerceAtLeast(0) / 3_600_000.0)
     private val WEEKDAYS = listOf("週一", "週二", "週三", "週四", "週五", "週六", "週日")
-    /** True when a card of this 04:00 journal [day] starts after midnight (shown under 隔天凌晨). */
-    fun afterMidnight(day: LocalDate, zone: ZoneId, startMs: Long): Boolean =
-        startMs >= day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-
     fun weekStart(day: LocalDate): LocalDate = day.minusDays((day.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
 
     fun inHistory(day: LocalDate, today: LocalDate): Boolean = day <= today && day >= today.minusDays(HISTORY_DAYS)

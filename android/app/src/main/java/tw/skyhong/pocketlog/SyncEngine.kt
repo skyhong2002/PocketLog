@@ -10,6 +10,8 @@ import java.util.concurrent.TimeUnit
 
 object SyncEngine {
     val lock = Any()
+    private val timelineLock = Any()
+    private var timelineEpoch = 0L
     @Volatile private var lastCaptureSchedule = 0L
     fun schedule(context: Context) {
         val settings = RecordingSettings(context)
@@ -45,7 +47,7 @@ object SyncEngine {
         scheduleCaptureUpload(context, RecordingSettings(context))
     }
     fun charging(context: Context): Boolean = context.getSystemService(BatteryManager::class.java)?.isCharging == true
-    /** Captures waiting for a charger (count only; nothing decrypted). Caller holds [lock]. */
+    /** Captures waiting for a charger (count only; nothing decrypted). Uses file metadata only. */
     fun waitingCaptures(context: Context): Int = if (charging(context)) 0 else JournalQueue(context).observationBacklog().first
     fun enqueue(context: Context, path: String, body: JSONObject) = synchronized(lock) {
         val credentials = requireNotNull(CredentialStore(context).load())
@@ -143,43 +145,74 @@ object SyncEngine {
         // Captures waiting for a charger are not a failure: retrying on battery would only wake the phone.
         queue.pending(includeObservations = captures) == 0
     }
-    fun clearLocal(context: Context) = synchronized(lock) {
-        CaptureDiagnostics.clear()
-        RecordingSettings(context).apply { enabled = false; contextEnabled = false; imagesEnabled = false; replayConsent = false; analysisConsent = false; forgetLegacyAiGrant(); nextAttempt = 0 }
-        WorkManager.getInstance(context).cancelAllWork()
-        PrivateFiles(context).clear()
+    @JvmOverloads
+    fun clearLocal(context: Context, afterClear: () -> Unit = {}) = synchronized(lock) {
+        synchronized(timelineLock) {
+            timelineEpoch++
+            CaptureDiagnostics.clear()
+            RecordingSettings(context).apply { enabled = false; contextEnabled = false; imagesEnabled = false; replayConsent = false; analysisConsent = false; forgetLegacyAiGrant(); nextAttempt = 0 }
+            WorkManager.getInstance(context).cancelAllWork()
+            PrivateFiles(context).clear()
+            afterClear()
+        }
     }
-    fun readTimeline(context: Context, path: String): JSONObject = synchronized(lock) {
-        val credentials = requireNotNull(CredentialStore(context).load())
+
+    fun readTimeline(context: Context, path: String): JSONObject {
+        val store = CredentialStore(context)
         val files = PrivateFiles(context)
         val scope = TimelineCacheScope.forPath(path)
+        val (credentials, epoch) = synchronized(timelineLock) {
+            val saved = requireNotNull(store.load())
+            saved to timelineEpoch
+        }
         val name = "cache_" + RecordingRules.digest(JournalQueue.destination(credentials) + scope.key)
-        files.names("cache_").forEach { old ->
-            val bytes = runCatching { files.read(old) }.getOrNull()
-            try { if (bytes == null || System.currentTimeMillis() - JSONObject(String(bytes)).getLong("at") >= 30L * RecordingRules.RAW_TTL) files.remove(old) }
-            catch (_: Exception) { files.remove(old) } finally { bytes?.fill(0) }
+        val timeline = path.startsWith("/v1/timeline?")
+        val queue = JournalQueue(context)
+        val pendingBefore = if (timeline) queue.pendingJournalEdits(credentials) else emptyList()
+        val result = runCatching { PocketLogApi(credentials).request(path) }
+        return synchronized(timelineLock) {
+            check(epoch == timelineEpoch && store.load() == credentials)
+            val now = System.currentTimeMillis()
+            val cachedNames = files.names("cache_")
+            cachedNames.filter { now - files.modifiedAt(it) >= 30L * RecordingRules.RAW_TTL }.forEach(files::remove)
+            val base = result.fold({ fresh ->
+                val bytes = JSONObject().put("at", now).put("data", fresh)
+                    .apply { scope.to?.let { put("requested_to_ms", it) } }.toString().toByteArray()
+                try { files.write(name, bytes) } finally { bytes.fill(0) }
+                val names = files.names("cache_").sortedBy(files::modifiedAt)
+                var size = names.sumOf(files::size)
+                var count = names.size
+                for (old in names) {
+                    if (count <= 30 && size <= 2 * 1024 * 1024) break
+                    if (old == name) continue
+                    size -= files.size(old)
+                    count--
+                    files.remove(old)
+                }
+                fresh
+            }, { failure ->
+                // Authentication errors must never silently fall back to a cached journal.
+                if (failure is ApiFailure) throw failure
+                val cached = try {
+                    val bytes = files.read(name) ?: throw failure
+                    try { JSONObject(String(bytes)) } finally { bytes.fill(0) }
+                } catch (_: Exception) {
+                    files.remove(name)
+                    throw failure
+                }
+                val cachedTo = cached.optLong("requested_to_ms").takeIf { cached.has("requested_to_ms") }
+                val data = cached.optJSONObject("data")
+                if (now - cached.optLong("at") >= 30L * RecordingRules.RAW_TTL || !scope.accepts(cachedTo) || data == null) throw failure
+                data.put("offline", true)
+            })
+            // Preserve local edits spanning the GET, including uploads acknowledged during the read.
+            if (!timeline) return@synchronized base
+            val pendingAfter = queue.pendingJournalEdits(credentials)
+            val edits = (pendingBefore + pendingAfter).distinctBy { it.name }
+            if (edits.isEmpty()) base else PendingCardEdits.overlay(PendingReflections.overlay(base, path, edits), path, edits)
         }
-        while (files.names("cache_").size > 29 || files.names("cache_").sumOf { files.size(it) } > 2 * 1024 * 1024) files.remove(files.names("cache_").first())
-        val base = try {
-            val data = PocketLogApi(credentials).request(path)
-            val bytes = JSONObject().put("at", System.currentTimeMillis()).put("data", data)
-                .apply { scope.to?.let { put("requested_to_ms", it) } }.toString().toByteArray()
-            try { files.write(name, bytes) } finally { bytes.fill(0) }
-            data
-        } catch (failure: Exception) {
-            // Authentication errors must never silently fall back to a cached journal.
-            if (failure is ApiFailure) throw failure
-            val bytes = files.read(name) ?: throw failure
-            try {
-                val cached = JSONObject(String(bytes))
-                val cachedTo = if (cached.has("requested_to_ms")) cached.getLong("requested_to_ms") else null
-                if (!scope.accepts(cachedTo)) throw failure
-                cached.getJSONObject("data").put("offline", true)
-            } finally { bytes.fill(0) }
-        }
-        val pending = JournalQueue(context).pendingJournalEdits(credentials)
-        PendingCardEdits.overlay(PendingReflections.overlay(base, path, pending), path, pending)
     }
+
 }
 class JournalWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result = try {

@@ -31,6 +31,7 @@ class PrivateFiles(context: Context) : JournalFiles {
     }
     override fun names(prefix: String): List<String> = directory.listFiles()?.filter { it.isFile && it.name.startsWith(prefix) && it.name.endsWith(".enc") }
         ?.map { it.name.removeSuffix(".enc") }?.sorted().orEmpty()
+    fun modifiedAt(name: String): Long = File(directory, "$name.enc").lastModified()
     override fun size(name: String): Long = File(directory, "$name.enc").length()
     override fun write(name: String, clear: ByteArray) {
         require(Regex("[a-zA-Z0-9_-]{1,160}").matches(name))

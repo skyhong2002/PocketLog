@@ -53,6 +53,29 @@ class PendingCardEditsTest {
         override fun read(name: String) = data[name]?.copyOf()
         override fun remove(name: String) { data.remove(name) }
     }
+    @Test fun foregroundSnapshotDoesNotMutateQueueWhenUploadAcknowledges() {
+        val now = System.currentTimeMillis()
+        val files = MemoryFiles()
+        val credentials = Credentials("https://example.com", "a".repeat(64))
+        val writer = JournalQueue(files) {}
+        writer.enqueue(credentials, "/v1/cards", body(), now)
+        writer.enqueue(credentials, "/v1/observations", JSONObject(), now)
+        writer.enqueue(credentials, "/v1/reflections", JSONObject(), now + 1)
+        val removed = files.names("q_").first { !it.endsWith("_ctx") }
+        val concurrent = object : JournalFiles by files {
+            override fun read(name: String): ByteArray? {
+                assertFalse(name.endsWith("_ctx"))
+                if (name == removed) files.remove(name)
+                return files.read(name)
+            }
+            override fun remove(name: String) = error("Foreground timeline must not modify the queue")
+        }
+        val snapshot = JournalQueue(concurrent) { error("An acknowledgement is not dropped data") }
+            .pendingJournalEdits(credentials, now)
+        assertEquals(listOf("/v1/reflections"), snapshot.map { it.data.getString("path") })
+        assertEquals(2, files.names("q_").size)
+    }
+
     @Test fun fullRetainedQueueHonorsDestinationRejectionExpiryAndAcknowledgement() {
         val now = System.currentTimeMillis(); val files = MemoryFiles(); val queue = JournalQueue(files) {}
         val c = Credentials("https://example.com", "a".repeat(64))
