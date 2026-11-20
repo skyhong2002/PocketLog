@@ -13,6 +13,23 @@ import java.time.ZonedDateTime
 class TimelineMathTest {
     private val taipei = ZoneId.of("Asia/Taipei")
 
+    @Test fun categoryIntervalsPreferScreenEvidenceAndManualCorrections() {
+        val intervals = listOf(
+            TimelineMath.CategoryInterval(0, 50, "unsorted", 0, "usage"),
+            TimelineMath.CategoryInterval(10, 40, "work", 2, "screen"),
+            TimelineMath.CategoryInterval(20, 30, "learning", 3, "manual"),
+            TimelineMath.CategoryInterval(60, 70, "work", 2, "screen-only"),
+        )
+        assertEquals(
+            listOf(
+                Triple(0L, 10L, "unsorted"), Triple(10L, 20L, "work"),
+                Triple(20L, 30L, "learning"), Triple(30L, 40L, "work"),
+                Triple(40L, 50L, "unsorted"), Triple(60L, 70L, "work"),
+            ),
+            TimelineMath.categoryIntervals(intervals).map { Triple(it.start, it.end, it.category) },
+        )
+    }
+
     @Test fun dayBeginsAtFourAndWindowIsClippedToNow() {
         assertEquals(LocalDate.of(2026, 11, 14), TimelineMath.journalDay(ZonedDateTime.of(2026, 11, 15, 3, 59, 0, 0, taipei)))
         assertEquals(LocalDate.of(2026, 11, 15), TimelineMath.journalDay(ZonedDateTime.of(2026, 11, 15, 4, 0, 0, 0, taipei)))

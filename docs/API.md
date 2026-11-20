@@ -73,7 +73,7 @@ category correction and safe retries; CI runs it against a disposable server.
 | POST | `/v1/cards` | `{id,title,summary,category}`; existing activity required; title 1–200 characters, summary ≤1,000; user edit wins over worker |
 | POST | `/v1/reflections` | `{id,at_ms,text}`, ≤2,000 characters; same ID replaces, blank text deletes |
 | GET | `/v1/timeline?from_ms=…&to_ms=…` | Any `from_ms` ≥ 0, up to 26 hours, clipped intervals; activities, checkins, derived cards, reflections and `truncated`; never raw context |
-| GET | `/v1/overview?from_ms=…&to_ms=…` | Any `from_ms` ≥ 0, up to 30 days; complete clipped category totals, top 20 apps, self-reported averages; `title_keywords` from the latest 1,000 card titles (model topic labels where available, else local words) and `keyword_mode` `model`/`local`/`mixed` |
+| GET | `/v1/overview?from_ms=…&to_ms=…` | Any `from_ms` ≥ 0, up to 30 days; clipped category wall time (manual edits take precedence over screen-derived cards, then other annotated and App-only intervals), top 20 apps by raw usage, self-reported averages; `title_keywords` from the latest 1,000 card titles (model topic labels where available, else local words) and `keyword_mode` `model`/`local`/`mixed` |
 | GET | `/v1/status` | `schema_version:2`, `api:{version,capabilities}`, `analysis`, `raw_retention:"storage_budget"`, `journal_retention:"permanent"`, pending-context count and `storage` usage; no secrets or content |
 | GET/PUT | `/v1/storage` | Owner storage budget; see below |
 | DELETE | `/v1/journal` | All owner activities, check-ins, notes, reflections, raw context, dedup receipts and jobs; invalidates in-flight analysis |
@@ -109,7 +109,7 @@ and are not guaranteed complete when truncated; `GET /v1/activities` pages
 the same cards completely. Import/restore remains planned.
 Observations may set `protected_screen:true` (no `jpeg_base64` allowed) when the
 phone saw a secure/DRM window, such as a video app, that returns no pixels; only its
-text is sent. Cards then report `protected_screen:true`. Older servers omit the field.
+text is sent. Cards then report `protected_screen:true`. Cards generated from screen batches report `screen_derived:true`. Older servers may omit these fields.
 Cards identify `source` as `app_only`, `local_excerpt`, `ai` or `user`. AI output
 must be reviewed and never infers feelings. Each card also includes
 `pending_context`: true when the server still has matching unanalyzed observations for
