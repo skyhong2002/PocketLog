@@ -3,6 +3,13 @@
 // Every interval that shares visible time must occupy a different column.
 const assert = require('node:assert/strict');
 const { layoutLanes, fullDayBounds, timelineTicks } = require('../server/web/app.js');
+const { customOutputLanguage } = require('../server/web/app.js');
+assert.equal(customOutputLanguage('  Spanish  '), 'Spanish');
+assert.throws(() => customOutputLanguage('  '), /請輸入語言名稱/);
+assert.throws(() => customOutputLanguage('Spanish\u0085Thai'), /控制字元/);
+assert.equal(customOutputLanguage('𠀀'.repeat(40)), '𠀀'.repeat(40));
+assert.throws(() => customOutputLanguage('𠀀'.repeat(41)), /最多 40 個字元/);
+console.log('Web custom output language validation checks passed');
 function check(intervals, minMs = 0) {
   const cards = intervals.map(([start_ms,end_ms],id) => ({id,start_ms,end_ms}));
   const copy = JSON.stringify(cards);

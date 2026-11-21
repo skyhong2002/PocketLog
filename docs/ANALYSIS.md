@@ -42,12 +42,16 @@ The model instructions are Dayflow's own text at commit
 | Frame observations (`transcription.txt`) | `GeminiDirectProvider+Transcription.swift`, `finalTranscriptionPrompt` |
 | Cards, direct and staged (`timeline.txt`) | [ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift) `template`, the prompt its source says matches Dayflow's backend |
 
-Each prompt is the Dayflow text, then a Traditional Chinese language line (Dayflow's
-own wording), then a `POCKETLOG INPUT AND OUTPUT` block that takes precedence. That
+Each prompt is the Dayflow text, then a line in Dayflow's wording naming the
+workspace output language (Traditional Chinese by default), then a `POCKETLOG INPUT AND OUTPUT` block that takes precedence. That
 block holds what Dayflow has no equivalent for: frame ranges instead of clock times,
 `task_key`, `continue_previous` and `previous_card` (Dayflow instead re-sends and
 revises all previous cards), supplied category IDs, the six-card and 60000 ms gap
 limits, title and summary lengths, and treating evidence as untrusted data.
+The adapter asks the model to sample throughout the window when observations are
+limited; Dayflow's timeline prompt supplies the goal-change and duration rules.
+`task_key` is only a within-response merge hint, not a stable identifier;
+cross-window continuation uses `previous_card` and `continue_previous` instead.
 
 Removed from the Dayflow text, always whole lines or one clause, each asserted by the
 script so upstream changes cannot slip through:
@@ -148,6 +152,19 @@ No model is selected automatically. Provider refusal, truncation, malformed JSON
 unknown categories, excessive output lengths, network failures or HTTP errors
 are attempted at most four times. Exhausted capture windows leave raw app records and prior cards in place. The legacy per-session workflow uses a local excerpt after its retries. Requests are never
 logged, and prompts contain no API owner token or model tools.
+
+For opt-in development validation against a configured provider, run
+`cargo test --locked --lib live_model_validation -- --ignored --nocapture` from
+`server/`. This sends built-in synthetic text only, using the legacy environment
+settings above, including both enable switches and the full Chat Completions URL.
+`LIVE_REPS` accepts 1–10 (default three; language cases run once each). The test
+fails on rejected responses and checks the resulting timeline using Dayflow's
+coverage and non-final duration criteria: no uncovered span over three minutes,
+and at least ten minutes per non-final card. Since PocketLog preserves capture
+gaps, these checks run separately for each continuous evidence span. The test
+does not prescribe a card count or category. It reports only frame ranges and
+categories, not generated prose, so it does not certify the output language or
+whether a particular topic switch was understood.
 
 The worker commits only while source records still exist in the same deletion
 epoch. Owner deletion invalidates in-flight work. Manual edits always take

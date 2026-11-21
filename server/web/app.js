@@ -3497,6 +3497,13 @@ const OUTPUT_LANGUAGES = [
 function languageLabel(value) {
   return OUTPUT_LANGUAGES.find(([name]) => name === value)?.[1] || value || "繁體中文";
 }
+function customOutputLanguage(input) {
+  const value = input.trim();
+  if (!value) throw Error("請輸入語言名稱");
+  if ([...value].length > 40) throw Error("語言名稱最多 40 個字元");
+  if (/\p{Cc}/u.test(value)) throw Error("語言名稱不能包含控制字元");
+  return value;
+}
 function languageDialog() {
   modal("AI 輸出語言", (container) => {
     const p = el("div");
@@ -3506,7 +3513,6 @@ function languageDialog() {
     const choice = select(p, "語言", [...OUTPUT_LANGUAGES, ["", "其他（自己輸入）"]], known ? prefs.output_language : "");
     const other = el("div");
     const custom = field(other, "語言名稱", known ? "" : prefs.output_language || "", "text", "最多 40 個字元，用英文寫語言名稱最穩定，例如 Spanish 或 Thai。");
-    custom.maxLength = 40;
     add(p, other);
     const sync = () => { other.hidden = choice.value !== ""; };
     choice.addEventListener("change", () => { sync(); if (!other.hidden) custom.focus(); });
@@ -3514,8 +3520,7 @@ function languageDialog() {
     let saving = false;
     async function save() {
       if (saving) return;
-      const value = choice.value || custom.value.trim();
-      if (!value) throw Error("請輸入語言名稱");
+      const value = choice.value || customOutputLanguage(custom.value);
       saving = true;
       try {
         try {
@@ -4000,6 +4005,7 @@ if (typeof module !== "undefined")
     timeAxis, isPrivateHost, originHints, proxyBase, collapseAppOnly, aiSummary, providerName, recordState, deviceStatus, storageLine, weekAverage, askDisclosure, badgeClass, modelsRequest, parseModels, topicsVisible,
     askExamples, weekHours, weekActivityRows, gib, cardSummary,
     shortDate, weekRange, cardLength, cardTimes, cardBadges,
+    customOutputLanguage,
   };
 if (inBrowser) {
   const modality = (value) => () => { document.documentElement.dataset.modality = value; };
