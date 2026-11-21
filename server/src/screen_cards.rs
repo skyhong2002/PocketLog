@@ -13,6 +13,8 @@ const MAX_IMAGES: usize = 6;
 const MAX_CARDS: usize = 6;
 const LOOKBACK: i64 = 45 * MINUTE;
 const MAX_CARD_LENGTH: i64 = 60 * MINUTE;
+const MIN_REWRITE_SPAN: i64 = 5 * MINUTE;
+const MIN_NONFINAL_CARD_LENGTH: i64 = 10 * MINUTE;
 
 pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(
@@ -44,6 +46,7 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
+#[derive(Clone)]
 struct Frame {
     id: String,
     at_ms: i64,
@@ -582,6 +585,11 @@ fn saved_cards(
         // The previous card was edited or extended while the provider was working.
         return Ok(false);
     }
+    delete_batch_cards(db, batch)?;
+    insert_cards(db, batch, frames, cards, provider_id, previous)
+}
+
+fn delete_batch_cards(db: &Connection, batch: i64) -> Result<()> {
     db.execute(
         "DELETE FROM notes WHERE id IN (SELECT id FROM screen_cards WHERE batch_ms=?)",
         [batch],
@@ -589,7 +597,19 @@ fn saved_cards(
     .map_err(storage_error)?;
     db.execute("DELETE FROM screen_cards WHERE batch_ms=?", [batch])
         .map_err(storage_error)?;
-    for (index, card) in cards.iter().enumerate() {
+    Ok(())
+}
+
+fn insert_cards(
+    db: &Connection,
+    batch: i64,
+    frames: &[Frame],
+    cards: &[Draft],
+    provider_id: Option<&str>,
+    previous: Option<&PreviousCard>,
+) -> Result<bool> {
+    let mut indices = [0, 0];
+    for card in cards {
         let first = &frames[card.first_frame];
         let last = &frames[card.last_frame];
         let end = frames
@@ -600,6 +620,10 @@ fn saved_cards(
         let protected = frames[card.first_frame..=card.last_frame]
             .iter()
             .any(|f| f.protected_screen);
+        let card_batch = first.at_ms.div_euclid(WINDOW) * WINDOW;
+        let index = &mut indices[usize::from(card_batch == batch)];
+        let ordinal = *index;
+        *index += 1;
         if card.continue_previous {
             let Some(previous) = previous else {
                 return Ok(false);
@@ -626,7 +650,7 @@ fn saved_cards(
             .map_err(storage_error)?;
             continue;
         }
-        let id = format!("screen-{}", hex_digest(format!("{batch}:{index}")));
+        let id = format!("screen-{}", hex_digest(format!("{card_batch}:{ordinal}")));
         let collision: bool = db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM activities WHERE id=?)",
@@ -642,7 +666,7 @@ fn saved_cards(
             "INSERT INTO screen_cards VALUES (?,?,?,?,?,?,?,?)",
             params![
                 id,
-                batch,
+                card_batch,
                 first.at_ms,
                 end,
                 first.app,
@@ -669,6 +693,113 @@ fn saved_cards(
     )
     .map_err(storage_error)?;
     Ok(true)
+}
+
+struct RewriteSource {
+    batch: i64,
+    snapshot: i64,
+    revision: i64,
+    frames: Vec<Frame>,
+}
+
+fn projection_revision(db: &Connection) -> Result<i64> {
+    db.query_row(
+        "SELECT revision FROM screen_projection WHERE slot=1",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(storage_error)
+}
+
+fn rewrite_source(
+    db: &Connection,
+    batch: i64,
+    current: &[Frame],
+    provider_id: Option<&str>,
+) -> Result<Option<RewriteSource>> {
+    let Some(first) = current.first() else {
+        return Ok(None);
+    };
+    let prior = batch - WINDOW;
+    if frozen_window(db, prior)? || frozen_window(db, batch)? {
+        return Ok(None);
+    }
+    let eligible: bool = db
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM screen_cards c WHERE c.batch_ms=?1)
+            AND NOT EXISTS (SELECT 1 FROM screen_cards c LEFT JOIN notes n ON n.id=c.id
+              WHERE c.batch_ms IN (?1,?2) AND (n.edited IS NOT 2 OR c.provider_id IS NOT ?3))
+            AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.at_ms>=?1 AND o.at_ms<?2
+              AND (o.processed=0 OR NOT EXISTS (SELECT 1 FROM screen_cards c
+                WHERE c.batch_ms=?1 AND c.start_ms<=o.at_ms AND c.end_ms>o.at_ms)))",
+            params![prior, batch, provider_id],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    if !eligible {
+        return Ok(None);
+    }
+    let (frames, snapshot) = load_frames(db, prior)?;
+    if frames.len() + current.len() > MAX_FRAMES as usize
+        || frames
+            .first()
+            .zip(current.last())
+            .is_none_or(|(start, end)| end.at_ms - start.at_ms < MIN_REWRITE_SPAN)
+        || frames
+            .last()
+            .is_none_or(|last| first.at_ms - last.at_ms > MAX_GAP)
+        || frames
+            .windows(2)
+            .chain(current.windows(2))
+            .any(|pair| pair[1].at_ms - pair[0].at_ms > MAX_GAP)
+    {
+        return Ok(None);
+    }
+    Ok(Some(RewriteSource {
+        batch: prior,
+        snapshot,
+        revision: projection_revision(db)?,
+        frames,
+    }))
+}
+
+fn valid_rewrite(frames: &[Frame], cards: &[Draft]) -> bool {
+    let mut next = 0;
+    for (index, card) in cards.iter().enumerate() {
+        if card.first_frame != next || card.continue_previous {
+            return false;
+        }
+        let end = frames
+            .get(card.last_frame + 1)
+            .map_or(i64::MAX, |frame| frame.at_ms)
+            .min(frames[card.last_frame].at_ms + FRAME_LENGTH);
+        if index + 1 < cards.len()
+            && end - frames[card.first_frame].at_ms < MIN_NONFINAL_CARD_LENGTH
+        {
+            return false;
+        }
+        next = card.last_frame + 1;
+    }
+    !cards.is_empty() && next == frames.len()
+}
+
+fn save_rewrite(
+    db: &Connection,
+    batch: i64,
+    source: &RewriteSource,
+    cards: &[Draft],
+    provider_id: Option<&str>,
+) -> Result<bool> {
+    if projection_revision(db)? != source.revision
+        || frozen_window(db, source.batch)?
+        || frozen_window(db, batch)?
+        || frame_snapshot(db, source.batch)? != source.snapshot
+    {
+        return Ok(false);
+    }
+    delete_batch_cards(db, source.batch)?;
+    delete_batch_cards(db, batch)?;
+    insert_cards(db, batch, &source.frames, cards, provider_id, None)
 }
 
 pub(super) fn run(db: &mut Connection, provider: &Provider) -> Result<usize> {
@@ -718,7 +849,19 @@ pub(super) fn run(db: &mut Connection, provider: &Provider) -> Result<usize> {
         } else {
             None
         };
-        let result = if attempts <= 4 && !frames.is_empty() && !frozen_window(db, batch)? {
+        let can_generate = attempts <= 4 && !frames.is_empty() && !frozen_window(db, batch)?;
+        let mut rewrite = if can_generate {
+            rewrite_source(db, batch, &frames, provider.identity())?
+        } else {
+            None
+        };
+        let revised = rewrite.as_mut().and_then(|source| {
+            source.frames.extend(frames.iter().cloned());
+            generate(db, provider, &source.frames, None, attempts == 1, epoch)
+                .ok()
+                .filter(|cards| valid_rewrite(&source.frames, cards))
+        });
+        let result = if revised.is_none() && can_generate {
             generate(
                 db,
                 provider,
@@ -734,7 +877,9 @@ pub(super) fn run(db: &mut Connection, provider: &Provider) -> Result<usize> {
         if journal_epoch(&tx)? != epoch || !provider.automatic() {
             break;
         }
-        let applied = if let Ok(cards) = result {
+        let applied = if let (Some(source), Some(cards)) = (rewrite, revised) {
+            save_rewrite(&tx, batch, &source, &cards, provider.identity())?
+        } else if let Ok(cards) = result {
             saved_cards(
                 &tx,
                 batch,
@@ -768,15 +913,18 @@ fn journal_epoch(db: &Connection) -> Result<i64> {
         .map_err(storage_error)
 }
 
+fn frame_snapshot(db: &Connection, batch: i64) -> Result<i64> {
+    db.query_row(
+        "SELECT COALESCE(MAX(rowid),0) FROM observations WHERE at_ms>=? AND at_ms<?",
+        params![batch, batch + WINDOW],
+        |r| r.get(0),
+    )
+    .map_err(storage_error)
+}
+
 fn load_frames(db: &Connection, batch: i64) -> Result<(Vec<Frame>, i64)> {
     let end = batch + WINDOW;
-    let snapshot: i64 = db
-        .query_row(
-            "SELECT COALESCE(MAX(rowid),0) FROM observations WHERE at_ms>=? AND at_ms<?",
-            params![batch, end],
-            |r| r.get(0),
-        )
-        .map_err(storage_error)?;
+    let snapshot = frame_snapshot(db, batch)?;
     let mut query = db
         .prepare(
             "SELECT id,at_ms,app,text,jpeg_base64 IS NOT NULL,protected_screen FROM observations
@@ -1223,6 +1371,69 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn connected_windows_can_be_recut_without_losing_earlier_evidence_or_edits() {
+        let state = AppState::new(
+            Connection::open_in_memory().unwrap(),
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+        let mut db = state.db.lock().unwrap();
+        let before: Vec<_> = (0..15).map(|minute| frame(minute * MINUTE)).collect();
+        for capture in &before {
+            db.execute(
+                "INSERT INTO observations(id,at_ms,app,text,consent,processed) VALUES (?,?,?,?,1,1)",
+                params![capture.at_ms.to_string(), capture.at_ms, capture.app, capture.text],
+            )
+            .unwrap();
+        }
+        saved_cards(
+            &db,
+            0,
+            &before,
+            &[draft(0, 7, "Read"), draft(8, 14, "Check")],
+            Some("provider"),
+            None,
+        )
+        .unwrap();
+        let after = [frame(WINDOW), frame(WINDOW + MINUTE)];
+        assert!(
+            rewrite_source(&db, WINDOW, &after, Some("other"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            rewrite_source(&db, WINDOW, &[frame(WINDOW + 1)], Some("provider"))
+                .unwrap()
+                .is_none()
+        );
+        let mut source = rewrite_source(&db, WINDOW, &after, Some("provider"))
+            .unwrap()
+            .unwrap();
+        source.frames.extend(after);
+        assert!(!valid_rewrite(
+            &source.frames,
+            &[draft(1, 16, "Missing evidence")]
+        ));
+        assert!(!valid_rewrite(
+            &source.frames,
+            &[draft(0, 1, "Too short"), draft(2, 16, "Rest")]
+        ));
+        let new_cards = [draft(0, 16, "Read and verify")];
+        assert!(valid_rewrite(&source.frames, &new_cards));
+        let tx = db.transaction().unwrap();
+        tx.execute("UPDATE notes SET edited=1", []).unwrap();
+        assert!(!save_rewrite(&tx, WINDOW, &source, &new_cards, Some("provider")).unwrap());
+        tx.rollback().unwrap();
+        let tx = db.transaction().unwrap();
+        assert!(save_rewrite(&tx, WINDOW, &source, &new_cards, Some("provider")).unwrap());
+        tx.commit().unwrap();
+        let cards = timeline(&db, 0, 2 * WINDOW).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].start_ms, 0);
+        assert_eq!(cards[0].end_ms, WINDOW + MINUTE + FRAME_LENGTH);
     }
 
     #[test]
