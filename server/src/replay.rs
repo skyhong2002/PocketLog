@@ -22,18 +22,21 @@ pub(super) fn insert(
     encoded: &str,
     format: Option<&str>,
 ) -> Result<()> {
-    let count: i64 = db
-        .query_row("SELECT COUNT(*) FROM image_replay", [], |r| r.get(0))
-        .map_err(storage_error)?;
-    if count >= 256 {
-        return Err(ApiError(
-            StatusCode::INSUFFICIENT_STORAGE,
-            "replay capacity reached",
-        ));
+    // The replay archive is a bounded copy. Its capacity must not stop the
+    // main observation transaction or block the phone's FIFO upload queue.
+    if at <= now_ms() - DAY {
+        return Ok(());
     }
     db.execute(
         "INSERT INTO image_replay(id,at_ms,app,jpeg,image_format) VALUES(?,?,?,?,?)",
         params![id, at, app, encoded, format],
+    )
+    .map_err(storage_error)?;
+    db.execute(
+        "DELETE FROM image_replay WHERE id IN (
+            SELECT id FROM image_replay ORDER BY at_ms DESC,id DESC LIMIT -1 OFFSET 256
+        )",
+        [],
     )
     .map_err(storage_error)?;
     Ok(())
@@ -162,4 +165,28 @@ pub(crate) fn validate_pending(db: &mut Connection) -> Result<usize> {
         tx.commit().map_err(storage_error)?;
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+
+    #[test]
+    fn full_archive_keeps_newest_frames_without_rejecting_observations() {
+        let db = Connection::open_in_memory().unwrap();
+        migrate(&db).unwrap();
+        let now = now_ms();
+        for i in 0..256 {
+            let id = format!("fixture-{i:03}");
+            insert(&db, &id, now - 1000 + i, "org.example", "AAAA", None).unwrap();
+        }
+        insert(&db, "newest", now, "org.example", "AAAA", None).unwrap();
+        insert(&db, "late", now - 2000, "org.example", "AAAA", None).unwrap();
+        let actual: (i64, i64, i64) = db.query_row(
+            "SELECT count(*),sum(id='newest'),sum(id IN ('fixture-000','late')) FROM image_replay",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(actual, (256, 1, 0));
+    }
 }

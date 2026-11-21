@@ -10,8 +10,8 @@ import java.util.UUID
 
 /**
  * Allowlisted screen text and screenshots, captured every ten seconds while an allowed app stays in
- * front and on app switches (at least five seconds apart). Protected windows keep text only; unchanged
- * screens are skipped. Captures upload while charging (see [SyncEngine]).
+ * front and on app switches (at least five seconds apart). Protected windows keep text only.
+ * Captures upload while charging (see [SyncEngine]).
  */
 class ContextService : AccessibilityService() {
     private val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -100,7 +100,7 @@ class ContextService : AccessibilityService() {
         }) }.onFailure { pending = false; report(CaptureDiagnostics.Outcome.SYSTEM_FAILED) }
     }
     private data class Attempt(val pkg: String, val window: Int, val at: Long, val generation: Long, val revision: Long, val diagnostic: Long)
-    /** Off the main thread: re-check the window, skip unchanged screens, then encode and queue. */
+    /** Off the main thread: re-check the window, then encode and queue. */
     private fun record(capture: Attempt, settings: RecordingSettings, frame: android.graphics.Bitmap?, shotTried: Boolean, protectedScreen: Boolean) {
         val pkg = capture.pkg
         fun report(outcome: CaptureDiagnostics.Outcome) = CaptureDiagnostics.complete(capture.diagnostic, outcome, System.currentTimeMillis())
@@ -117,9 +117,9 @@ class ContextService : AccessibilityService() {
                 val imageFailed = shotTried && !protectedScreen && hash == null
                 if (text.isBlank() && hash == null) { report(if (imageFailed) CaptureDiagnostics.Outcome.IMAGE_FAILED else CaptureDiagnostics.Outcome.EMPTY); return@runCatching }
                 val fingerprint = ScreenChange.Fingerprint(pkg, RecordingRules.digest(text), hash, protectedScreen, capture.revision, capture.at)
-                // Battery: the same app, text and picture as last time is not encoded, stored or uploaded.
-                if (ScreenChange.unchanged(lastStored, fingerprint)) { report(CaptureDiagnostics.Outcome.UNCHANGED); return@runCatching }
+                if (ScreenChange.skipCapture(lastStored, fingerprint, settings.continuousContext)) { report(CaptureDiagnostics.Outcome.UNCHANGED); return@runCatching }
                 val image = if (hash != null && settings.imagesEnabled) ContextImage.encode(frame) else null
+                if (!current()) { report(CaptureDiagnostics.Outcome.CANCELED); return@runCatching }
                 val credentials = CredentialStore(this@ContextService).load() ?: run { report(CaptureDiagnostics.Outcome.CONNECTION_MISSING); return@runCatching }
                 // Model processing is decided once on the server (automatic summaries); no per-capture AI grant.
                 val body = JSONObject()

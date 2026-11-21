@@ -15,7 +15,7 @@ class RecordingSettings(private val context: Context) {
     fun rejectCredentials(credentials: Credentials) = update(prefs.edit()
         .putString("rejected_destination", JournalQueue.destination(credentials))
         .putBoolean("enabled", false).putBoolean("context", false).putBoolean("analysis", false)
-        .putBoolean("images", false).putBoolean("replay", false).also(::forgetLegacyAi)
+        .putBoolean("images", false).putBoolean("replay", false).remove("continuous_context").also(::forgetLegacyAi)
         .putString("status", "金鑰已過期、撤銷或失效，已停止擷取；請重新設定連線"))
     // Per-capture model grants were replaced by the server's automatic summary switch.
     private fun forgetLegacyAi(editor: SharedPreferences.Editor) {
@@ -48,7 +48,22 @@ class RecordingSettings(private val context: Context) {
         set(value) { if (value != remotePaused) update(prefs.edit().putBoolean("remote_paused", value)) }
     var contextEnabled: Boolean
         get() = enabled && hasContextGrant
-        set(value) = update(prefs.edit().putBoolean("context", value))
+        set(value) {
+            val editor = prefs.edit().putBoolean("context", value)
+            if (!value) editor.remove("continuous_context")
+            update(editor)
+        }
+    var continuousContext: Boolean
+        get() = contextEnabled && prefs.getBoolean("continuous_context", false)
+        set(value) {
+            require(!value || contextEnabled)
+            update(prefs.edit().putBoolean("continuous_context", value))
+        }
+    fun grantContinuousContext() {
+        require(enabled)
+        update(prefs.edit().putBoolean("context", true).putBoolean("analysis", true)
+            .putBoolean("images", true).putBoolean("continuous_context", true))
+    }
     var analysisConsent: Boolean
         get() = contextEnabled && prefs.getBoolean("analysis", false)
         set(value) = update(prefs.edit().putBoolean("analysis", value))

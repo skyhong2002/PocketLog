@@ -201,7 +201,7 @@ async fn generate(
         .try_acquire_owned()
         .map_err(|_| ApiError(StatusCode::TOO_MANY_REQUESTS, "model busy"))?;
     let copy = q.clone();
-    let (cards, epoch, prior) = state
+    let (cards, epoch, prior, language) = state
         .database(move |db| {
             super::prune(db, now)?;
             Ok((
@@ -209,6 +209,7 @@ async fn generate(
                 db.query_row("SELECT epoch FROM journal_meta", [], |r| r.get::<_, i64>(0))
                     .map_err(storage_error)?,
                 stored(db, &copy.id)?,
+                crate::workspace::load(db)?.output_language,
             ))
         })
         .await?;
@@ -228,7 +229,13 @@ async fn generate(
             .map_err(storage_error)?
             .ok_or_else(invalid)?;
         provider
-            .answer(&copy.provider_id, question(copy.kind), &cards, &[])
+            .answer(
+                &copy.provider_id,
+                question(copy.kind),
+                &cards,
+                &[],
+                &language,
+            )
             .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "model request failed"))
     })
     .await
@@ -376,8 +383,14 @@ pub(crate) fn process(
             }
             tx.execute("INSERT INTO brief_attempts VALUES(?,?,1,?) ON CONFLICT(id) DO UPDATE SET attempts=attempts+1,next_ms=excluded.next_ms",params![id,now,now+15*60_000]).map_err(storage_error)?;
             tx.commit().map_err(storage_error)?;
-            let Ok(text) = provider.answer(&settings.provider_id, question(kind), &cards, &[])
-            else {
+            let language = crate::workspace::load(db)?.output_language;
+            let Ok(text) = provider.answer(
+                &settings.provider_id,
+                question(kind),
+                &cards,
+                &[],
+                &language,
+            ) else {
                 continue;
             };
             let tx = db.transaction().map_err(storage_error)?;

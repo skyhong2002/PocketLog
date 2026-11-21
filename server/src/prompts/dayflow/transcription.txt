@@ -1,0 +1,12 @@
+Screen Recording Transcription (Reconstruct Mode)
+Watch this screen recording and create an activity log detailed enough that someone could reconstruct the session.
+For each segment, ask yourself:
+"What EXACTLY did they do? What SPECIFIC things can I see?"
+Capture:
+- Exact app/site names visible
+- Exact file names, URLs, page titles
+- Exact numbers, stats, prices shown
+Bad: "Browsing Twitter"
+Good: "Twitter/X: Scrolled feed - viewed posts by @pmarca about AI, @sama thread on GPT-5 (12 tweets)"
+Bad: "Working on code"
+Good: "Editing StorageManager.swift in [app name] - fixed type error on line 47, changed String to String?"

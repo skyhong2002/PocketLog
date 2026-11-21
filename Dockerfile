@@ -11,6 +11,7 @@ RUN --mount=type=cache,id=pocketlog-registry,target=/usr/local/cargo/registry \
     mkdir -p /out && cp target/release/pocketlog-server target/release/pocketlog-worker /out/
 
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 10001 pocketlog && useradd --uid 10001 --gid 10001 --no-create-home pocketlog && mkdir /data /config && chown 10001:10001 /data /config && chmod 0700 /config
 COPY --from=build /out/pocketlog-server /usr/local/bin/pocketlog-server
 COPY --from=build /out/pocketlog-worker /usr/local/bin/pocketlog-worker

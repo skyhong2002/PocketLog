@@ -2523,3 +2523,75 @@ async fn lossless_replay_preserves_pixels_and_uses_the_authenticated_image_route
     );
     assert_eq!(image::load_from_memory(&bytes).unwrap().into_rgb8(), source);
 }
+#[tokio::test]
+async fn workspace_saved_before_distraction_and_language_gets_both_on_read() {
+    let fresh = call(&app(), "GET", "/v1/workspace", json!({}), true)
+        .await
+        .1;
+    let ids = |w: &Value| -> Vec<String> {
+        w["categories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(ids(&fresh).contains(&"distraction".to_owned()));
+    assert_eq!(fresh["output_language"], "Traditional Chinese");
+    // The workspace as an earlier release stored it: no distraction, no language.
+    let mut legacy = fresh.clone();
+    legacy["revision"] = json!(4);
+    legacy["categories"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|c| c["id"] != "distraction");
+    legacy.as_object_mut().unwrap().remove("output_language");
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE workspace(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, json TEXT NOT NULL);")
+        .unwrap();
+    db.execute("INSERT INTO workspace VALUES(1,4,?)", [legacy.to_string()])
+        .unwrap();
+    let app = router(AppState::new(db, TOKEN).unwrap());
+    let read = call(&app, "GET", "/v1/workspace", json!({}), true).await.1;
+    let read_ids = ids(&read);
+    assert_eq!(read["revision"], 4);
+    assert_eq!(read["output_language"], "Traditional Chinese");
+    let distraction = read_ids.iter().position(|id| id == "distraction").unwrap();
+    // Unsorted stays last: the website uses the last category as its fallback.
+    assert_eq!(read_ids.last().unwrap(), "unsorted");
+    assert!(distraction < read_ids.len() - 1);
+    let styled = read["categories"][distraction].clone();
+    assert_eq!(styled["role"], "distraction");
+    // The backfilled workspace is valid as a whole, so the website can save it.
+    let saved = call(&app, "PUT", "/v1/workspace", read.clone(), true).await;
+    assert_eq!(saved.0, StatusCode::OK);
+    assert_eq!(saved.1["revision"], 5);
+}
+#[tokio::test]
+async fn output_language_is_saved_and_bounded() {
+    let app = app();
+    let mut settings = call(&app, "GET", "/v1/workspace", json!({}), true).await.1;
+    settings["output_language"] = json!("Japanese");
+    let saved = call(&app, "PUT", "/v1/workspace", settings.clone(), true).await;
+    assert_eq!(saved.0, StatusCode::OK);
+    assert_eq!(
+        call(&app, "GET", "/v1/workspace", json!({}), true).await.1["output_language"],
+        "Japanese"
+    );
+    for bad in [
+        "",
+        "  ",
+        " Japanese",
+        "Japanese ",
+        &"x".repeat(41),
+        "Jap\nanese",
+    ] {
+        let mut draft = saved.1.clone();
+        draft["output_language"] = json!(bad);
+        assert_eq!(
+            call(&app, "PUT", "/v1/workspace", draft, true).await.0,
+            StatusCode::BAD_REQUEST,
+            "{bad:?}"
+        );
+    }
+}

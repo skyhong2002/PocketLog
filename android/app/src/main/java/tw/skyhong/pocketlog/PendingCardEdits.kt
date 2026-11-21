@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 /** Local intentions decorate existing returned cards only; never rewrite the encrypted server snapshot. */
 internal object PendingCardEdits {
-    private val baseCategories = setOf("unsorted", "work", "learning", "communication", "social_media", "entertainment", "news_reading", "life_admin", "rest", "idle")
+    private val baseCategories = setOf("unsorted", "work", "learning", "communication", "social_media", "entertainment", "news_reading", "life_admin", "rest", "idle", "distraction")
     fun overlay(base: JSONObject, path: String, entries: List<JournalQueue.Entry>): JSONObject {
         val result = JSONObject(base.toString()).put("pending_card_edits", false)
         val window = Regex("^/v1/timeline\\?from_ms=([0-9]+)&to_ms=([0-9]+)$").matchEntire(path) ?: return result

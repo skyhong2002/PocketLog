@@ -461,6 +461,19 @@ function cardTimes(c) {
   const from = time(c.start_ms), to = time(c.end_ms);
   return c.end_ms > c.start_ms && from !== to ? `${from}–${to}` : from;
 }
+function capturedIntervals(c, from = c.start_ms, to = c.end_ms) {
+  let start = Math.max(from, c.start_ms);
+  const end = Math.min(to, c.end_ms);
+  const intervals = [];
+  for (const gap of c.capture_gaps || []) {
+    if (gap.end_ms <= start) continue;
+    if (gap.start_ms >= end) break;
+    if (gap.start_ms > start) intervals.push({ start_ms: start, end_ms: gap.start_ms });
+    start = gap.end_ms;
+  }
+  if (start < end) intervals.push({ start_ms: start, end_ms: end });
+  return intervals;
+}
 function styleFor(id) {
   return prefs.categories.find((c) => c.id === id) || prefs.categories.at(-1);
 }
@@ -534,16 +547,17 @@ function mergedTime(cards) {
 function metrics(cards, roleFor = (id) => styleFor(id).role) {
   const totals = {};
   for (const c of cards) {
-    const ms = Math.max(0, c.end_ms - c.start_ms);
+    const ms = mergedTime(capturedIntervals(c)).total;
     totals[c.category] = (totals[c.category] || 0) + ms;
   }
-  const focus = mergedTime(cards.filter((c) => roleFor(c.category) === "focus"));
+  const intervalsFor = (role) => cards.filter(c => roleFor(c.category) === role).flatMap(c => capturedIntervals(c));
+  const focus = mergedTime(intervalsFor("focus"));
   return {
     totals,
     focus: focus.total,
-    distraction: mergedTime(cards.filter((c) => roleFor(c.category) === "distraction")).total,
+    distraction: mergedTime(intervalsFor("distraction")).total,
     longest: focus.longest,
-    total: mergedTime(cards).total,
+    total: mergedTime(cards.flatMap(c => capturedIntervals(c))).total,
     categoryTotal: Object.values(totals).reduce((a, b) => a + b, 0),
   };
 }
@@ -551,15 +565,10 @@ function weekActivityRows(days, today) {
   return days.map(({ date, cards, truncated }) => {
     const [start, end] = fullDayBounds(date);
     const future = date > today;
-    const total = future ? 0 : mergedTime(cards.map(c => ({
-      start_ms: Math.max(start, c.start_ms),
-      end_ms: Math.min(end, c.end_ms),
-    }))).total;
+    const total = future ? 0 : mergedTime(cards.flatMap(c => capturedIntervals(c, start, end))).total;
     const buckets = timelineTicks(date).map(({ at, label, offset }) => {
       const to = Math.min(end, at + 3600000);
-      const intervals = cards
-        .filter(c => c.end_ms > at && c.start_ms < to)
-        .map(c => ({ start_ms: Math.max(at, c.start_ms), end_ms: Math.min(to, c.end_ms) }));
+      const intervals = cards.flatMap(c => capturedIntervals(c, at, to));
       return { label, offset, ms: future ? 0 : mergedTime(intervals).total, capacity: to - at };
     });
     return { date, total, future, truncated, buckets };
@@ -1634,6 +1643,7 @@ function cardBadges(c, compact = true) {
   const pending = c.pending_context === true;
   const all = [
     pending ? PENDING_LABEL : null,
+    c.capture_gaps?.length ? "中間無擷取" : null,
     c.protected_screen === true ? (compact ? "受保護畫面" : "受保護畫面（無截圖）") : null,
     c.source && c.source !== "ai" && !(pending && c.source === "app_only") ? contentSource(c.source).label : null,
   ].filter(Boolean);
@@ -1983,6 +1993,11 @@ function cardDetail(box, c, { current, saved, heading = true, closer = null }) {
   const meta = el("p", null, "detail-meta");
   add(meta, document.createTextNode(`${appName(c.app)} · `), el("span", `${cardTimes(c)} · ${cardLength(c)}`, "nowrap"));
   add(box, meta);
+  if (c.capture_gaps?.length) {
+    const recorded = mergedTime(capturedIntervals(c)).total;
+    const gaps = c.capture_gaps.map(gap => `${cardTimes(gap)}（${duration(gap.end_ms - gap.start_ms)}）`).join("、");
+    add(box, el("p", `有擷取的時間：${duration(recorded)}。無擷取時段：${gaps}，不計入這張卡片的已記錄時間。`, "hint"));
+  }
   const badges = cardBadges(c, false);
   if (badges.length) add(box, add(el("div", null, "badges"), ...badges.map((x) => el("span", x, badgeClass(x)))));
   if (c.members) {
@@ -2849,6 +2864,14 @@ async function settingsPage(parent, seq) {
       el("p", aiSummary(ai.model, !!ai.auto_summarize, brief), "row-subtitle"),
     );
   } else add(model, row(keyed(btn("設定 AI", () => providerDialog(shell), "primary"), "settings-ai-start")));
+  add(
+    model,
+    add(
+      el("div", null, "switch-row"),
+      add(el("div", null, "switch-text"), el("span", "輸出語言", "switch-label"), el("small", languageLabel(prefs.output_language))),
+      keyed(btn("變更語言", languageDialog, "quiet"), "settings-language"),
+    ),
+  );
 
   /* 3. 分類 */
   const sorting = settingsSection(
@@ -3475,6 +3498,63 @@ function aiSwitches(parent, rerender, schedule) {
     switchFocus = null;
   }).catch(() => {});
 }
+/* The languages Dayflow offers by default; the server accepts any name up to 40 characters. */
+const OUTPUT_LANGUAGES = [
+  ["Traditional Chinese", "繁體中文"],
+  ["Simplified Chinese", "简体中文"],
+  ["English", "English"],
+  ["Japanese", "日本語"],
+  ["Korean", "한국어"],
+  ["German", "Deutsch"],
+  ["French", "Français"],
+  ["Russian", "Русский"],
+];
+function languageLabel(value) {
+  return OUTPUT_LANGUAGES.find(([name]) => name === value)?.[1] || value || "繁體中文";
+}
+function customOutputLanguage(input) {
+  const value = input.trim();
+  if (!value) throw Error("請輸入語言名稱");
+  if ([...value].length > 40) throw Error("語言名稱最多 40 個字元");
+  if (/\p{Cc}/u.test(value)) throw Error("語言名稱不能包含控制字元");
+  return value;
+}
+function languageDialog() {
+  modal("AI 輸出語言", (container) => {
+    const p = el("div");
+    add(container, p);
+    add(p, el("p", "AI 寫活動卡標題、摘要和回答時使用的語言。設定存在伺服器上，手機和網站共用；已經產生的活動卡不會被改寫。"));
+    const known = OUTPUT_LANGUAGES.some(([name]) => name === prefs.output_language);
+    const choice = select(p, "語言", [...OUTPUT_LANGUAGES, ["", "其他（自己輸入）"]], known ? prefs.output_language : "");
+    const other = el("div");
+    const custom = field(other, "語言名稱", known ? "" : prefs.output_language || "", "text", "最多 40 個字元，用英文寫語言名稱最穩定，例如 Spanish 或 Thai。");
+    add(p, other);
+    const sync = () => { other.hidden = choice.value !== ""; };
+    choice.addEventListener("change", () => { sync(); if (!other.hidden) custom.focus(); });
+    sync();
+    let saving = false;
+    async function save() {
+      if (saving) return;
+      const value = choice.value || customOutputLanguage(custom.value);
+      saving = true;
+      try {
+        try {
+          prefs = await api("/v1/workspace", { ...prefs, output_language: value }, "PUT");
+        } catch (error) {
+          if (error.status !== 409) throw error;
+          // Another page saved first. Language is independent of the rest, so keep their changes.
+          const latest = await api("/v1/workspace");
+          prefs = await api("/v1/workspace", { ...latest, output_language: value }, "PUT");
+        }
+        close();
+        await shell();
+      } finally {
+        saving = false;
+      }
+    }
+    add(p, add(el("div", null, "actions"), btn("取消", () => close()), btn("儲存語言", save, "primary")));
+  });
+}
 function categoriesDialog() {
   modal("分類與自動規則", (container) => {
     const p = el("div");
@@ -3940,6 +4020,7 @@ if (typeof module !== "undefined")
     timeAxis, isPrivateHost, originHints, proxyBase, collapseAppOnly, aiSummary, providerName, recordState, deviceStatus, storageLine, weekAverage, askDisclosure, badgeClass, modelsRequest, parseModels, topicsVisible,
     askExamples, weekHours, weekActivityRows, gib, cardSummary,
     shortDate, weekRange, cardLength, cardTimes, cardBadges,
+    customOutputLanguage,
   };
 if (inBrowser) {
   const modality = (value) => () => { document.documentElement.dataset.modality = value; };

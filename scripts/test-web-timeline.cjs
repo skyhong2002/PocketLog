@@ -3,6 +3,13 @@
 // Every interval that shares visible time must occupy a different column.
 const assert = require('node:assert/strict');
 const { layoutLanes, fullDayBounds, timelineTicks } = require('../server/web/app.js');
+const { customOutputLanguage } = require('../server/web/app.js');
+assert.equal(customOutputLanguage('  Spanish  '), 'Spanish');
+assert.throws(() => customOutputLanguage('  '), /請輸入語言名稱/);
+assert.throws(() => customOutputLanguage('Spanish\u0085Thai'), /控制字元/);
+assert.equal(customOutputLanguage('𠀀'.repeat(40)), '𠀀'.repeat(40));
+assert.throws(() => customOutputLanguage('𠀀'.repeat(41)), /最多 40 個字元/);
+console.log('Web custom output language validation checks passed');
 function check(intervals, minMs = 0) {
   const cards = intervals.map(([start_ms,end_ms],id) => ({id,start_ms,end_ms}));
   const copy = JSON.stringify(cards);
@@ -62,6 +69,11 @@ assert.equal(m.categoryTotal,195);
 assert.equal(JSON.stringify(cards),before);
 assert.equal(metrics([],()=> 'neutral').total,0);
 assert.equal(metrics([{start_ms:-30,end_ms:-10,category:'work'}],()=> 'focus').longest,20);
+const interrupted = { start_ms: 0, end_ms: 300, category: 'work', capture_gaps: [{start_ms: 60, end_ms: 240}] };
+assert.deepEqual(metrics([interrupted], () => 'focus'), {
+  totals: { work: 120 }, focus: 120, distraction: 0, longest: 60, total: 120, categoryTotal: 120,
+});
+assert.equal(metrics([interrupted, {start_ms: 100, end_ms: 120, category: 'rest'}], () => 'neutral').total, 140);
 console.log('Elapsed and role totals merge overlaps; category attribution remains explicit');
 
 // Key issuance, validation and capture readiness are distinct facts.

@@ -12,7 +12,9 @@ artifacts and outcomes to write a title and summary, keeps short interruptions
 with their surrounding activity, and chooses the workspace category matching the
 dominant supported time. Isolated short captures can form a card. Within
 continuous evidence, an ordinary split requires ten minutes, with a three-minute
-exception for the final new activity. Gaps longer than one minute remain visible.
+exception for the final new activity. Gaps longer than one minute remain visible. If the model proposes extra
+short cards in continuous evidence, the worker folds them into the stronger
+activity and retains the supported detail instead of discarding the window.
 
 Windows with valid screenshots first try direct visual timeline generation.
 A failed direct request falls back on the next attempt to extracting numbered
@@ -22,13 +24,88 @@ bounds. A continuing goal can extend the latest nearby automatic card from the
 same provider within a 45-minute lookback, up to 60 minutes total. Extension
 retains the existing card ID and rebuilds its title and summary. Manual edits
 and already-extended windows are protected from late rewrites. Raw App-only
-cards fully inside a screen-derived card are hidden in timeline and search.
-Raw App records remain available for App totals.
+cards fully inside the observed part of a screen-derived card are hidden in
+timeline and search.
+Raw App records remain available for App totals. The saved summary includes
+ordered, timestamped observations within its existing length limit. Extension
+retains earlier detail lines within that budget.
 
-This workflow adapts the open-source Dayflow timeline generation strategy in
-[ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift)
-and [LLMService.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/LLMService.swift).
-PocketLog's one-minute evidence gap and existing capture limits apply to the port.
+### Experimental Dayflow pipeline
+
+With the owner's approval, set `POCKETLOG_DAYFLOW_BATCHING=true` in the worker
+environment to try capture-relative batches. The worker groups settled evidence
+by the first sample, closes at a gap over two minutes or span over 15 minutes,
+and processes even short batches after they close. A short final batch closes
+after two quiet minutes of settled capture time. Eligible previous automatic
+cards from the same provider within 45 minutes are included together for atomic
+replacement. Manual edits, provider
+changes, existing cards overlapping a new batch and evidence gaps over one minute
+still constrain PocketLog's rewrites. A batch boundary does not force a card boundary:
+the worker can extend the previous automatic card instead of rewriting older batches.
+
+Separately, `POCKETLOG_DAYFLOW_VIDEO=true` enables a bounded, memory-only 1 fps
+MP4 for an image-enabled OpenAI-compatible provider that accepts `video_url`.
+Enable it only if the owner agrees to send all usable images in a batch, rather
+than the default sample of up to six; no provider is switched automatically.
+Repeated frames keep the original capture visible for at most ten seconds, with
+blank intervals otherwise; the marked clock is relative, not local wall time.
+The FFmpeg subprocess receives only worker-reencoded frames, no file path or
+network endpoint, and emits no logs. Video failure uses the existing staged
+still-image workflow on retry. This is not Gemini Files API parity, and
+structured distractions, sites and detailed summaries are not yet stored.
+
+### Model prompts come from Dayflow
+
+The model instructions are Dayflow's own text at commit
+`378e5a14ebdc9ab8733843efbcc304a0b6c778ab` (MIT, see
+[the license](licenses/dayflow-LICENSE.txt)), not a paraphrase.
+`scripts/sync-dayflow-prompts.py <Dayflow checkout>` extracts them into
+`server/src/prompts/dayflow/`; `--check` fails if the files differ from upstream.
+
+| PocketLog use | Dayflow source |
+| --- | --- |
+| Frame observations (`transcription.txt`) | `GeminiDirectProvider+Transcription.swift`, `finalTranscriptionPrompt` |
+| Cards, direct and staged (`timeline.txt`) | [ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift) `template`, the prompt its source says matches Dayflow's backend |
+
+Each prompt is the Dayflow text, then a line in Dayflow's wording naming the
+workspace output language (Traditional Chinese by default), then a `POCKETLOG INPUT AND OUTPUT` block that takes precedence. That
+block holds what Dayflow has no equivalent for: frame ranges instead of clock times,
+`task_key`, `continue_previous` and `previous_card` (Dayflow instead re-sends and
+revises all previous cards), supplied category IDs, the six-card limit,
+capture-gap handling, title and summary lengths, and treating evidence as untrusted data.
+The adapter asks the model to sample throughout the window when observations are
+limited; Dayflow's timeline prompt supplies the goal-change and duration rules.
+`task_key` is only a within-response merge hint, not a stable identifier;
+cross-window continuation uses `previous_card` and `continue_previous` instead.
+
+Removed from the Dayflow text, always whole lines or one clause, each asserted by the
+script so upstream changes cannot slip through:
+
+- Output fields PocketLog does not store: the `DETAILED SUMMARY`, `DISTRACTIONS` and
+  `APP SITES` sections, the JSON output block, the AM/PM rule, and the
+  `detailedSummary`/`appSites` clauses. Observations take the place of detail lines.
+- Input PocketLog does not have: clock-labelled per-minute screenshots, the user's name,
+  the accessibility log, and macOS menu-bar app detection.
+- Dayflow's *Previous cards* contract, which conflicts with PocketLog's continuation.
+- Dayflow's "Segments" count and JSON format in the observation prompt, replaced by the
+  24-observation, 100-character limit.
+- Instructions to capture exact messages, usernames and email addresses, and to quote
+  on-screen text character for character. They conflict with PocketLog's rule to omit
+  private quotes and secrets. Dayflow's own "never write an email address, password or
+  card number" rule is kept.
+
+Dayflow's Gemini two-step card prompt and its title "banned words" list are not used:
+the timeline prompt is newer, has the short-final-card exception PocketLog validates,
+and supplies the title and summary rules itself.
+
+A gap over one minute between captures can mean a locked phone, not a new task.
+Observations on both sides must support the same concrete goal; sharing an app
+or category is not enough. A matching prior automatic card can continue across
+batches within the 45-minute lookback and 60-minute card limit, but not past an
+intervening card or pending evidence. The timeline shows the card's elapsed span
+and labels the unobserved intervals, which do not count toward its recorded
+duration or category totals. Independently recorded app usage in those intervals
+remains visible. Existing capture limits and privacy rules still apply.
 
 Without owner automation, the existing per-session, legacy-consent or local
 text excerpt workflow still runs. Images alone have no semantic local fallback.
@@ -107,6 +184,19 @@ No model is selected automatically. Provider refusal, truncation, malformed JSON
 unknown categories, excessive output lengths, network failures or HTTP errors
 are attempted at most four times. Exhausted capture windows leave raw app records and prior cards in place. The legacy per-session workflow uses a local excerpt after its retries. Requests are never
 logged, and prompts contain no API owner token or model tools.
+
+For opt-in development validation against a configured provider, run
+`cargo test --locked --lib live_model_validation -- --ignored --nocapture` from
+`server/`. This sends built-in synthetic text only, using the legacy environment
+settings above, including both enable switches and the full Chat Completions URL.
+`LIVE_REPS` accepts 1–10 (default three; language cases run once each). The test
+fails on rejected responses and checks the resulting timeline using Dayflow's
+coverage and non-final duration criteria: no uncovered span over three minutes,
+and at least ten minutes per non-final card. Since PocketLog preserves capture
+gaps, these checks run separately for each continuous evidence span. The test
+does not prescribe a card count or category. It reports only frame ranges and
+categories, not generated prose, so it does not certify the output language or
+whether a particular topic switch was understood.
 
 The worker commits only while source records still exist in the same deletion
 epoch. Owner deletion invalidates in-flight work. Manual edits always take

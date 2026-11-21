@@ -224,6 +224,12 @@ async fn observe(State(state): State<AppState>, Json(o): Json<Observation>) -> R
 }
 use rusqlite::OptionalExtension;
 #[derive(Serialize)]
+struct CaptureGap {
+    start_ms: i64,
+    end_ms: i64,
+}
+
+#[derive(Serialize)]
 pub(super) struct Card {
     pub(super) id: String,
     pub(super) start_ms: i64,
@@ -240,6 +246,8 @@ pub(super) struct Card {
     /// was understood from app and screen text without screenshots.
     protected_screen: bool,
     screen_derived: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    capture_gaps: Vec<CaptureGap>,
 }
 impl Card {
     pub(super) fn is_app_only(&self) -> bool {
@@ -249,6 +257,12 @@ impl Card {
 
 pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card>> {
     let preferences = workspace::load(db)?;
+    let mut gaps = db
+        .prepare(
+            "SELECT MAX(start_ms,?2),MIN(end_ms,?3) FROM screen_card_gaps
+        WHERE card_id=?1 AND end_ms>?2 AND start_ms<?3 ORDER BY start_ms",
+        )
+        .map_err(storage_error)?;
     activities
         .iter()
         .map(|a| {
@@ -288,6 +302,14 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 None => (a.app.clone(), String::new(), a.category.clone(), "app_only"),
             };
             let category = preferences.classify(category, &a.app, &title, source == "user", source == "app_only");
+            let capture_gaps = if screen_derived {
+                gaps.query_map(params![a.id,a.start_ms,a.end_ms], |row| Ok(CaptureGap {
+                    start_ms: row.get(0)?,
+                    end_ms: row.get(1)?,
+                })).map_err(storage_error)?.collect::<rusqlite::Result<_>>().map_err(storage_error)?
+            } else {
+                Vec::new()
+            };
             Ok(Card {
                 id: a.id.clone(),
                 start_ms: a.start_ms,
@@ -300,6 +322,7 @@ pub(super) fn cards(db: &Connection, activities: &[Activity]) -> Result<Vec<Card
                 pending_context,
                 protected_screen,
                 screen_derived,
+                capture_gaps,
             })
         })
         .collect()
@@ -396,7 +419,7 @@ fn category_totals(db: &Connection, from: i64, to: i64) -> Result<Vec<CategoryTo
                 COALESCE(n.edited,0),MAX(a.start_ms,?1),MIN(a.end_ms,?2),
                 CASE WHEN n.edited=1 THEN 3 WHEN c.id IS NOT NULL THEN 2
                      WHEN n.id IS NOT NULL THEN 1 ELSE 0 END AS priority
-         FROM journal_activities a
+         FROM journal_activity_evidence a
          LEFT JOIN notes n ON n.id=a.id
          LEFT JOIN screen_cards c ON c.id=a.id
          WHERE a.end_ms>?1 AND a.start_ms<?2 AND a.end_ms>a.start_ms
@@ -591,6 +614,38 @@ mod pending_context_tests {
                 (&Category::NewsReading, 25),
             ]
         );
+    }
+
+    #[test]
+    fn screen_card_gap_does_not_hide_independent_app_usage() {
+        let (state, _) = setup();
+        let db = state.db.lock().unwrap();
+        db.execute_batch(
+            r#"DELETE FROM activities;
+               INSERT INTO activities VALUES
+                   ('raw',200,250,'org.example.reader','"unsorted"'),
+                   ('covered',115,130,'org.example.reader','"unsorted"');
+               INSERT INTO screen_cards VALUES
+                   ('screen',0,100,400,'org.example.reader','"work"',NULL,0);
+               INSERT INTO screen_card_gaps VALUES('screen',150,350);"#,
+        )
+        .unwrap();
+        let totals = category_totals(&db, 100, 400).unwrap();
+        assert_eq!(
+            totals
+                .iter()
+                .map(|row| (&row.category, row.duration_ms))
+                .collect::<Vec<_>>(),
+            vec![(&Category::Work, 100), (&Category::Unsorted, 50)]
+        );
+        let visible = db
+            .prepare("SELECT id FROM visible_journal_activities_v3 ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(visible, ["raw", "screen"]);
     }
 
     #[test]
