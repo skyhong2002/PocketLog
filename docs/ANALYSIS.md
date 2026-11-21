@@ -24,10 +24,35 @@ bounds. A continuing goal can extend the latest nearby automatic card from the
 same provider within a 45-minute lookback, up to 60 minutes total. Extension
 retains the existing card ID and rebuilds its title and summary. Manual edits
 and already-extended windows are protected from late rewrites. Raw App-only
-cards fully inside a screen-derived card are hidden in timeline and search.
+cards fully inside the observed part of a screen-derived card are hidden in
+timeline and search.
 Raw App records remain available for App totals. The saved summary includes
 ordered, timestamped observations within its existing length limit. Extension
 retains earlier detail lines within that budget.
+
+### Experimental Dayflow pipeline
+
+With the owner's approval, set `POCKETLOG_DAYFLOW_BATCHING=true` in the worker
+environment to try capture-relative batches. The worker groups settled evidence
+by the first sample, closes at a gap over two minutes or span over 15 minutes,
+and processes even short batches after they close. A short final batch closes
+after two quiet minutes of settled capture time. Eligible previous automatic
+cards from the same provider within 45 minutes are included together for atomic
+replacement. Manual edits, provider
+changes, existing cards overlapping a new batch and evidence gaps over one minute
+still constrain PocketLog's rewrites. A batch boundary does not force a card boundary:
+the worker can extend the previous automatic card instead of rewriting older batches.
+
+Separately, `POCKETLOG_DAYFLOW_VIDEO=true` enables a bounded, memory-only 1 fps
+MP4 for an image-enabled OpenAI-compatible provider that accepts `video_url`.
+Enable it only if the owner agrees to send all usable images in a batch, rather
+than the default sample of up to six; no provider is switched automatically.
+Repeated frames keep the original capture visible for at most ten seconds, with
+blank intervals otherwise; the marked clock is relative, not local wall time.
+The FFmpeg subprocess receives only worker-reencoded frames, no file path or
+network endpoint, and emits no logs. Video failure uses the existing staged
+still-image workflow on retry. This is not Gemini Files API parity, and
+structured distractions, sites and detailed summaries are not yet stored.
 
 ### Model prompts come from Dayflow
 
@@ -46,8 +71,8 @@ Each prompt is the Dayflow text, then a line in Dayflow's wording naming the
 workspace output language (Traditional Chinese by default), then a `POCKETLOG INPUT AND OUTPUT` block that takes precedence. That
 block holds what Dayflow has no equivalent for: frame ranges instead of clock times,
 `task_key`, `continue_previous` and `previous_card` (Dayflow instead re-sends and
-revises all previous cards), supplied category IDs, the six-card and 60000 ms gap
-limits, title and summary lengths, and treating evidence as untrusted data.
+revises all previous cards), supplied category IDs, the six-card limit,
+capture-gap handling, title and summary lengths, and treating evidence as untrusted data.
 The adapter asks the model to sample throughout the window when observations are
 limited; Dayflow's timeline prompt supplies the goal-change and duration rules.
 `task_key` is only a within-response merge hint, not a stable identifier;
@@ -73,7 +98,14 @@ Dayflow's Gemini two-step card prompt and its title "banned words" list are not 
 the timeline prompt is newer, has the short-final-card exception PocketLog validates,
 and supplies the title and summary rules itself.
 
-PocketLog's one-minute evidence gap and existing capture limits apply to the port.
+A gap over one minute between captures can mean a locked phone, not a new task.
+Observations on both sides must support the same concrete goal; sharing an app
+or category is not enough. A matching prior automatic card can continue across
+batches within the 45-minute lookback and 60-minute card limit, but not past an
+intervening card or pending evidence. The timeline shows the card's elapsed span
+and labels the unobserved intervals, which do not count toward its recorded
+duration or category totals. Independently recorded app usage in those intervals
+remains visible. Existing capture limits and privacy rules still apply.
 
 Without owner automation, the existing per-session, legacy-consent or local
 text excerpt workflow still runs. Images alone have no semantic local fallback.

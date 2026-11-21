@@ -69,6 +69,11 @@ assert.equal(m.categoryTotal,195);
 assert.equal(JSON.stringify(cards),before);
 assert.equal(metrics([],()=> 'neutral').total,0);
 assert.equal(metrics([{start_ms:-30,end_ms:-10,category:'work'}],()=> 'focus').longest,20);
+const interrupted = { start_ms: 0, end_ms: 300, category: 'work', capture_gaps: [{start_ms: 60, end_ms: 240}] };
+assert.deepEqual(metrics([interrupted], () => 'focus'), {
+  totals: { work: 120 }, focus: 120, distraction: 0, longest: 60, total: 120, categoryTotal: 120,
+});
+assert.equal(metrics([interrupted, {start_ms: 100, end_ms: 120, category: 'rest'}], () => 'neutral').total, 140);
 console.log('Elapsed and role totals merge overlaps; category attribution remains explicit');
 
 // Key issuance, validation and capture readiness are distinct facts.

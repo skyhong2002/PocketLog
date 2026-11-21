@@ -130,6 +130,12 @@ report suspected vulnerabilities privately through the repository owner.
   compromised host or decoder. Saving any model setting rotates its identity and
   turns the automatic switch off until the owner re-enables it; turning it off
   invalidates jobs and discards in-flight results. No provider-side deletion is implemented.
+- Experimental video input is off by default and requires explicit owner approval
+  before the operator enables it. It sends the usable screenshots from the batch
+  to the already-configured provider instead of sampling six. The worker runs a
+  fixed FFmpeg command without a shell, consuming only worker-encoded frames via
+  stdin; its bounded MP4 stays in memory and is never written to the journal.
+  The provider may retain its received copy according to its own policy.
 - Pausing/removing allowlists or revoking consent clears pending local context,
   not already transmitted server/provider copies. Owner deletion invalidates jobs
   and in-flight results, but cannot retract requests already sent to a model. The

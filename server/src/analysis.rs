@@ -106,6 +106,10 @@ impl Provider {
         self.image_support
     }
 
+    pub(super) fn accepts_screen_video(&self) -> bool {
+        self.image_support && self.protocol == crate::ai_settings::Protocol::Openai
+    }
+
     pub(super) fn screen_json(
         &self,
         instructions: &str,

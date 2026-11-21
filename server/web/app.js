@@ -461,6 +461,19 @@ function cardTimes(c) {
   const from = time(c.start_ms), to = time(c.end_ms);
   return c.end_ms > c.start_ms && from !== to ? `${from}–${to}` : from;
 }
+function capturedIntervals(c, from = c.start_ms, to = c.end_ms) {
+  let start = Math.max(from, c.start_ms);
+  const end = Math.min(to, c.end_ms);
+  const intervals = [];
+  for (const gap of c.capture_gaps || []) {
+    if (gap.end_ms <= start) continue;
+    if (gap.start_ms >= end) break;
+    if (gap.start_ms > start) intervals.push({ start_ms: start, end_ms: gap.start_ms });
+    start = gap.end_ms;
+  }
+  if (start < end) intervals.push({ start_ms: start, end_ms: end });
+  return intervals;
+}
 function styleFor(id) {
   return prefs.categories.find((c) => c.id === id) || prefs.categories.at(-1);
 }
@@ -534,16 +547,17 @@ function mergedTime(cards) {
 function metrics(cards, roleFor = (id) => styleFor(id).role) {
   const totals = {};
   for (const c of cards) {
-    const ms = Math.max(0, c.end_ms - c.start_ms);
+    const ms = mergedTime(capturedIntervals(c)).total;
     totals[c.category] = (totals[c.category] || 0) + ms;
   }
-  const focus = mergedTime(cards.filter((c) => roleFor(c.category) === "focus"));
+  const intervalsFor = (role) => cards.filter(c => roleFor(c.category) === role).flatMap(c => capturedIntervals(c));
+  const focus = mergedTime(intervalsFor("focus"));
   return {
     totals,
     focus: focus.total,
-    distraction: mergedTime(cards.filter((c) => roleFor(c.category) === "distraction")).total,
+    distraction: mergedTime(intervalsFor("distraction")).total,
     longest: focus.longest,
-    total: mergedTime(cards).total,
+    total: mergedTime(cards.flatMap(c => capturedIntervals(c))).total,
     categoryTotal: Object.values(totals).reduce((a, b) => a + b, 0),
   };
 }
@@ -551,15 +565,10 @@ function weekActivityRows(days, today) {
   return days.map(({ date, cards, truncated }) => {
     const [start, end] = fullDayBounds(date);
     const future = date > today;
-    const total = future ? 0 : mergedTime(cards.map(c => ({
-      start_ms: Math.max(start, c.start_ms),
-      end_ms: Math.min(end, c.end_ms),
-    }))).total;
+    const total = future ? 0 : mergedTime(cards.flatMap(c => capturedIntervals(c, start, end))).total;
     const buckets = timelineTicks(date).map(({ at, label, offset }) => {
       const to = Math.min(end, at + 3600000);
-      const intervals = cards
-        .filter(c => c.end_ms > at && c.start_ms < to)
-        .map(c => ({ start_ms: Math.max(at, c.start_ms), end_ms: Math.min(to, c.end_ms) }));
+      const intervals = cards.flatMap(c => capturedIntervals(c, at, to));
       return { label, offset, ms: future ? 0 : mergedTime(intervals).total, capacity: to - at };
     });
     return { date, total, future, truncated, buckets };
@@ -1634,6 +1643,7 @@ function cardBadges(c, compact = true) {
   const pending = c.pending_context === true;
   const all = [
     pending ? PENDING_LABEL : null,
+    c.capture_gaps?.length ? "中間無擷取" : null,
     c.protected_screen === true ? (compact ? "受保護畫面" : "受保護畫面（無截圖）") : null,
     c.source && c.source !== "ai" && !(pending && c.source === "app_only") ? contentSource(c.source).label : null,
   ].filter(Boolean);
@@ -1983,6 +1993,11 @@ function cardDetail(box, c, { current, saved, heading = true, closer = null }) {
   const meta = el("p", null, "detail-meta");
   add(meta, document.createTextNode(`${appName(c.app)} · `), el("span", `${cardTimes(c)} · ${cardLength(c)}`, "nowrap"));
   add(box, meta);
+  if (c.capture_gaps?.length) {
+    const recorded = mergedTime(capturedIntervals(c)).total;
+    const gaps = c.capture_gaps.map(gap => `${cardTimes(gap)}（${duration(gap.end_ms - gap.start_ms)}）`).join("、");
+    add(box, el("p", `有擷取的時間：${duration(recorded)}。無擷取時段：${gaps}，不計入這張卡片的已記錄時間。`, "hint"));
+  }
   const badges = cardBadges(c, false);
   if (badges.length) add(box, add(el("div", null, "badges"), ...badges.map((x) => el("span", x, badgeClass(x)))));
   if (c.members) {
