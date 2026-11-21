@@ -80,7 +80,7 @@ category correction and safe retries; CI runs it against a disposable server.
 
 Timestamps are Unix milliseconds. Android uses local 04:00 boundaries, including
 DST. Categories: `unsorted`, `work`, `learning`, `communication`, `social_media`,
-`entertainment`, `news_reading`, `life_admin`, `rest`, `idle`.
+`entertainment`, `distraction`, `news_reading`, `life_admin`, `rest`, `idle`.
 `app` is a package identifier (≤200 ASCII identifier characters). Unknown fields
 are rejected; raw screenshots do not belong on `/v1/activities`.
 
@@ -225,8 +225,12 @@ No tokens belong in URLs or localStorage. The scope matrix above applies to the
 API routes below; creating a browser session itself requires the owner key.
 
 - `GET /v1/workspace`: `revision`, `onboarding_version` (0/1), `focus_minutes`,
-  `distraction_minutes` (0–1440), and ten category styles `{id,name,color,role}`.
+  `distraction_minutes` (0–1440), `output_language` and eleven category styles `{id,name,color,role}`.
   Names max40 characters; color #RRGGBB; role focus/neutral/distraction.
+  `output_language` is the free-text language (default `Traditional Chinese`, 1–40
+  characters, trimmed) the model writes cards, summaries and answers in, applied through
+  Dayflow's language instruction. A workspace saved before `distraction` or
+  `output_language` existed gets them when read; `distraction` is inserted before `unsorted`.
 - `PUT /v1/workspace`: full strict schema, including current revision; 409 on
   stale revision. Returns incremented revision. Completing onboarding never
   enables collection or authorizes AI. These preferences survive journal deletion.

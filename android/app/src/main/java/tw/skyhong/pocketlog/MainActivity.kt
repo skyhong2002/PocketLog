@@ -129,10 +129,10 @@ class MainActivity : Activity() {
     private var exportBytes: ByteArray? = null
     private data class RetainedEditors(val questions: EditorDrafts, val conversations: LinkedHashMap<String, String>, val weekly: Boolean, val ask: JSONObject?, val brief: JSONObject?, val export: ByteArray?)
     private fun clearDrafts() { questionDrafts.clear(); conversations.clear(); categoryFilter = null; exportBytes?.fill(0); exportBytes = null }
-    private val baseCategories = listOf("unsorted", "work", "learning", "communication", "social_media", "entertainment", "news_reading", "life_admin", "rest", "idle")
-    private val categoryLabels = listOf("未分類", "工作", "學習", "溝通", "社群", "娛樂", "新聞／閱讀", "生活事務", "休息", "閒置")
+    private val baseCategories = listOf("unsorted", "work", "learning", "communication", "social_media", "entertainment", "news_reading", "life_admin", "rest", "idle", "distraction")
+    private val categoryLabels = listOf("未分類", "工作", "學習", "溝通", "社群", "娛樂", "新聞／閱讀", "生活事務", "休息", "閒置", "分心")
     // Server defaults (server/src/workspace.rs) so offline pages still distinguish categories by color.
-    private val defaultColors = listOf("#b1a797", "#b9a4ed", "#87bcb4", "#e4be7c", "#e69c9c", "#d4a9c8", "#9bbce1", "#b4c493", "#80bda1", "#92949e")
+    private val defaultColors = listOf("#b1a797", "#b9a4ed", "#87bcb4", "#e4be7c", "#e69c9c", "#d4a9c8", "#9bbce1", "#b4c493", "#80bda1", "#92949e", "#e6a98a")
     private val categories: List<String> get() = workspace?.optJSONArray("categories")?.let { styles -> (0 until styles.length()).map { styles.getJSONObject(it).getString("id") } } ?: baseCategories
     private val zone: ZoneId get() = ZoneId.systemDefault()
     private val promise = "手機自動記下你看過的畫面，你的 AI 幫你整理成可回顧的一天。"

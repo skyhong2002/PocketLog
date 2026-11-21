@@ -29,9 +29,46 @@ Raw App records remain available for App totals. The saved summary includes
 ordered, timestamped observations within its existing length limit. Extension
 retains earlier detail lines within that budget.
 
-This workflow adapts the open-source Dayflow timeline generation strategy in
-[ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift)
-and [LLMService.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/LLMService.swift).
+### Model prompts come from Dayflow
+
+The model instructions are Dayflow's own text at commit
+`378e5a14ebdc9ab8733843efbcc304a0b6c778ab` (MIT, see
+[the license](licenses/dayflow-LICENSE.txt)), not a paraphrase.
+`scripts/sync-dayflow-prompts.py <Dayflow checkout>` extracts them into
+`server/src/prompts/dayflow/`; `--check` fails if the files differ from upstream.
+
+| PocketLog use | Dayflow source |
+| --- | --- |
+| Frame observations (`transcription.txt`) | `GeminiDirectProvider+Transcription.swift`, `finalTranscriptionPrompt` |
+| Cards, direct and staged (`timeline.txt`) | [ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift) `template`, the prompt its source says matches Dayflow's backend |
+
+Each prompt is the Dayflow text, then a Traditional Chinese language line (Dayflow's
+own wording), then a `POCKETLOG INPUT AND OUTPUT` block that takes precedence. That
+block holds what Dayflow has no equivalent for: frame ranges instead of clock times,
+`task_key`, `continue_previous` and `previous_card` (Dayflow instead re-sends and
+revises all previous cards), supplied category IDs, the six-card and 60000 ms gap
+limits, title and summary lengths, and treating evidence as untrusted data.
+
+Removed from the Dayflow text, always whole lines or one clause, each asserted by the
+script so upstream changes cannot slip through:
+
+- Output fields PocketLog does not store: the `DETAILED SUMMARY`, `DISTRACTIONS` and
+  `APP SITES` sections, the JSON output block, the AM/PM rule, and the
+  `detailedSummary`/`appSites` clauses. Observations take the place of detail lines.
+- Input PocketLog does not have: clock-labelled per-minute screenshots, the user's name,
+  the accessibility log, and macOS menu-bar app detection.
+- Dayflow's *Previous cards* contract, which conflicts with PocketLog's continuation.
+- Dayflow's "Segments" count and JSON format in the observation prompt, replaced by the
+  24-observation, 100-character limit.
+- Instructions to capture exact messages, usernames and email addresses, and to quote
+  on-screen text character for character. They conflict with PocketLog's rule to omit
+  private quotes and secrets. Dayflow's own "never write an email address, password or
+  card number" rule is kept.
+
+Dayflow's Gemini two-step card prompt and its title "banned words" list are not used:
+the timeline prompt is newer, has the short-final-card exception PocketLog validates,
+and supplies the title and summary rules itself.
+
 PocketLog's one-minute evidence gap and existing capture limits apply to the port.
 
 Without owner automation, the existing per-session, legacy-consent or local

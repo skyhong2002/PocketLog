@@ -23,11 +23,21 @@ uses PocketLog's own Kotlin/Rust implementation, encrypted storage and private A
 it does not bundle infovore's TypeScript service or Android collector source.
 See [port coverage](docs/INFOVORE_PORT.md) for differences.
 
+## Dayflow model prompts
+
+The model prompts in `server/src/prompts/dayflow/` are text copied from Dayflow
+(https://github.com/JerryZLiu/Dayflow, commit
+`378e5a14ebdc9ab8733843efbcc304a0b6c778ab`), Copyright (c) 2025 Jerry Liu, MIT
+License; see [docs/licenses/dayflow-LICENSE.txt](docs/licenses/dayflow-LICENSE.txt).
+`scripts/sync-dayflow-prompts.py` regenerates them and lists what is removed. No
+other Dayflow code is bundled.
+
 ## Research references
 
 The comparison documents link to other projects for research. They do not bundle
 those projects' implementations or relicense their code. Dayflow inspired the
-product direction; PocketLog does not include Dayflow implementation code.
+product direction; apart from the prompts above, PocketLog does not include Dayflow
+implementation code.
 
 ## Build dependencies
 

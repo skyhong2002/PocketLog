@@ -17,6 +17,25 @@ pub(super) struct Preferences {
     pub(super) categories: Vec<CategoryStyle>,
     #[serde(default)]
     rules: Vec<CategoryRule>,
+    /// Language the model writes titles, summaries and answers in (free text, like
+    /// Dayflow's output-language override).
+    #[serde(default = "default_language")]
+    pub(super) output_language: String,
+}
+pub(super) const DEFAULT_LANGUAGE: &str = "Traditional Chinese";
+fn default_language() -> String {
+    DEFAULT_LANGUAGE.into()
+}
+/// Dayflow's `LLMOutputLanguagePreferences.languageInstruction`, verbatim.
+pub(super) fn language_instruction(language: &str, json: bool) -> String {
+    let verbatim = "If any rule requires an exact English phrase (e.g., \"Scattered apps and sites\"), keep it verbatim.";
+    if json {
+        format!(
+            "The user only speaks {language}. Respond in {language}, but keep JSON keys in English exactly as specified. {verbatim}"
+        )
+    } else {
+        format!("The user only speaks {language}. Respond in {language}. {verbatim}")
+    }
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -84,9 +103,15 @@ impl Preferences {
                         "Conversation, correspondence or meeting is the main activity."
                     }
                     Category::SocialMedia => {
-                        "Browsing social feeds or participating in a social platform."
+                        "Participating in a social platform on purpose: posting, replying, following a person or topic. Aimless scrolling is distraction."
                     }
-                    Category::Entertainment => "Playing a game or consuming recreational media.",
+                    Category::Entertainment => {
+                        "Deliberately watching, playing or listening to recreational media. Aimless viewing is distraction."
+                    }
+                    // Dayflow's description of its Distraction category, verbatim.
+                    Category::Distraction => {
+                        "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+                    }
                     Category::NewsReading => {
                         "Reading news, articles, books or other general content."
                     }
@@ -167,6 +192,7 @@ impl Default for Preferences {
                 "#d4a9c8",
                 Role::Distraction,
             ),
+            (Category::Distraction, "分心", "#e6a98a", Role::Distraction),
             (Category::NewsReading, "閱讀", "#9bbce1", Role::Neutral),
             (Category::LifeAdmin, "生活", "#b4c493", Role::Neutral),
             (Category::Rest, "休息", "#80bda1", Role::Neutral),
@@ -179,6 +205,7 @@ impl Default for Preferences {
             focus_minutes: 270,
             distraction_minutes: 60,
             rules: Vec::new(),
+            output_language: default_language(),
             categories: names
                 .into_iter()
                 .map(|(id, name, color, role)| CategoryStyle {
@@ -196,8 +223,27 @@ pub(super) fn load(db: &Connection) -> Result<Preferences> {
         .query_row("SELECT json FROM workspace WHERE id=1", [], |r| r.get(0))
         .optional()
         .map_err(storage_error)?;
-    json.map(|s| serde_json::from_str(&s).map_err(storage_error))
-        .unwrap_or_else(|| Ok(Preferences::default()))
+    json.map(|s| {
+        serde_json::from_str(&s)
+            .map(with_base_categories)
+            .map_err(storage_error)
+    })
+    .unwrap_or_else(|| Ok(Preferences::default()))
+}
+// A workspace saved before a built-in category existed gets it on read, before
+// Unsorted: the web client uses the last category as its fallback.
+fn with_base_categories(mut prefs: Preferences) -> Preferences {
+    for base in Preferences::default().categories {
+        if !prefs.categories.iter().any(|c| c.id == base.id) {
+            let at = prefs
+                .categories
+                .iter()
+                .position(|c| c.id == Category::Unsorted)
+                .unwrap_or(prefs.categories.len());
+            prefs.categories.insert(at, base);
+        }
+    }
+    prefs
 }
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -217,6 +263,10 @@ fn validate(prefs: &Preferences) -> Result<()> {
         || prefs.distraction_minutes > 1440
         || !(10..=40).contains(&prefs.categories.len())
         || prefs.rules.len() > 32
+        || prefs.output_language.trim().is_empty()
+        || prefs.output_language.trim() != prefs.output_language
+        || prefs.output_language.chars().count() > 40
+        || prefs.output_language.chars().any(char::is_control)
     {
         return Err(invalid());
     }
@@ -490,7 +540,7 @@ async fn ask(State(state): State<AppState>, Json(q): Json<Ask>) -> Result<Json<s
             serde_json::json!({"answer":answer,"stored":true,"replayed":true}),
         ));
     }
-    let (evidence,epoch)=state.database(move|db|{
+    let (evidence,epoch,language)=state.database(move|db|{
         super::prune(db,now)?;
         let current:i64=db.query_row("SELECT epoch FROM journal_meta",[],|r|r.get(0)).map_err(storage_error)?;
         if current != initial_epoch {return Err(ApiError(StatusCode::CONFLICT,"journal or provider changed"));}
@@ -501,14 +551,14 @@ async fn ask(State(state): State<AppState>, Json(q): Json<Ask>) -> Result<Json<s
         // No raw screenshots, check-ins, reflections or hidden context. Entire entries only.
         while text.len()>24000 {rows.pop();text=serde_json::to_string(&rows).map_err(storage_error)?;}
         let epoch:i64=db.query_row("SELECT epoch FROM journal_meta",[],|r|r.get(0)).map_err(storage_error)?;
-        Ok((text,epoch))
+        Ok((text,epoch,load(db)?.output_language))
     }).await?;
     let answer = tokio::task::spawn_blocking(move || {
         let provider = analysis::Provider::from_store(&store)
             .map_err(storage_error)?
             .ok_or_else(invalid)?;
         provider
-            .answer(&q.provider_id, &q.question, &evidence, &history)
+            .answer(&q.provider_id, &q.question, &evidence, &history, &language)
             .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "model request failed"))
     })
     .await
