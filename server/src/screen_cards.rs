@@ -9,6 +9,7 @@ const SETTLE: i64 = 12 * MINUTE;
 const MAX_GAP: i64 = MINUTE;
 const FRAME_LENGTH: i64 = 10_000;
 const MAX_FRAMES: i64 = 200;
+const MAX_REWRITE_FRAMES: i64 = 400;
 const MAX_IMAGES: usize = 6;
 const MAX_CARDS: usize = 6;
 const LOOKBACK: i64 = 45 * MINUTE;
@@ -585,18 +586,21 @@ fn saved_cards(
         // The previous card was edited or extended while the provider was working.
         return Ok(false);
     }
-    delete_batch_cards(db, batch)?;
+    delete_batch_cards(db, batch, batch)?;
     insert_cards(db, batch, frames, cards, provider_id, previous)
 }
 
-fn delete_batch_cards(db: &Connection, batch: i64) -> Result<()> {
+fn delete_batch_cards(db: &Connection, first: i64, last: i64) -> Result<()> {
     db.execute(
-        "DELETE FROM notes WHERE id IN (SELECT id FROM screen_cards WHERE batch_ms=?)",
-        [batch],
+        "DELETE FROM notes WHERE id IN (SELECT id FROM screen_cards WHERE batch_ms BETWEEN ? AND ?)",
+        params![first, last],
     )
     .map_err(storage_error)?;
-    db.execute("DELETE FROM screen_cards WHERE batch_ms=?", [batch])
-        .map_err(storage_error)?;
+    db.execute(
+        "DELETE FROM screen_cards WHERE batch_ms BETWEEN ? AND ?",
+        params![first, last],
+    )
+    .map_err(storage_error)?;
     Ok(())
 }
 
@@ -608,7 +612,8 @@ fn insert_cards(
     provider_id: Option<&str>,
     previous: Option<&PreviousCard>,
 ) -> Result<bool> {
-    let mut indices = [0, 0];
+    let mut previous_batch = None;
+    let mut next_ordinal = 0;
     for card in cards {
         let first = &frames[card.first_frame];
         let last = &frames[card.last_frame];
@@ -621,9 +626,12 @@ fn insert_cards(
             .iter()
             .any(|f| f.protected_screen);
         let card_batch = first.at_ms.div_euclid(WINDOW) * WINDOW;
-        let index = &mut indices[usize::from(card_batch == batch)];
-        let ordinal = *index;
-        *index += 1;
+        if previous_batch != Some(card_batch) {
+            previous_batch = Some(card_batch);
+            next_ordinal = 0;
+        }
+        let ordinal = next_ordinal;
+        next_ordinal += 1;
         if card.continue_previous {
             let Some(previous) = previous else {
                 return Ok(false);
@@ -717,50 +725,65 @@ fn rewrite_source(
     current: &[Frame],
     provider_id: Option<&str>,
 ) -> Result<Option<RewriteSource>> {
-    let Some(first) = current.first() else {
+    let Some((first, last)) = current.first().zip(current.last()) else {
         return Ok(None);
     };
-    let prior = batch - WINDOW;
-    if frozen_window(db, prior)? || frozen_window(db, batch)? {
-        return Ok(None);
-    }
-    let eligible: bool = db
-        .query_row(
-            "SELECT EXISTS (SELECT 1 FROM screen_cards c WHERE c.batch_ms=?1)
-            AND NOT EXISTS (SELECT 1 FROM screen_cards c LEFT JOIN notes n ON n.id=c.id
-              WHERE c.batch_ms IN (?1,?2) AND (n.edited IS NOT 2 OR c.provider_id IS NOT ?3))
-            AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.at_ms>=?1 AND o.at_ms<?2
-              AND (o.processed=0 OR NOT EXISTS (SELECT 1 FROM screen_cards c
-                WHERE c.batch_ms=?1 AND c.start_ms<=o.at_ms AND c.end_ms>o.at_ms)))",
-            params![prior, batch, provider_id],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    if !eligible {
-        return Ok(None);
-    }
-    let (frames, snapshot) = load_frames(db, prior)?;
-    if frames.len() + current.len() > MAX_FRAMES as usize
-        || frames
-            .first()
-            .zip(current.last())
-            .is_none_or(|(start, end)| end.at_ms - start.at_ms < MIN_REWRITE_SPAN)
-        || frames
-            .last()
-            .is_none_or(|last| first.at_ms - last.at_ms > MAX_GAP)
-        || frames
-            .windows(2)
-            .chain(current.windows(2))
-            .any(|pair| pair[1].at_ms - pair[0].at_ms > MAX_GAP)
+    if current
+        .windows(2)
+        .any(|pair| pair[1].at_ms - pair[0].at_ms > MAX_GAP)
     {
         return Ok(None);
     }
-    Ok(Some(RewriteSource {
-        batch: prior,
-        snapshot,
-        revision: projection_revision(db)?,
-        frames,
-    }))
+    for previous_count in (1..LOOKBACK / WINDOW).rev() {
+        let prior = batch - previous_count * WINDOW;
+        if !rewrite_range_allowed(db, prior, batch, provider_id)? {
+            continue;
+        }
+        let (frames, snapshot) = load_frame_range(db, prior, batch, MAX_REWRITE_FRAMES)?;
+        if frames.len() + current.len() > MAX_REWRITE_FRAMES as usize
+            || frames.first().is_none_or(|start| {
+                let elapsed = last.at_ms + FRAME_LENGTH - start.at_ms;
+                !(MIN_REWRITE_SPAN..=LOOKBACK).contains(&elapsed)
+            })
+            || frames
+                .last()
+                .is_none_or(|latest| first.at_ms - latest.at_ms > MAX_GAP)
+            || frames
+                .windows(2)
+                .any(|pair| pair[1].at_ms - pair[0].at_ms > MAX_GAP)
+        {
+            continue;
+        }
+        return Ok(Some(RewriteSource {
+            batch: prior,
+            snapshot,
+            revision: projection_revision(db)?,
+            frames,
+        }));
+    }
+    Ok(None)
+}
+
+fn rewrite_range_allowed(
+    db: &Connection,
+    prior: i64,
+    batch: i64,
+    provider_id: Option<&str>,
+) -> Result<bool> {
+    db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM screen_cards c WHERE c.batch_ms>=?1 AND c.batch_ms<?2)
+          AND NOT EXISTS (SELECT 1 FROM screen_cards c LEFT JOIN notes n ON n.id=c.id
+            WHERE (c.end_ms>?1 AND c.start_ms<?4 OR c.batch_ms BETWEEN ?1 AND ?2)
+              AND (c.batch_ms NOT BETWEEN ?1 AND ?2 OR c.start_ms<?1 OR c.end_ms>?4
+                OR n.edited IS NOT 2 OR c.provider_id IS NOT ?3
+                OR NOT EXISTS (SELECT 1 FROM observations o WHERE o.at_ms=c.start_ms)
+                OR NOT EXISTS (SELECT 1 FROM observations o WHERE o.at_ms>=c.end_ms-?5 AND o.at_ms<c.end_ms)))
+          AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.at_ms>=?1 AND o.at_ms<?2
+            AND (o.processed=0 OR NOT EXISTS (SELECT 1 FROM screen_cards c
+              WHERE c.batch_ms>=?1 AND c.batch_ms<?2 AND c.start_ms<=o.at_ms AND c.end_ms>o.at_ms)))",
+        params![prior, batch, provider_id, batch + WINDOW, FRAME_LENGTH],
+        |row| row.get(0),
+    ).map_err(storage_error)
 }
 
 fn valid_rewrite(frames: &[Frame], cards: &[Draft]) -> bool {
@@ -791,14 +814,12 @@ fn save_rewrite(
     provider_id: Option<&str>,
 ) -> Result<bool> {
     if projection_revision(db)? != source.revision
-        || frozen_window(db, source.batch)?
-        || frozen_window(db, batch)?
-        || frame_snapshot(db, source.batch)? != source.snapshot
+        || !rewrite_range_allowed(db, source.batch, batch, provider_id)?
+        || range_snapshot(db, source.batch, batch)? != source.snapshot
     {
         return Ok(false);
     }
-    delete_batch_cards(db, source.batch)?;
-    delete_batch_cards(db, batch)?;
+    delete_batch_cards(db, source.batch, batch)?;
     insert_cards(db, batch, &source.frames, cards, provider_id, None)
 }
 
@@ -878,7 +899,8 @@ pub(super) fn run(db: &mut Connection, provider: &Provider) -> Result<usize> {
             break;
         }
         let applied = if let (Some(source), Some(cards)) = (rewrite, revised) {
-            save_rewrite(&tx, batch, &source, &cards, provider.identity())?
+            range_snapshot(&tx, batch, batch + WINDOW)? == snapshot
+                && save_rewrite(&tx, batch, &source, &cards, provider.identity())?
         } else if let Ok(cards) = result {
             saved_cards(
                 &tx,
@@ -913,18 +935,26 @@ fn journal_epoch(db: &Connection) -> Result<i64> {
         .map_err(storage_error)
 }
 
-fn frame_snapshot(db: &Connection, batch: i64) -> Result<i64> {
+fn range_snapshot(db: &Connection, start: i64, end: i64) -> Result<i64> {
     db.query_row(
         "SELECT COALESCE(MAX(rowid),0) FROM observations WHERE at_ms>=? AND at_ms<?",
-        params![batch, batch + WINDOW],
+        params![start, end],
         |r| r.get(0),
     )
     .map_err(storage_error)
 }
 
 fn load_frames(db: &Connection, batch: i64) -> Result<(Vec<Frame>, i64)> {
-    let end = batch + WINDOW;
-    let snapshot = frame_snapshot(db, batch)?;
+    load_frame_range(db, batch, batch + WINDOW, MAX_FRAMES)
+}
+
+fn load_frame_range(
+    db: &Connection,
+    start: i64,
+    end: i64,
+    limit: i64,
+) -> Result<(Vec<Frame>, i64)> {
+    let snapshot = range_snapshot(db, start, end)?;
     let mut query = db
         .prepare(
             "SELECT id,at_ms,app,text,jpeg_base64 IS NOT NULL,protected_screen FROM observations
@@ -932,7 +962,7 @@ fn load_frames(db: &Connection, batch: i64) -> Result<(Vec<Frame>, i64)> {
         )
         .map_err(storage_error)?;
     let frames = query
-        .query_map(params![batch, end, snapshot, MAX_FRAMES], |r| {
+        .query_map(params![start, end, snapshot, limit], |r| {
             Ok(Frame {
                 id: r.get(0)?,
                 at_ms: r.get(1)?,
@@ -1434,6 +1464,55 @@ mod tests {
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].start_ms, 0);
         assert_eq!(cards[0].end_ms, WINDOW + MINUTE + FRAME_LENGTH);
+    }
+
+    #[test]
+    fn lookback_can_recut_a_card_that_already_crossed_a_batch_boundary() {
+        let state = AppState::new(
+            Connection::open_in_memory().unwrap(),
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+        let mut db = state.db.lock().unwrap();
+        let frames: Vec<_> = (0..270).map(|slot| frame(slot * FRAME_LENGTH)).collect();
+        for capture in &frames {
+            db.execute(
+                "INSERT INTO observations(id,at_ms,app,text,consent,processed) VALUES (?,?,?,?,1,?)",
+                params![capture.at_ms.to_string(), capture.at_ms, capture.app, capture.text, capture.at_ms < 2 * WINDOW],
+            ).unwrap();
+        }
+        saved_cards(&db, 0, &frames[..90], &[draft(0, 89, "Start")], None, None).unwrap();
+        let previous = previous_card(&db, WINDOW, WINDOW, None).unwrap().unwrap();
+        let mut continuation = draft(0, 89, "Continue");
+        continuation.continue_previous = true;
+        saved_cards(
+            &db,
+            WINDOW,
+            &frames[90..180],
+            &[continuation],
+            None,
+            Some(&previous),
+        )
+        .unwrap();
+        assert!(frozen_window(&db, WINDOW).unwrap());
+        let mut source = rewrite_source(&db, 2 * WINDOW, &frames[180..], None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(source.frames.len(), 180);
+        source.frames.extend_from_slice(&frames[180..]);
+        let revised = [draft(0, 89, "First goal"), draft(90, 269, "Different goal")];
+        assert!(valid_rewrite(&source.frames, &revised));
+        let tx = db.transaction().unwrap();
+        assert!(save_rewrite(&tx, 2 * WINDOW, &source, &revised, None).unwrap());
+        tx.commit().unwrap();
+        let cards = timeline(&db, 0, 3 * WINDOW).unwrap();
+        assert_eq!(
+            cards
+                .iter()
+                .map(|card| (card.start_ms, card.end_ms))
+                .collect::<Vec<_>>(),
+            vec![(0, WINDOW), (WINDOW, 3 * WINDOW)]
+        );
     }
 
     #[test]

@@ -1985,6 +1985,14 @@ class MainActivity : Activity() {
                     if (busy) { settings(); return@switchRow }
                     toggleImages(s, on)
                 }.apply { pad(this); isEnabled = !permissionMissing }
+                if (s.contextEnabled) {
+                    ui.switchRow(this, "連續畫面記錄", "保留未變動的擷取，讓 AI 看見同一活動持續多久", s.continuousContext) { on ->
+                        if (busy || on == s.continuousContext) { settings(); return@switchRow }
+                        fun save() = task("更新記錄方式…", { synchronized(SyncEngine.lock) { s.continuousContext = on; if (!on) JournalQueue(this@MainActivity).clearContexts() } }, failed = { settings() }) { settings() }
+                        if (on) confirm("保留未變動的畫面？", "仍只記錄你允許的 app，頻率不變，但相同的畫面文字與截圖也會保存。這可能增加耗電、儲存與上傳量；既有隱私篩選及 AI 開關不變。", "同意", { settings() }) { save() }
+                        else save()
+                    }.also(::pad)
+                }
                 ui.row(this, "記錄哪些 app", "記錄 ${effectiveAllowedCount(s)} 個 · 排除 ${s.exclusions.size} 個") { appListsPage() }
             }
             ui.switchRow(this, "暫停所有裝置", if (s.remotePaused) "所有裝置都不記錄" else "在伺服器暫停每一台裝置", s.remotePaused) { on ->
@@ -2167,7 +2175,7 @@ class MainActivity : Activity() {
                 ui.card(body).apply {
                     ui.text(this, promise, 18f, bold = true, bottom = 10)
                     ui.heading(this, "會記下")
-                    ui.body(this, "• 你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（畫面沒變就略過）\n• 什麼時候用了哪個 app")
+                    ui.body(this, "• 你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖。連續畫面記錄會保留未變動的擷取。\n• 什麼時候用了哪個 app")
                     ui.heading(this, "不會記下", top = 12)
                     ui.body(this, "• 有密碼或輸入欄位的畫面、鎖定畫面\n• 你排除的 app，以及銀行、密碼管理等 app\n• 受保護的畫面（例如影片、銀行 app）只留文字，沒有截圖")
                     ui.meta(this, "截圖先加密存在手機，充電時才上傳到你的伺服器。AI 整理在伺服器上進行，不耗手機電量。尚未完成全天耗電量測。", top = 12)
@@ -2192,12 +2200,12 @@ class MainActivity : Activity() {
             2 -> {
                 val on = accessibilityServiceOn() && s.contextEnabled
                 ui.card(body).apply {
-                    ui.body(this, "「輔助使用」讓 PocketLog 讀取你允許的 app 的畫面文字並截圖。")
+                    ui.body(this, "「輔助使用」讓 PocketLog 讀取你允許的 app 的畫面文字並截圖。首次開啟會保留未變動的擷取，可能增加耗電、儲存與上傳量；可在設定關閉連續畫面記錄。")
                     ui.meta(this, "在接下來的畫面點「PocketLog」，打開後按返回。Android 會顯示一段標準警告。", top = 8)
                 }
                 if (on) { ui.banner(body, "已開啟。", Kind.SUCCESS); ui.button(body, "繼續") { next() } }
                 else ui.button(body, "開啟 Android 設定") {
-                    task("準備中…", { synchronized(SyncEngine.lock) { require(s.enabled); s.contextEnabled = true; s.analysisConsent = true; s.imagesEnabled = true } }) {
+                    task("準備中…", { synchronized(SyncEngine.lock) { if (!s.hasContextGrant) s.grantContinuousContext() } }) {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     }
                 }
@@ -2273,8 +2281,8 @@ class MainActivity : Activity() {
         }
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.enabled) { autoRecordFlow(0) { settings() }; return }
-        confirm("記錄畫面文字與截圖？", "你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（每張最多 300 KB，優先保留原始尺寸），畫面沒變就略過。有密碼或輸入欄位的畫面、鎖定畫面會略過；受保護的畫面只留文字。截圖可能含私人內容，請只允許你願意記錄的 app。內容加密存在手機，充電時上傳到你的伺服器並長期保存；伺服器開啟 AI 自動整理時會送給你設定的 AI。\n\n下一步會開啟 Android 輔助使用設定。", "同意", after) {
-            task("開啟中…", { synchronized(SyncEngine.lock) { require(s.enabled); s.contextEnabled = true; s.analysisConsent = true; s.imagesEnabled = true } }, failed = { after() }) {
+        confirm("記錄畫面文字與截圖？", "你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（每張最多 300 KB）。未變動的擷取也會保存，可能增加耗電、儲存與上傳量。有密碼或輸入欄位的畫面、鎖定畫面會略過；受保護的畫面只留文字。截圖可能含私人內容，請只允許你願意記錄的 app。內容加密存在手機，充電時上傳到你的伺服器並長期保存；伺服器開啟 AI 自動整理時會送給你設定的 AI。\n\n下一步會開啟 Android 輔助使用設定。", "同意", after) {
+            task("開啟中…", { synchronized(SyncEngine.lock) { s.grantContinuousContext() } }, failed = { after() }) {
                 if (s.allowed.isEmpty()) autoRecordFlow(3) { settings() } else after()
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }

@@ -77,9 +77,11 @@ report suspected vulnerabilities privately through the repository owner.
   is secure/DRM-protected (`ERROR_TAKE_SCREENSHOT_SECURE_WINDOW`) is no longer
   rejected outright: PocketLog never tries to bypass the protection, sends the app and
   its visible text with `protected_screen:true` and no image, and the card says
-  受保護畫面（無截圖）. Mostly-black frames are never stored or uploaded. Captures
-  whose app, normalised text and small downscaled image hash match the previous
-  stored capture (refreshed every five minutes) are skipped before encoding. OS/AppOps behavior
+  受保護畫面（無截圖）. Mostly-black frames are never stored or uploaded. Existing
+  context grants still deduplicate unchanged captures unless the owner explicitly
+  enables continuous recording in Android settings. New context consent discloses
+  continuous recording, which retains unchanged captures at the same cadence and
+  may increase power, storage and upload costs. Quotas and privacy gates are unchanged. OS/AppOps behavior
   and permission revocation still require physical-device validation. UsageStats
   checkpoints retain observed permission state and restart their scan boundary
   when that state changes, including on app resume. A revoke-and-restore sequence

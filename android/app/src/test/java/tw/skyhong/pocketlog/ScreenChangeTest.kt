@@ -12,6 +12,13 @@ class ScreenChangeTest {
         // A few flipped bits (cursor, clock) still count as the same picture.
         assertTrue(ScreenChange.unchanged(shot(), shot(hash = 0x0F0F0F0FL xor 0b111, at = 1_010_000)))
     }
+    @Test fun continuousConsentRetainsEvidenceEvenWhenPixelsAndTextAreIdentical() {
+        val previous = shot()
+        val next = shot(at = 1_010_000)
+        assertTrue(ScreenChange.skipCapture(previous, next, retainUnchanged = false))
+        assertFalse(ScreenChange.skipCapture(previous, next, retainUnchanged = true))
+        assertFalse(ScreenChange.skipCapture(shot(hash = null), shot(hash = null, at = 1_010_000), retainUnchanged = true))
+    }
     @Test fun anyRealChangeIsRecorded() {
         assertFalse(ScreenChange.unchanged(null, shot()))
         assertFalse(ScreenChange.unchanged(shot(), shot(app = "org.example.other", at = 1_010_000)))

@@ -18,6 +18,9 @@ object ScreenChange {
      */
     data class Fingerprint(val app: String, val textDigest: String, val imageHash: Long?, val protectedScreen: Boolean, val revision: Long, val atMs: Long)
 
+    fun skipCapture(previous: Fingerprint?, current: Fingerprint, retainUnchanged: Boolean): Boolean =
+        !retainUnchanged && unchanged(previous, current)
+
     fun unchanged(previous: Fingerprint?, current: Fingerprint): Boolean {
         if (previous == null) return false
         if (current.atMs < previous.atMs || current.atMs - previous.atMs >= REFRESH_MS) return false
