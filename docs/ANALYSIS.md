@@ -23,7 +23,9 @@ same provider within a 45-minute lookback, up to 60 minutes total. Extension
 retains the existing card ID and rebuilds its title and summary. Manual edits
 and already-extended windows are protected from late rewrites. Raw App-only
 cards fully inside a screen-derived card are hidden in timeline and search.
-Raw App records remain available for App totals.
+Raw App records remain available for App totals. The saved summary includes
+ordered, timestamped observations within its existing length limit. Extension
+retains earlier detail lines within that budget.
 
 This workflow adapts the open-source Dayflow timeline generation strategy in
 [ClaudeTimelinePrompt.swift](https://github.com/JerryZLiu/Dayflow/blob/378e5a14ebdc9ab8733843efbcc304a0b6c778ab/Dayflow/Dayflow/Core/AI/ClaudeTimelinePrompt.swift)

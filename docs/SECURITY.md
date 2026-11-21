@@ -102,7 +102,9 @@ report suspected vulnerabilities privately through the repository owner.
   prefers native-resolution lossless WebP and falls back to JPEG, reducing
   dimensions if needed.
   Independent per-image `replay_consent` can additionally create a separate private
-  archive (256 images / 24 hours). Only worker-decoded and re-encoded images
+  archive (the newest 256 images from the last 24 hours). An archive at capacity
+  discards its oldest copy and does not reject the analysis upload. Only
+  worker-decoded and re-encoded images
   become readable, with metadata stripped and a 300,000-byte image cap. Legacy
   uploads still produce 480 px / 24 KiB JPEGs. No implicit archive of old
   images. Replay requires owner/journal-device authentication, remains no-store,
