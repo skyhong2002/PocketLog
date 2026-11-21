@@ -12,7 +12,9 @@ artifacts and outcomes to write a title and summary, keeps short interruptions
 with their surrounding activity, and chooses the workspace category matching the
 dominant supported time. Isolated short captures can form a card. Within
 continuous evidence, an ordinary split requires ten minutes, with a three-minute
-exception for the final new activity. Gaps longer than one minute remain visible.
+exception for the final new activity. Gaps longer than one minute remain visible. If the model proposes extra
+short cards in continuous evidence, the worker folds them into the stronger
+activity and retains the supported detail instead of discarding the window.
 
 Windows with valid screenshots first try direct visual timeline generation.
 A failed direct request falls back on the next attempt to extracting numbered
