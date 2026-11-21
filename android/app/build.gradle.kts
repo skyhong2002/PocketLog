@@ -52,5 +52,5 @@ android {
 dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303") }
+    testImplementation("org.json:json:20260814") }
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
