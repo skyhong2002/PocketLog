@@ -86,6 +86,7 @@ class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     /** Update checks and downloads never wait behind journal reads. */
     private val statusExecutor = Executors.newSingleThreadExecutor()
+    private val uploadStatusExecutor = Executors.newSingleThreadExecutor()
     private val replayExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updateChecking = false
@@ -113,7 +114,6 @@ class MainActivity : Activity() {
     /** Last known server state of automatic AI summaries; null until read (or offline). */
     private var aiAutomatic: Boolean? = null
     private var aiConfigured: Boolean? = null
-    private var waitingCaptures = 0
     /** Visible result of the last 測試並儲存, shown once on the AI page. */
     private var aiResult: Pair<String, Kind>? = null
     private var day = TimelineMath.journalDay()
@@ -479,7 +479,19 @@ class MainActivity : Activity() {
     private fun cardTitle(card: JSONObject): String = appNames.title(card).ifBlank { appNames.name(card.optString("app")) }.ifBlank { "活動" }
     private fun readJournal(path: String): JSONObject {
         check(Looper.myLooper() != Looper.getMainLooper())
-        val data = SyncEngine.readTimeline(this@MainActivity, path)
+        val scope = TimelineCacheScope.forPath(path)
+        val from = scope.from
+        val to = scope.to
+        val local = if (from != null && to != null) LocalTimeline(this) else null
+        val remote = if (credentials == null && local != null) null else try {
+            SyncEngine.readTimeline(this, path)
+        } catch (failure: Exception) {
+            if (local == null || (failure is ApiFailure && failure.status !in setOf(401, 403, 408, 429, 500, 502, 503, 504))) throw failure
+            null
+        }
+        val data = if (local != null) {
+            local.render(requireNotNull(from), requireNotNull(to), remote, offline = remote?.optBoolean("offline") != false)
+        } else requireNotNull(remote)
         val apps = data.optJSONArray("apps")
         val packages = cardsOf(data).asSequence().map { it.optString("app") } +
             (0 until (apps?.length() ?: 0)).asSequence().map { apps!!.getJSONObject(it).optString("app") }
@@ -683,7 +695,9 @@ class MainActivity : Activity() {
         val slot = ui.column(body)
         load(slot, "開啟加密的連線資料…", { CredentialStore(this@MainActivity).load() }) { saved ->
             credentials = saved
-            if (saved == null) setup() else { SyncEngine.schedule(this@MainActivity); enterWorkspace() }
+            SyncEngine.schedule(this@MainActivity)
+            go(restoreTab ?: Tab.TIMELINE)
+            restoreTab = null
         }
         // Recovery path if Keystore or the stored connection cannot be read.
         ui.button(body, "打不開？重設這支手機的資料與連線", Tone.TEXT) { confirmReset() }
@@ -712,11 +726,11 @@ class MainActivity : Activity() {
 
     private fun setup() {
         workspace = null
-        val body = screen("連接你的伺服器", "第一次設定", nav = false, logo = true)
+        val body = screen("連接你的伺服器", null, nav = false, back = { home() })
         ui.card(body).apply {
             ui.text(this, "把一天，收進口袋。", 20f, bold = true, bottom = 6).isAccessibilityHeading = true
             ui.body(this, promise)
-            ui.meta(this, "記錄會存到你自己的 PocketLog 伺服器。連線之後才會問你要不要開始記錄。", top = 6)
+            ui.meta(this, "連線後，手機上待傳的記錄會依上傳設定補傳到這台 PocketLog 伺服器。", top = 6)
         }
         val form = ui.card(body)
         val endpoint = ui.field(form, "伺服器網址", "https://your-server.example", Field.URL)
@@ -736,9 +750,10 @@ class MainActivity : Activity() {
             task("正在確認伺服器與金鑰…", {
                 synchronized(SyncEngine.lock) {
                     PocketLogApi(candidate).verifyConnection(dayPath())
-                    CredentialStore(this@MainActivity).save(candidate)
+                    val store = CredentialStore(this@MainActivity)
+                    check(store.load() == null)
+                    store.save(candidate)
                     RecordingSettings(this@MainActivity).clearRejectedCredentials()
-                    UsageCollector(this@MainActivity).reset()
                 }
             }, failed = { fail(describe(it)) }) {
                 clearDrafts(); credentials = candidate; token.text.clear(); SyncEngine.schedule(this@MainActivity); notice("已連線到 ${host()}"); enterWorkspace()
@@ -823,14 +838,15 @@ class MainActivity : Activity() {
         val body = screen("時間軸", null, Tab.TIMELINE,
             action = Triple(R.drawable.ic_sync, "重新整理") {
                 SyncEngine.schedule(this@MainActivity)
-                if (loaded == null) home() else reloadTimeline(slot, { api().request(dayPath(selected)) }, { readJournal(dayPath(selected)) })
+                if (credentials == null || loaded == null || loaded?.optBoolean("offline") == true) home() else reloadTimeline(slot, { api().request(dayPath(selected)) }, { readJournal(dayPath(selected)) })
             })
         timelineDateBar.visibility = View.VISIBLE
         dateNav(timelineDateBar) { day = it; home() }
-        ui.button(body, "搜尋活動", Tone.OUTLINE) { openSearchDialog() }.apply {
+        if (credentials != null) ui.button(body, "搜尋活動", Tone.OUTLINE) { openSearchDialog() }.apply {
             layoutParams = wrap(); setPadding(ui.dp(16), 0, ui.dp(16), 0)
         }
         val status = ui.column(body)
+        uploadPanel(ui.column(body))
         slot = ui.column(body)
         refreshOnResume = { statusLine(status) }
         load(slot, "讀取時間軸…", { readJournal(dayPath(selected)) }) { data ->
@@ -944,10 +960,10 @@ class MainActivity : Activity() {
     private fun statusLine(parent: LinearLayout, query: Boolean = true, workspaceUpdated: ((JSONObject) -> Unit)? = null) {
         val token = generation
         val s = RecordingSettings(this)
-        fun draw(waiting: Int) {
+        fun draw() {
             val pending = if (day == journalDay()) cardsOf(loaded).count { it.optBoolean("pending_context") } else 0
             val inputs = StatusLine.Inputs(s.isAuthRejected(credentials), s.remotePaused, s.hasUsageGrant, s.hasUsagePermission(), s.contextEnabled,
-                accessibilityServiceOn(), aiConfigured, aiAutomatic, waiting, pending)
+                accessibilityServiceOn(), aiConfigured, aiAutomatic, pending)
             val state = StatusLine.select(inputs)
             parent.removeAllViews()
             val warn = StatusLine.needsAction(state)
@@ -966,18 +982,16 @@ class MainActivity : Activity() {
             row.contentDescription = text
             parent.addView(row, ui.lp(bottom = 12))
         }
-        draw(waitingCaptures)
+        draw()
         if (!query) return
         val connection = credentials ?: return
         statusExecutor.execute {
             if (token != generation) return@execute
-            val waiting = runCatching { SyncEngine.waitingCaptures(this) }.getOrDefault(0)
             val ai = runCatching { PocketLogApi(connection).request("/v1/ai") }.getOrNull()
             runOnUiThread {
                 if (token == generation && !isDestroyed && parent.isAttachedToWindow) {
                     if (ai != null) rememberAi(ai)
-                    waitingCaptures = waiting
-                    draw(waiting)
+                    draw()
                 }
             }
             if (workspaceUpdated != null && token == generation) {
@@ -986,6 +1000,75 @@ class MainActivity : Activity() {
                     if (latest != null && token == generation && !isDestroyed && parent.isAttachedToWindow) workspaceUpdated(latest)
                 }
             }
+        }
+    }
+
+    private fun uploadPanel(parent: LinearLayout) {
+        val card = ui.card(parent)
+        val message = ui.body(card, "")
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            card.addView(this, ui.lp(height = ui.dp(8), top = 6, bottom = 6))
+        }
+        val action = ui.button(card, if (credentials == null) "連接伺服器" else "立即上傳", Tone.OUTLINE) {
+            if (credentials == null) setup() else startManualUpload()
+        }
+        val session = generation
+        fun draw() {
+            if (session != generation || !parent.isAttachedToWindow || isDestroyed) return
+            val connection = credentials
+            val progress = SyncEngine.manualProgress
+            val running = progress?.running == true && connection != null
+            val settings = RecordingSettings(this)
+            if (!visible) {
+                handler.postDelayed({ draw() }, 1_500)
+                return
+            }
+            uploadStatusExecutor.execute {
+                val queue = JournalQueue(this)
+                val queued = if (running) emptyList() else queue.pendingNames()
+                val network = if (running) null else SyncEngine.activeNetwork(this)
+                val pending = when {
+                    running -> ""
+                    queued.isEmpty() -> "目前沒有待傳資料"
+                    connection == null -> "${queued.size} 筆待傳資料已加密存於手機"
+                    else -> {
+                        val reason = SyncEngine.networkStatus(network, settings.wifiOnly)
+                            ?: if (settings.chargeOnly && !SyncEngine.charging(this) &&
+                                !UploadPolicy.observations(false, network?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true,
+                                    queue.observationBacklog().second) && queued.any { it.endsWith("_ctx") }) "截圖等待充電" else null
+                        listOfNotNull("${queued.size} 筆待傳資料", reason).joinToString(" · ")
+                    }
+                }
+                handler.post {
+                    if (session != generation || !parent.isAttachedToWindow || isDestroyed) return@post
+                    val uploading = if (progress != null && progress.running) {
+                        if (progress.total == 0) "正在連接伺服器…" else "上傳中 · 已送達 ${progress.sent} / ${progress.total} 筆"
+                    } else null
+                    val result = progress?.takeIf { !it.running && connection != null }?.let {
+                        if (it.total > 0 && it.sent < it.total) "已送達 ${it.sent} / ${it.total} 筆 · ${it.message}" else it.message
+                    }
+                    message.text = if (running) uploading else listOfNotNull(result?.takeIf { it.isNotBlank() }, pending).joinToString("\n")
+                    bar.visibility = if (running) View.VISIBLE else View.GONE
+                    bar.isIndeterminate = progress?.total == 0
+                    bar.max = (progress?.total ?: 0).coerceAtLeast(1)
+                    bar.progress = progress?.sent ?: 0
+                    action.isEnabled = !running && (connection == null || !settings.isAuthRejected(connection))
+                    handler.postDelayed({ draw() }, if (running) 350 else 2_000)
+                }
+            }
+        }
+        parent.post { draw() }
+    }
+
+    private fun startManualUpload() {
+        val s = RecordingSettings(this)
+        val network = SyncEngine.activeNetwork(this)
+        when (SyncEngine.networkStatus(network, s.wifiOnly)) {
+            "等待網路連線" -> notice("目前沒有網路，資料仍保存在手機。", Kind.WARN)
+            "等待 Wi‑Fi" -> confirm("這次使用行動網路？", "截圖可能耗用較多流量。這次上傳會使用目前的網路，之後的自動上傳仍依原本設定。", "開始上傳") {
+                SyncEngine.uploadNow(this, allowMetered = true)
+            }
+            else -> SyncEngine.uploadNow(this, allowMetered = false)
         }
     }
 
@@ -1005,7 +1088,7 @@ class MainActivity : Activity() {
 
     private fun startTimelineWatch(slot: LinearLayout, data: JSONObject, checkRead: () -> JSONObject = { api().request(dayPath()) }, reloadRead: () -> JSONObject = { readJournal(dayPath()) }) {
         timelineWatch?.close(); timelineWatch = null
-        if (day != journalDay() || data.optBoolean("pending_card_edits")) return
+        if (credentials == null || day != journalDay() || data.optBoolean("pending_card_edits")) return
         val selected = day
         val token = generation
         val box = ui.column(null).apply {
@@ -1087,7 +1170,7 @@ class MainActivity : Activity() {
 
     private fun renderTimeline(slot: LinearLayout, data: JSONObject, jumpToActivity: Boolean) {
         loaded = data
-        if (data.optBoolean("offline")) ui.banner(slot, "離線中：顯示手機上的副本，伺服器可能有更新。", Kind.WARN)
+        if (data.optBoolean("offline")) ui.banner(slot, "目前顯示手機上的時間軸。連線後可查看伺服器上的截圖與 AI 整理結果。", Kind.INFO)
         if (data.optBoolean("truncated")) ui.banner(slot, "這天的資料太多，只顯示一部分，統計可能不完整。", Kind.WARN)
         if (data.optBoolean("pending_card_edits")) ui.banner(slot, "你的修改已存在手機，正在等待上傳。", Kind.INFO)
         val list = cardsOf(data)
@@ -1159,7 +1242,7 @@ class MainActivity : Activity() {
         }.apply { layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(38)); minHeight = ui.dp(38); minimumHeight = ui.dp(38); setPadding(ui.dp(14), 0, ui.dp(14), 0); textSize = 13f }
         draw()
         slot.addView(axis, ui.lp())
-        if (jumpToActivity && list.isNotEmpty() && page.indexOfChild(slot) >= 0) {
+        if (jumpToActivity && !data.optBoolean("offline") && list.isNotEmpty() && page.indexOfChild(slot) >= 0) {
             val anchor = if (day == journalDay()) list.last() else list.first()
             val start = anchor.getLong("start_ms")
             val hour = from + ((start - from).coerceAtLeast(0) / hourMs) * hourMs
@@ -1282,6 +1365,7 @@ class MainActivity : Activity() {
             when {
                 s.isAuthRejected(credentials) -> action("重新連線") { connectionRecovery() }
                 !s.hasUsageGrant -> action("開始記錄") { autoRecordFlow(0) { home() } }
+                loaded?.optBoolean("offline") == true -> ui.meta(this, "手機會在背景記錄，本機文字會顯示在這裡。").gravity = Gravity.CENTER
                 aiConfigured == false -> action("設定 AI") { aiSettings { home() } }
                 else -> ui.meta(this, "手機會在背景記錄，AI 整理後會出現在這裡。").gravity = Gravity.CENTER
             }
@@ -1341,6 +1425,13 @@ class MainActivity : Activity() {
         appTitle(content, app, title, card.getString("category"), 19f, bold = true)
         ui.text(content, listOfNotNull(appName.takeIf { app.isNotBlank() && it != title }, timeRange(start, end)).joinToString(" · "), 14f, Palette.INK, top = 4)
         val summary = card.optString("summary")
+        if (card.optBoolean("local_record") || loaded?.optBoolean("offline") == true) {
+            summary.takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
+            ui.meta(content, "目前可查看文字。截圖需要連線到伺服器。", top = 8)
+            activityDetail?.dismiss()
+            activityDetail = sheet(content)
+            return
+        }
         cardSummary(card).takeIf { it.isNotBlank() }?.let { ui.body(content, it, top = 8) }
         lateinit var detail: android.app.Dialog
         val note = when {
@@ -1646,6 +1737,11 @@ class MainActivity : Activity() {
     private fun periodKey(weekly: Boolean) = if (weekly) "w:${TimelineMath.weekStart(day)}" else "d:$day"
 
     private fun review() {
+        if (credentials == null) {
+            val body = screen("回顧", null, Tab.REVIEW)
+            callout(body, "連接伺服器後，這裡會顯示日誌回顧。手機上的記錄可以在時間軸查看。", Kind.INFO, "連接伺服器") { setup() }
+            return
+        }
         val weekly = reviewWeekly
         val first = if (weekly) TimelineMath.weekStart(day) else day
         val span = if (weekly) TimelineMath.weekLabel(first) else dateTitle(day)
@@ -1972,7 +2068,7 @@ class MainActivity : Activity() {
 
         ui.groupLabel(body, "記錄")
         ui.card(body, padding = 8).apply {
-            ui.switchRow(this, "自動記錄", recordingSummary(s) + "\n截圖在充電時上傳，平常只記錄、不耗流量。", s.hasUsageGrant) { on ->
+            ui.switchRow(this, "自動記錄", recordingSummary(s), s.hasUsageGrant) { on ->
                 if (busy) { settings(); return@switchRow }
                 if (on) autoRecordFlow(0) { settings() } else confirm("停止自動記錄？", "之後不再記錄 app 使用時段、畫面文字和截圖。還沒上傳的截圖會刪除；已上傳的記錄保留。", "停止", { settings() }) { stopRecording(s) }
             }.also(::pad)
@@ -1987,11 +2083,21 @@ class MainActivity : Activity() {
                 }.apply { pad(this); isEnabled = !permissionMissing }
                 ui.row(this, "記錄哪些 app", "記錄 ${effectiveAllowedCount(s)} 個 · 排除 ${s.exclusions.size} 個") { appListsPage() }
             }
-            ui.switchRow(this, "暫停所有裝置", if (s.remotePaused) "所有裝置都不記錄" else "在伺服器暫停每一台裝置", s.remotePaused) { on ->
+            if (credentials != null) ui.switchRow(this, "暫停所有裝置", if (s.remotePaused) "所有裝置都不記錄" else "在伺服器暫停每一台裝置", s.remotePaused) { on ->
                 if (busy || on == s.remotePaused) { settings(); return@switchRow }
                 manageRemotePause(s)
             }.also(::pad)
             ui.row(this, "進階", "畫面文字、Wi‑Fi、權限") { recordingAdvanced() }
+        }
+
+        if (credentials == null) {
+            ui.groupLabel(body, "連線與裝置")
+            ui.card(body, padding = 8).apply {
+                ui.row(this, "連接伺服器", "將手機上的記錄補傳到私人伺服器") { setup() }
+            }
+            localDataSettings(body, s)
+            updateRows(body)
+            return
         }
 
         ui.groupLabel(body, "AI")
@@ -2026,9 +2132,8 @@ class MainActivity : Activity() {
                 ui.text(warning, "這個連線沒有 HTTPS，資料保護依賴你的 VPN／私人網路", 14f, Palette.WARN_INK).layoutParams = ui.lp(0, weight = 1f)
             }
             val sync = ui.column(this)
-            load(sync, "讀取同步狀態…", { synchronized(SyncEngine.lock) { val q = JournalQueue(this@MainActivity); Triple(q.counts().second, q.observationBacklog().first, SyncEngine.charging(this@MainActivity)) } }) { (rejected, captures, charging) ->
-                val waiting = if (captures > 0) " · $captures 張截圖${if (charging) "正在上傳" else "等充電時上傳"}" else ""
-                ui.row(sync, "立即同步", lastSyncText(s.lastSync) + waiting, chevron = false) { task("同步中…", { SyncEngine.sync(this@MainActivity) }) { settings(); notice(RecordingSettings(this@MainActivity).status(), Kind.INFO) } }.also { trailing(it, R.drawable.ic_sync) }
+            load(sync, "讀取同步狀態…", { synchronized(SyncEngine.lock) { val q = JournalQueue(this@MainActivity); q.counts().second } }) { rejected ->
+                ui.row(sync, "上傳記錄", lastSyncText(s.lastSync)) { home() }
                 if (rejected > 0) {
                     ui.row(sync, "重試被拒絕的 $rejected 筆", "先確認網址與金鑰正確") {
                         task("重試中…", { synchronized(SyncEngine.lock) { JournalQueue(this@MainActivity).retryRejected(requireNotNull(credentials)); s.nextAttempt = 0 }; SyncEngine.sync(this@MainActivity) }) { settings(); notice(RecordingSettings(this@MainActivity).status(), Kind.INFO) }
@@ -2049,9 +2154,6 @@ class MainActivity : Activity() {
         ui.card(body, padding = 8).apply {
             val storage = ui.column(this)
             load(storage, "讀取儲存空間…", { api().request("/v1/storage") }) { info -> storageRows(storage, info) }
-            ui.switchRow(this, "防止截圖這個應用程式", "開啟後，PocketLog 的畫面無法被截圖或錄影", s.protectAppScreen) { on ->
-                task("更新…", { s.protectAppScreen = on }) { applyScreenProtection(); notice(if (on) "已防止截圖這個應用程式" else "已允許截圖這個應用程式") }
-            }.also(::pad)
             ui.row(this, "匯出這一天", "${md(day)}的活動卡，存成檔案") { export() }
             // Destructive actions last, separated, low emphasis, each behind a 無法復原 confirmation.
             addView(View(this@MainActivity).apply { setBackgroundColor(Palette.HAIRLINE) }, ui.lp(height = 1, top = 8))
@@ -2067,11 +2169,29 @@ class MainActivity : Activity() {
             }
         }
 
+        localDataSettings(body, s)
         ui.groupLabel(body, "說明")
         ui.card(body, padding = 8).apply {
             ui.row(this, "使用說明", "沒有活動時怎麼辦、目前限制") { helpPage() }
             ui.row(this, "重新看一次介紹", null) { onboarding(0) { settings() } }
             updateRows(this)
+        }
+    }
+
+    private fun localDataSettings(body: LinearLayout, s: RecordingSettings) {
+        ui.groupLabel(body, "手機資料")
+        ui.card(body, padding = 8).apply {
+            ui.switchRow(this, "防止截圖這個應用程式", "開啟後，PocketLog 的畫面無法被截圖或錄影", s.protectAppScreen) { on ->
+                task("更新…", { s.protectAppScreen = on }) { applyScreenProtection() }
+            }
+            ui.row(this, "清除手機上的時間軸", "刪除本機保留的文字與時間軸快取") {
+                confirm("清除手機上的時間軸？", "待上傳的記錄與伺服器上的資料會保留。", "清除") {
+                    task("清除中…", { SyncEngine.clearTimelineCopies(this@MainActivity) }) {
+                        settings(); notice("已清除手機上的時間軸")
+                    }
+                }
+            }
+            if (credentials == null) ui.row(this, "清除這支手機的資料", "停止記錄並刪除待傳資料") { confirmReset() }
         }
     }
 
@@ -2124,9 +2244,13 @@ class MainActivity : Activity() {
                 if (busy) { again(); return@switchRow }
                 privacyShieldDialog(s, again)
             }.also(::pad)
-            ui.switchRow(this, "只用 Wi‑Fi 上傳", "截圖只在充電時上傳；開啟後其他資料也只用 Wi‑Fi", s.wifiOnly) { checked ->
+            ui.switchRow(this, "只在充電時自動上傳截圖", "可以從時間軸隨時手動上傳", s.chargeOnly) { on ->
+                if (on == s.chargeOnly) return@switchRow
+                task("更新…", { synchronized(SyncEngine.lock) { s.chargeOnly = on }; SyncEngine.reschedule(this@MainActivity) }, failed = { again() }) { again() }
+            }.also(::pad)
+            ui.switchRow(this, "只用 Wi‑Fi 上傳", "限制自動上傳使用未按流量計費的網路", s.wifiOnly) { checked ->
                 if (checked == s.wifiOnly) return@switchRow
-                task("更新…", { synchronized(SyncEngine.lock) { s.wifiOnly = checked }; SyncEngine.schedule(this@MainActivity) }, failed = { again() }) { notice(if (checked) "只用 Wi‑Fi 上傳" else "也會用行動數據上傳") }
+                task("更新…", { synchronized(SyncEngine.lock) { s.wifiOnly = checked }; SyncEngine.reschedule(this@MainActivity) }, failed = { again() }) { notice(if (checked) "只用 Wi‑Fi 上傳" else "也會用行動數據上傳") }
             }.also(::pad)
         }
         ui.groupLabel(body, "Android 權限")
@@ -2170,7 +2294,7 @@ class MainActivity : Activity() {
                     ui.body(this, "• 你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（畫面沒變就略過）\n• 什麼時候用了哪個 app")
                     ui.heading(this, "不會記下", top = 12)
                     ui.body(this, "• 有密碼或輸入欄位的畫面、鎖定畫面\n• 你排除的 app，以及銀行、密碼管理等 app\n• 受保護的畫面（例如影片、銀行 app）只留文字，沒有截圖")
-                    ui.meta(this, "截圖先加密存在手機，充電時才上傳到你的伺服器。AI 整理在伺服器上進行，不耗手機電量。尚未完成全天耗電量測。", top = 12)
+                    ui.meta(this, "記錄先加密存在手機。連接伺服器後，會依上傳設定同步，也可以從時間軸立即上傳。AI 整理在伺服器上進行，不耗手機電量。尚未完成全天耗電量測。", top = 12)
                 }
                 if (s.remotePaused) { callout(body, "伺服器已暫停所有裝置，請先在「設定 → 記錄 → 暫停所有裝置」恢復。", Kind.WARN, "前往設定") { settings() }; return }
                 ui.button(body, "同意並繼續") {
@@ -2224,7 +2348,7 @@ class MainActivity : Activity() {
             else -> {
                 ui.card(body).apply {
                     ui.text(this, recordingSummary(s), 18f, bold = true, bottom = 8)
-                    ui.body(this, "手機會在背景記錄，AI 整理後會出現在時間軸。截圖在充電時上傳。")
+                    ui.body(this, "手機會在背景記錄。時間軸可以查看本機文字，連接伺服器後會補傳待傳資料。")
                     ui.meta(this, "隨時可以在「設定 → 記錄」調整或關閉。", top = 8)
                 }
                 ui.button(body, "完成") { done() }
@@ -2273,7 +2397,7 @@ class MainActivity : Activity() {
         }
         if (s.isAuthRejected(credentials)) { connectionRecovery(); return }
         if (!s.enabled) { autoRecordFlow(0) { settings() }; return }
-        confirm("記錄畫面文字與截圖？", "你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（每張最多 300 KB，優先保留原始尺寸），畫面沒變就略過。有密碼或輸入欄位的畫面、鎖定畫面會略過；受保護的畫面只留文字。截圖可能含私人內容，請只允許你願意記錄的 app。內容加密存在手機，充電時上傳到你的伺服器並長期保存；伺服器開啟 AI 自動整理時會送給你設定的 AI。\n\n下一步會開啟 Android 輔助使用設定。", "同意", after) {
+        confirm("記錄畫面文字與截圖？", "你允許的 app 在前景時，每 10 秒記下畫面文字和一張截圖（每張最多 300 KB，優先保留原始尺寸），畫面沒變就略過。有密碼或輸入欄位的畫面、鎖定畫面會略過；受保護的畫面只留文字。截圖可能含私人內容，請只允許你願意記錄的 app。內容加密存在手機，連接後依上傳設定送到你的伺服器並長期保存；伺服器開啟 AI 自動整理時會送給你設定的 AI。\n\n下一步會開啟 Android 輔助使用設定。", "同意", after) {
             task("開啟中…", { synchronized(SyncEngine.lock) { require(s.enabled); s.contextEnabled = true; s.analysisConsent = true; s.imagesEnabled = true } }, failed = { after() }) {
                 if (s.allowed.isEmpty()) autoRecordFlow(3) { settings() } else after()
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -2361,7 +2485,7 @@ class MainActivity : Activity() {
         }
         ui.groupLabel(body, "時間軸沒有活動時")
         ui.card(body).apply {
-            ui.body(this, "1. 確認「設定 → 記錄 → 自動記錄」已開啟，兩個 Android 權限都已允許。\n2. 確認這個 app 有在「記錄哪些 app」裡，而且沒有被排除。\n3. app 使用時段大約每 15 分鐘整理一次，由 Android 決定時間；可在設定的同步區手動上傳。\n4. 截圖要等充電時才上傳，AI 整理後活動卡才會有標題與摘要。\n5. 換了 AI 設定後，要重新打開「自動整理新截圖」。")
+            ui.body(this, "1. 確認「設定 → 記錄 → 自動記錄」已開啟，兩個 Android 權限都已允許。\n2. 確認這個 app 有在「記錄哪些 app」裡，而且沒有被排除。\n3. app 使用時段大約每 15 分鐘整理一次，由 Android 決定時間；可在時間軸手動上傳。\n4. 依照上傳設定自動傳送截圖，也可在時間軸立即上傳。AI 整理後活動卡會有標題與摘要。\n5. 換了 AI 設定後，要重新打開「自動整理新截圖」。")
         }
         ui.groupLabel(body, "目前限制")
         ui.card(body).apply {
@@ -2990,7 +3114,7 @@ class MainActivity : Activity() {
         activityDetail?.dismiss(); activityDetail = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
-        executor.shutdown(); statusExecutor.shutdown(); replayExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
+        executor.shutdown(); statusExecutor.shutdown(); uploadStatusExecutor.shutdown(); replayExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
         super.onDestroy()
     }
 }

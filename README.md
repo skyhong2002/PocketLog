@@ -110,7 +110,9 @@ WireGuard, a LAN…), ideally behind a trusted HTTPS proxy. Open its
 address in a browser and sign in with the owner key to complete onboarding. In
 Settings → Connection and devices, create a journal device key for your phone;
 enter that key and the same address in the Android app. Keep the owner key
-for website login and recovery. See [setup](docs/SETUP.md) for secret handling and
+for website login and recovery. The Android timeline can record and show local text
+before pairing or during a server outage. Connect later to upload retained data.
+The timeline also offers an upload action with acknowledged progress. See [setup](docs/SETUP.md) for secret handling and
 deployment details. The new app does not connect to the old infovore
 phone API or migrate its history.
 

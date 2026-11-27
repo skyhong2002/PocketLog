@@ -86,14 +86,21 @@ report suspected vulnerabilities privately through the repository owner.
   entirely while the app is not executing is not detectable from the later
   current AppOps grant; do not treat this as continuous permission-history proof.
 - Phone queues/checkpoints/cache use AndroidKeyStore AES-GCM and AtomicFile, with
-  filename AAD. Queue max 1 GiB / 32,768 entries including quarantine; screen
-  captures (`/v1/observations`) are kept up to 72 h because they upload only while
-  charging (or on an unmetered network once more than 256 MB are waiting), and the
-  server accepts context up to 72 h old; every other queued write keeps 24 h. Over
+  filename AAD. Queue max 1 GiB / 32,768 entries including quarantine. Screen captures (`/v1/observations`) are kept up to 72 h,
+  matching the server acceptance window; every other queued write keeps 24 h.
+  Automatic captures normally upload on charge (or on an unmetered network once
+  more than 256 MiB are queued). The user can change the charging preference or
+  start an upload from the timeline, with a one-time confirmation on metered
+  networks if automatic uploads are limited to unmetered networks. Over
   the byte/record cap the oldest captures are dropped before app sessions or edits.
   Screenshot entries are stored separately so edit reads never decrypt them;
-  timeline cache max 30 entries, roughly 2.5 MiB and 30 days. Expiry runs while the
-  app/workers execute, not while powered off. Key loss can make local records
+  timeline cache max 30 entries, roughly 2.5 MiB and 30 days. The phone also keeps
+  recent app sessions and excerpts of captured text for its timeline, up to 30
+  days or 48 MiB. No image is copied into that store or the timeline cache. An
+  acknowledged upload removes the image-bearing queue entry. With explicit
+  recording consent the phone can record before pairing. Those queued captures
+  may upload to the first verified server; changing servers resets the queue.
+  Expiry runs while the app/workers execute, not while powered off. Key loss can make local records
   unrecoverable; corrupt files are discarded with a visible drop count.
 - Analysis-only raw context is private and retained on the server (text
   permanently; screenshots until the owner storage budget evicts the oldest), never

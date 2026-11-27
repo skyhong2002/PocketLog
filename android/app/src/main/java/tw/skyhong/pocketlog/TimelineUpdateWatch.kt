@@ -32,7 +32,11 @@ internal class TimelineUpdateWatch(
                 is String -> JSONObject.quote(value)
                 else -> value.toString()
             }
-            val shown = JSONObject().put("cards", data.optJSONArray("cards") ?: JSONArray())
+            val cards = data.optJSONArray("cards") ?: JSONArray()
+            val serverCards = (0 until cards.length()).map(cards::getJSONObject)
+                .filterNot { it.optBoolean("local_record") }
+                .sortedWith(compareBy({ it.optLong("start_ms") }, { it.optString("id") }))
+            val shown = JSONObject().put("cards", JSONArray(serverCards))
                 .put("truncated", data.optBoolean("truncated"))
             return MessageDigest.getInstance("SHA-256").digest(stable(shown).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         }

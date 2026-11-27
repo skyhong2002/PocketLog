@@ -15,7 +15,7 @@ class UsageCollector(private val context: Context) {
     private fun checkpoint(cursor: Long, app: String?, start: Long) {
         state.save(cursor, app, start, true)
     }
-    fun collect(credentials: Credentials) {
+    fun collect(credentials: Credentials?) {
         val settings = RecordingSettings(context)
         val now = System.currentTimeMillis()
         if (!settings.enabled) return
@@ -43,6 +43,7 @@ class UsageCollector(private val context: Context) {
                 val activities = JSONArray()
                 batch.forEach { a -> activities.put(JSONObject().put("id", a.id).put("start_ms", a.start).put("end_ms", a.end).put("app", a.app).put("category", "unsorted")) }
                 queue.enqueue(credentials, "/v1/activities", JSONObject().put("activities", activities), now)
+                LocalTimeline(context).recordActivities(activities)
             }
         // Queue commits before cursor: crash replays stable IDs instead of losing sessions.
         checkpoint(now, scan.openApp, scan.openStart)

@@ -120,7 +120,7 @@ class ContextService : AccessibilityService() {
                 // Battery: the same app, text and picture as last time is not encoded, stored or uploaded.
                 if (ScreenChange.unchanged(lastStored, fingerprint)) { report(CaptureDiagnostics.Outcome.UNCHANGED); return@runCatching }
                 val image = if (hash != null && settings.imagesEnabled) ContextImage.encode(frame) else null
-                val credentials = CredentialStore(this@ContextService).load() ?: run { report(CaptureDiagnostics.Outcome.CONNECTION_MISSING); return@runCatching }
+                val credentials = CredentialStore(this@ContextService).load()
                 // Model processing is decided once on the server (automatic summaries); no per-capture AI grant.
                 val body = JSONObject()
                     .put("id", UUID.randomUUID().toString()).put("at_ms", capture.at).put("app", pkg)
@@ -128,6 +128,7 @@ class ContextService : AccessibilityService() {
                 if (image != null) { body.put("screenshot", image).put("image_consent", true); if (settings.replayConsent) body.put("replay_consent", true) }
                 if (protectedScreen) body.put("protected_screen", true)
                 JournalQueue(this@ContextService).enqueue(credentials, "/v1/observations", body)
+                LocalTimeline(this@ContextService).recordObservation(body)
                 lastStored = fingerprint.copy(imageHash = if (image != null) hash else null)
                 report(when {
                     protectedScreen -> CaptureDiagnostics.Outcome.QUEUED_PROTECTED

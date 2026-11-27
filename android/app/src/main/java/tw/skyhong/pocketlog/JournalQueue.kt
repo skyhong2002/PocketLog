@@ -10,12 +10,13 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
     companion object {
         fun destination(c: Credentials) = RecordingRules.digest(c.endpoint + "\n" + c.token)
         private const val CONTEXT_PATH = "/v1/observations"
+        private const val LOCAL_DESTINATION = "local"
         private const val CONTEXT_SUFFIX = "_ctx"
     }
-    fun enqueue(credentials: Credentials, path: String, body: JSONObject, now: Long = System.currentTimeMillis()) {
+    fun enqueue(credentials: Credentials?, path: String, body: JSONObject, now: Long = System.currentTimeMillis()) {
         require(path in setOf("/v1/activities", "/v1/checkins", "/v1/observations", "/v1/reflections", "/v1/cards"))
         require(body.toString().toByteArray().size <= RecordingRules.MAX_UPLOAD_BODY)
-        val entry = JSONObject().put("destination", destination(credentials)).put("created", now).put("path", path).put("body", body)
+        val entry = JSONObject().put("destination", credentials?.let(::destination) ?: LOCAL_DESTINATION).put("created", now).put("path", path).put("body", body)
         // The name marks screen context so journal-edit reads never decrypt large thumbnails.
         val name = "q_${now}_${UUID.randomUUID()}${if (path == CONTEXT_PATH) CONTEXT_SUFFIX else ""}"
         val clear = entry.toString().toByteArray()
@@ -23,8 +24,8 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
         prune(now)
     }
     /** Upload order; screen captures are left out while they wait for a charger. */
-    @JvmOverloads fun entries(credentials: Credentials, limit: Int = 32, includeObservations: Boolean = true): List<Entry> =
-        readEntries(credentials, limit, skipObservations = !includeObservations)
+    @JvmOverloads fun entries(credentials: Credentials, limit: Int = 32, includeObservations: Boolean = true, names: Set<String>? = null): List<Entry> =
+        readEntries(credentials, limit, skipObservations = !includeObservations, names = names)
     // Timeline reads need all retained writes, including edits behind the upload batch.
     internal fun pendingReflections(credentials: Credentials): List<Entry> =
         readEntries(credentials, RecordingRules.MAX_QUEUE_RECORDS, setOf("/v1/reflections"))
@@ -45,19 +46,26 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
             } catch (_: Exception) { null } finally { bytes.fill(0) }
         }.take(RecordingRules.MAX_QUEUE_RECORDS).toList()
     }
-    private fun readEntries(credentials: Credentials, limit: Int, paths: Set<String>? = null, skipObservations: Boolean = false): List<Entry> {
+    private fun readEntries(credentials: Credentials, limit: Int, paths: Set<String>? = null, skipObservations: Boolean = false, names: Set<String>? = null): List<Entry> {
         prune()
+        val target = destination(credentials)
         val skipContext = skipObservations || (paths != null && CONTEXT_PATH !in paths)
         // Decrypt lazily and stop at the limit: a day of thumbnails can be hundreds of megabytes.
-        return files.names("q_").asSequence().filterNot { skipContext && it.endsWith(CONTEXT_SUFFIX) }.mapNotNull { name ->
+        return files.names("q_").asSequence().filter { names == null || it in names }.filterNot { skipContext && it.endsWith(CONTEXT_SUFFIX) }.mapNotNull { name ->
             val bytes = runCatching { files.read(name) }.getOrNull()
             if (bytes == null) { files.remove(name); dropped(); return@mapNotNull null }
             try {
                 val data = JSONObject(String(bytes, Charsets.UTF_8))
-                if (data.getString("destination") == destination(credentials) && (paths == null || data.optString("path") in paths)) Entry(name, data) else null
+                if (matchesDestination(data, target) && (paths == null || data.optString("path") in paths)) Entry(name, data) else null
             } catch (_: Exception) { files.remove(name); dropped(); null } finally { bytes.fill(0) }
         }.take(limit).toList()
     }
+    // Local captures can only exist before the first connection. Replacing a connection clears the queue.
+    private fun matchesDestination(data: JSONObject, target: String): Boolean =
+        data.optString("destination").let { it == target || it == LOCAL_DESTINATION }
+
+    fun pendingNames(): List<String> = files.names("q_")
+
     fun acknowledge(entry: Entry) = files.remove(entry.name)
     fun reject(entry: Entry) {
         val bytes = entry.data.toString().toByteArray()
@@ -80,7 +88,7 @@ class JournalQueue internal constructor(private val files: JournalFiles, private
             if (bytes == null) { files.remove(name); dropped(); return@forEach }
             try {
                 val data = JSONObject(String(bytes, Charsets.UTF_8))
-                if (data.getString("destination") == destination(c)) {
+                if (matchesDestination(data, destination(c))) {
                     files.write(name.replaceFirst("r_", "q_"), bytes); files.remove(name)
                 }
             } catch (_: Exception) { files.remove(name); dropped() } finally { bytes.fill(0) }

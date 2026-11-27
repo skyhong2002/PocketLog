@@ -14,7 +14,7 @@ object CaptureDiagnostics {
         CONNECTION_MISSING("尚未連線", "請先設定伺服器網址與裝置金鑰。"),
         PROCESSING_FAILED("處理沒有完成", "沒有確認這次已保存。請檢查連線設定。"),
         QUEUED_TEXT("已保存畫面文字", "已加密保存在手機，等待上傳；還不代表伺服器已收到。"),
-        QUEUED_IMAGE("已保存畫面文字與截圖", "已加密保存在手機，充電時上傳；還不代表伺服器已收到。"),
+        QUEUED_IMAGE("已保存畫面文字與截圖", "已加密保存在手機，會依上傳設定補傳。"),
         QUEUED_PROTECTED("受保護畫面，只保存文字", "這個 app 的畫面受系統保護（例如影片或銀行 app），Android 不提供截圖，PocketLog 也不會繞過。只保存 app 名稱與可見文字。"),
         QUEUED_SCHEDULE_FAILED("已保存，但無法安排上傳", "內容已加密保存。可到設定按「立即同步」。"),
         QUEUED_TEXT_IMAGE_FAILED("已保存文字，這次沒有截圖", "截圖是空白或無法轉換，只保存了文字。"),

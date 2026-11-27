@@ -12,8 +12,8 @@ android {
         minSdk = 34
         targetSdk = 36
         testInstrumentationRunner = "tw.skyhong.pocketlog.UiSnapshotInstrumentation"
-        versionCode = 46
-        versionName = "0.4.40"
+        versionCode = 47
+        versionName = "0.4.41"
         // In-app updates read GitHub releases of this repository; only release builds check.
         buildConfigField("String", "UPDATE_REPOSITORY", "\"skyhong2002/PocketLog\"")
         buildConfigField("boolean", "UPDATE_CHECK", "false")

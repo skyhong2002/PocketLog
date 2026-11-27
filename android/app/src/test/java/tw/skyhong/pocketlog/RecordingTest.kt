@@ -2,6 +2,7 @@ package tw.skyhong.pocketlog
 
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONArray
 import org.json.JSONObject
 
 class RecordingTest {
@@ -49,6 +50,38 @@ class RecordingTest {
         override fun read(name: String) = data[name]?.copyOf()
         override fun remove(name: String) { data.remove(name) }
     }
+    @Test fun offlineTimelineRetainsTextAfterTheFirstServerAcknowledgesTheScreenshot() {
+        val files = MemoryFiles()
+        val queue = JournalQueue(files) {}
+        val local = LocalTimeline(files)
+        val credentials = Credentials("https://example.com", "a".repeat(64))
+        val now = System.currentTimeMillis()
+        val capture = JSONObject().put("id", "shot").put("app", "org.example.reader").put("at_ms", now)
+            .put("text", "讀到這一頁").put("screenshot", "private image")
+        queue.enqueue(null, "/v1/observations", capture, now)
+        local.recordObservation(capture)
+        val first = queue.entries(credentials).single()
+        assertEquals("private image", first.data.getJSONObject("body").getString("screenshot"))
+        queue.acknowledge(first)
+        assertEquals(0, queue.pending(true))
+        val saved = local.render(now - 60_000, now + 1).getJSONArray("cards").getJSONObject(0)
+        assertEquals("讀到這一頁", saved.getString("summary"))
+        assertTrue(saved.getBoolean("local_record"))
+        assertFalse(saved.has("screenshot"))
+        assertFalse(files.data.values.any { String(it).contains("private image") })
+    }
+
+    @Test fun offlineTimelineUsesCachedCardsForCoveredTimeAndShowsNewLocalSessions() {
+        val local = LocalTimeline(MemoryFiles())
+        val now = System.currentTimeMillis()
+        fun activity(id: String, start: Long, end: Long) = JSONObject().put("id", id)
+            .put("app", "org.example.reader").put("start_ms", start).put("end_ms", end)
+        local.recordActivities(JSONArray().put(activity("old", now - 40, now - 20)).put(activity("new", now - 10, now)))
+        val cached = JSONObject().put("cards", JSONArray().put(activity("server", now - 45, now - 15)))
+        val cards = local.render(now - 60_000, now + 1, cached).getJSONArray("cards")
+        assertEquals(listOf("server", "usage-new"), (0 until cards.length()).map { cards.getJSONObject(it).getString("id") })
+    }
+
     @Test fun queuesAreDestinationBoundQuarantinedAndExpireOnFailure() {
         val files = MemoryFiles(); var dropped = 0
         val queue = JournalQueue(files) { dropped++ }

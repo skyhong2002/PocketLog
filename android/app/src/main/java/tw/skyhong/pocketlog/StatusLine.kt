@@ -5,7 +5,7 @@ package tw.skyhong.pocketlog
  * cross-platform vocabulary (docs/ux/SIMPLIFIED_IA.md, "Cross-platform consistency").
  */
 object StatusLine {
-    enum class State { PAUSED, KEY_REJECTED, NOT_STARTED, NEEDS_USAGE_ACCESS, NEEDS_ACCESSIBILITY, AI_MISSING, AI_OFF, WAITING_FOR_CHARGER, AI_PENDING, RECORDING }
+    enum class State { PAUSED, KEY_REJECTED, NOT_STARTED, NEEDS_USAGE_ACCESS, NEEDS_ACCESSIBILITY, AI_MISSING, AI_OFF, AI_PENDING, RECORDING }
 
     data class Inputs(
         val keyRejected: Boolean,
@@ -18,7 +18,6 @@ object StatusLine {
         /** Null when unknown (offline): AI states are then not claimed either way. */
         val aiConfigured: Boolean?,
         val aiAutomatic: Boolean?,
-        val waitingCaptures: Int,
         val pendingCards: Int,
     )
 
@@ -30,7 +29,6 @@ object StatusLine {
         !i.screenTextOn || !i.accessibilityOn -> State.NEEDS_ACCESSIBILITY
         i.aiConfigured == false -> State.AI_MISSING
         i.aiConfigured == true && i.aiAutomatic == false -> State.AI_OFF
-        i.waitingCaptures > 0 -> State.WAITING_FOR_CHARGER
         i.pendingCards > 0 -> State.AI_PENDING
         else -> State.RECORDING
     }
@@ -43,7 +41,6 @@ object StatusLine {
         State.NEEDS_ACCESSIBILITY -> "需要權限：輔助使用"
         State.AI_MISSING -> "AI 未設定，只顯示應用程式名稱"
         State.AI_OFF -> "AI 自動整理已關閉"
-        State.WAITING_FOR_CHARGER -> "等待充電時上傳截圖（${inputs.waitingCaptures} 張）"
         State.AI_PENDING -> "AI 整理中（${inputs.pendingCards} 張）"
         State.RECORDING -> "記錄中"
     }
