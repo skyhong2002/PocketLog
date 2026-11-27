@@ -38,7 +38,7 @@ const DAY: i64 = 86_400_000;
 static API_CAPABILITIES: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| {
     serde_json::json!({
         "version": 1,
-        "capabilities": ["activity_pages", "activity_search", "json_errors", "retry_after"]
+        "capabilities": ["activity_pages", "activity_search", "json_errors", "retry_after", "observation_gzip"]
     })
 });
 const RETENTION: i64 = 30 * DAY;

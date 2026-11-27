@@ -61,6 +61,14 @@ For a **complete** read, use the paged `GET /v1/activities` described under
 is a standard-library client showing status, a complete paged read, search, a
 category correction and safe retries; CI runs it against a disposable server.
 
+## Observation upload compression
+
+A server that advertises `observation_gzip` in `GET /v1/status` also accepts
+`Content-Encoding: gzip` with JSON on `POST /v1/observations`. Both the incoming
+compressed body and the decoded JSON are limited to 512 KiB. Authentication still
+runs first, and the same observation ID can be retried with plain JSON. All other
+routes continue to use their existing formats.
+
 ## Routes
 
 | Method | Path | Behavior |

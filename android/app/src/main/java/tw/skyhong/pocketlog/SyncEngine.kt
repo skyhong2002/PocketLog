@@ -20,10 +20,19 @@ object SyncEngine {
     @Volatile var manualProgress: UploadProgress? = null
         private set
 
-    @Synchronized fun uploadNow(context: Context, allowMetered: Boolean) {
-        if (manualProgress?.running == true) return
+    @Synchronized fun uploadNow(
+        context: Context,
+        allowMetered: Boolean,
+        shouldContinue: () -> Boolean,
+        onProgress: (UploadProgress) -> Unit,
+    ): Boolean {
+        if (manualProgress?.running == true) return false
         val app = context.applicationContext
-        manualProgress = UploadProgress()
+        fun publish(progress: UploadProgress) {
+            manualProgress = progress
+            onProgress(progress)
+        }
+        publish(UploadProgress())
         manualExecutor.execute {
             var sent = 0
             var total = 0
@@ -36,30 +45,63 @@ object SyncEngine {
                     saved to queue.pendingNames().toMutableSet()
                 }
                 total = remaining.size
-                manualProgress = UploadProgress(sent, total)
+                publish(UploadProgress(sent, total))
+                val api = PocketLogApi(credentials)
+                val wakeLock = app.getSystemService(android.os.PowerManager::class.java)
+                    .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "PocketLog:manualUpload")
                 var message = ""
                 do {
-                    val keepGoing = synchronized(lock) {
+                    val pauseMs = synchronized(lock) {
                         if (store.load() != credentials) {
                             message = "連線已變更，已停止上傳"
-                            return@synchronized false
+                            return@synchronized null
                         }
-                        sync(app, remaining, allowMetered) { entry ->
-                            remaining.remove(entry.name)
-                            manualProgress = UploadProgress(++sent, total)
+                        val settings = RecordingSettings(app)
+                        val current = networkStatus(activeNetwork(app), settings.wifiOnly && !allowMetered)
+                        if (current != null && total > 0) {
+                            publish(UploadProgress(sent, total, message = current))
+                            return@synchronized 5_000L
                         }
-                        message = RecordingSettings(app).status()
-                        // Newly recorded items belong to the next upload. Expired/rejected entries
-                        // disappear from the queue without increasing the acknowledged count.
+                        wakeLock.acquire(60_000L)
+                        val complete = try {
+                            sync(app, remaining, allowMetered, api, shouldContinue) { entry ->
+                                remaining.remove(entry.name)
+                                publish(UploadProgress(++sent, total))
+                            }
+                        } finally {
+                            if (wakeLock.isHeld) wakeLock.release()
+                        }
+                        message = settings.status()
+                        // New records belong to the next batch. Missing/expired records are not acknowledgements.
                         remaining.retainAll(queue.pendingNames().toSet())
-                        remaining.isNotEmpty() && message == PARTIAL_UPLOAD
+                        if (remaining.isEmpty()) return@synchronized null
+                        if (message == PARTIAL_UPLOAD) return@synchronized 0L
+                        val delay = settings.nextAttempt - System.currentTimeMillis()
+                        if (!complete && delay > 0) {
+                            publish(UploadProgress(sent, total, message = message))
+                            delay
+                        } else if (!complete && networkStatus(activeNetwork(app), settings.wifiOnly && !allowMetered) != null) {
+                            publish(UploadProgress(sent, total, message = message))
+                            5_000L
+                        } else null
+                    } ?: break
+                    val until = android.os.SystemClock.elapsedRealtime() + pauseMs
+                    while (shouldContinue()) {
+                        val left = until - android.os.SystemClock.elapsedRealtime()
+                        if (left <= 0) break
+                        Thread.sleep(minOf(left, 1_000L))
                     }
-                } while (keepGoing)
-                if (sent == total && sent > 0) "已上傳 $sent 筆" else message
+                } while (shouldContinue())
+                when {
+                    !shouldContinue() -> "背景上傳已停止，待傳資料會保留"
+                    sent == total && sent > 0 -> "已上傳 $sent 筆"
+                    else -> message
+                }
             }.getOrElse { "無法完成上傳，請再試一次" }
-            manualProgress = UploadProgress(sent, total, running = false, message = result)
+            publish(UploadProgress(sent, total, running = false, message = result))
             schedule(app)
         }
+        return true
     }
 
     private const val PARTIAL_UPLOAD = "這批資料尚未傳完"
@@ -131,7 +173,14 @@ object SyncEngine {
         sync(context, null, false) {}
     }
 
-    private fun sync(context: Context, manual: Set<String>?, allowMetered: Boolean, acknowledged: (JournalQueue.Entry) -> Unit): Boolean = synchronized(lock) {
+    private fun sync(
+        context: Context,
+        manual: Set<String>?,
+        allowMetered: Boolean,
+        manualApi: PocketLogApi? = null,
+        shouldContinue: () -> Boolean = { true },
+        acknowledged: (JournalQueue.Entry) -> Unit,
+    ): Boolean = synchronized(lock) {
         val settings = RecordingSettings(context)
         val credentials = CredentialStore(context).load()
         JournalQueue(context).prune()
@@ -154,7 +203,8 @@ object SyncEngine {
             return@synchronized false
         }
         // No extra periodic worker: refresh the stop switch on the existing sync cadence.
-        val control = try { PocketLogApi(credentials).request("/v1/collection") } catch (failure: Exception) {
+        val api = manualApi ?: PocketLogApi(credentials)
+        val control = try { api.request("/v1/collection") } catch (failure: Exception) {
             if (stopForRejectedCredentials(context, credentials, failure)) return@synchronized true
             // A transient outage is equivalent to being offline: preserve the last
             // known pause and local consent, and never upload without reading control.
@@ -191,12 +241,13 @@ object SyncEngine {
                 // Once an eligible entry has been read, attempt the first upload even when reading
                 // used the entire slice. A successful acknowledgement lets the next slice continue.
                 if ((manual == null || count > 0) && android.os.SystemClock.elapsedRealtime() >= deadline) break
+                if (!shouldContinue()) return@synchronized false
                 if (manual != null && networkStatus(activeNetwork(context), settings.wifiOnly && !allowMetered) != null) {
                     settings.status("網路已變更，請重新上傳")
                     return@synchronized false
                 }
                 try {
-                    PocketLogApi(credentials).request(entry.data.getString("path"), entry.data.getJSONObject("body"))
+                    api.request(entry.data.getString("path"), entry.data.getJSONObject("body"))
                     queue.acknowledge(entry); count++; acknowledged(entry)
                 } catch (failure: ApiFailure) {
                     if (failure.status == 423 && entry.data.getString("path") in setOf("/v1/activities", "/v1/observations")) {

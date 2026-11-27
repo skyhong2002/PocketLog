@@ -1104,7 +1104,10 @@ class MainActivity : Activity() {
                 handler.post {
                     if (session != generation || !parent.isAttachedToWindow || isDestroyed) return@post
                     val uploading = if (progress != null && progress.running) {
-                        if (progress.total == 0) "正在連接伺服器…" else "上傳中 · 已送達 ${progress.sent} / ${progress.total} 筆"
+                        if (progress.total == 0) "正在準備上傳…" else listOfNotNull(
+                            "上傳中 · 已送達 ${progress.sent} / ${progress.total} 筆",
+                            progress.message.takeIf { it.isNotBlank() }
+                        ).joinToString(" · ")
                     } else null
                     val result = progress?.takeIf { !it.running && connection != null }?.let {
                         if (it.total > 0 && it.sent < it.total) "已送達 ${it.sent} / ${it.total} 筆 · ${it.message}" else it.message
@@ -1128,9 +1131,25 @@ class MainActivity : Activity() {
         when (SyncEngine.networkStatus(network, s.wifiOnly)) {
             "等待網路連線" -> notice("目前沒有網路，資料仍保存在手機。", Kind.WARN)
             "等待 Wi‑Fi" -> confirm("這次使用行動網路？", "截圖可能耗用較多流量。這次上傳會使用目前的網路，之後的自動上傳仍依原本設定。", "開始上傳") {
-                SyncEngine.uploadNow(this, allowMetered = true)
+                launchUploadService(allowMetered = true)
             }
-            else -> SyncEngine.uploadNow(this, allowMetered = false)
+            else -> launchUploadService(allowMetered = false)
+        }
+    }
+
+    private fun launchUploadService(allowMetered: Boolean) {
+        val requested = android.Manifest.permission.POST_NOTIFICATIONS
+        val prefs = getPreferences(MODE_PRIVATE)
+        runCatching {
+            startForegroundService(Intent(this, UploadService::class.java).putExtra(UploadService.ALLOW_METERED, allowMetered))
+        }.onSuccess {
+            if (checkSelfPermission(requested) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                !prefs.getBoolean("asked_upload_notifications", false)) {
+                prefs.edit().putBoolean("asked_upload_notifications", true).apply()
+                requestPermissions(arrayOf(requested), 1847)
+            }
+        }.onFailure {
+            notice("無法啟動背景上傳，請在時間軸再試一次", Kind.ERROR)
         }
     }
 

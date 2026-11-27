@@ -756,3 +756,60 @@ async fn protected_screens_are_text_only_and_flagged_on_their_card() {
         StatusCode::NO_CONTENT
     );
 }
+
+#[tokio::test]
+async fn gzip_observations_keep_auth_limits_and_idempotency() {
+    use std::io::Write;
+
+    fn gzip(input: &[u8]) -> Vec<u8> {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(input).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    async fn send(j: &Journal, body: Vec<u8>, authorized: bool) -> StatusCode {
+        let mut request = Request::post("/v1/observations")
+            .header("content-type", "application/json")
+            .header("content-encoding", "gzip");
+        if authorized {
+            request = request.header("authorization", format!("Bearer {TOKEN}"));
+        }
+        j.app
+            .clone()
+            .oneshot(request.body(Body::from(body)).unwrap())
+            .await
+            .unwrap()
+            .status()
+    }
+
+    let j = Journal::new();
+    let observation = json!({
+        "id":"compressed", "at_ms":now() - 1000, "app":"org.example.notes",
+        "text":"synthetic", "analysis_consent":true
+    });
+    let compressed = gzip(observation.to_string().as_bytes());
+    assert_eq!(send(&j, vec![0], false).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(send(&j, vec![0], true).await, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        send(&j, vec![0; 512 * 1024 + 1], true).await,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    assert_eq!(
+        send(&j, gzip(&vec![b' '; 512 * 1024 + 1]), true).await,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    assert_eq!(send(&j, compressed, true).await, StatusCode::NO_CONTENT);
+    assert_eq!(
+        j.owner("POST", "/v1/observations", observation)
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        j.db()
+            .query_row("SELECT COUNT(*) FROM receipts", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}

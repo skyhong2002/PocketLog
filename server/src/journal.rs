@@ -1,18 +1,78 @@
 //! Private context and user corrections. Raw context is never returned by a read route.
 use super::*;
+use axum::body::{Body, to_bytes};
+use axum::extract::Request;
+use flate2::read::MultiGzDecoder;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
+
+const MAX_OBSERVATION_BODY: usize = 512 * 1024;
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         // Observations carry one bounded screenshot; every other route keeps the global 64 KiB limit.
         .route(
             "/v1/observations",
-            post(observe).layer(DefaultBodyLimit::max(512 * 1024)),
+            post(observe)
+                .layer(DefaultBodyLimit::max(MAX_OBSERVATION_BODY))
+                .layer(middleware::from_fn(decompress_observation)),
         )
         .route("/v1/cards", post(edit))
         .route("/v1/reflections", post(reflect))
         .route("/v1/status", get(status))
         .route("/v1/overview", get(overview))
+}
+
+// The private router authenticates before this route-specific middleware runs.
+async fn decompress_observation(request: Request, next: Next) -> Result<Response> {
+    let encodings = request.headers().get_all(header::CONTENT_ENCODING);
+    let mut encodings = encodings.iter();
+    let Some(encoding) = encodings.next() else {
+        return Ok(next.run(request).await);
+    };
+    if encodings.next().is_some() {
+        return Err(ApiError(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported content encoding",
+        ));
+    }
+    if encoding.as_bytes().eq_ignore_ascii_case(b"identity") {
+        return Ok(next.run(request).await);
+    }
+    if !encoding.as_bytes().eq_ignore_ascii_case(b"gzip") {
+        return Err(ApiError(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported content encoding",
+        ));
+    }
+
+    let (mut parts, body) = request.into_parts();
+    let compressed = to_bytes(body, MAX_OBSERVATION_BODY)
+        .await
+        .map_err(|failure| {
+            use std::error::Error;
+            if failure
+                .source()
+                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>())
+            {
+                ApiError(StatusCode::PAYLOAD_TOO_LARGE, "request too large")
+            } else {
+                ApiError(StatusCode::BAD_REQUEST, "invalid request body")
+            }
+        })?;
+    let mut decoded = Vec::new();
+    MultiGzDecoder::new(compressed.as_ref())
+        .take((MAX_OBSERVATION_BODY + 1) as u64)
+        .read_to_end(&mut decoded)
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid gzip body"))?;
+    if decoded.len() > MAX_OBSERVATION_BODY {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "request too large"));
+    }
+    parts.headers.remove(header::CONTENT_ENCODING);
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Ok(next
+        .run(Request::from_parts(parts, Body::from(decoded)))
+        .await)
 }
 
 pub(super) fn prune(db: &Connection, now: i64) -> Result<()> {
