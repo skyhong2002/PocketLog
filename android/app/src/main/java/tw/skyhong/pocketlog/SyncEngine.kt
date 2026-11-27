@@ -184,10 +184,13 @@ object SyncEngine {
         // the run short; each capture schedules another upload and the next worker continues the FIFO.
         val deadline = android.os.SystemClock.elapsedRealtime() + if (manual == null) 45_000L else 3_000L
         while (android.os.SystemClock.elapsedRealtime() < deadline) {
-            val batch = queue.entries(credentials, 32, includeObservations = captures, names = manual)
+            // Reading and decrypting a large capture batch can itself consume the manual slice.
+            val batch = queue.entries(credentials, if (manual == null) 32 else 8, includeObservations = captures, names = manual)
             if (batch.isEmpty()) break
             for (entry in batch) {
-                if (android.os.SystemClock.elapsedRealtime() >= deadline) break
+                // Once an eligible entry has been read, attempt the first upload even when reading
+                // used the entire slice. A successful acknowledgement lets the next slice continue.
+                if ((manual == null || count > 0) && android.os.SystemClock.elapsedRealtime() >= deadline) break
                 if (manual != null && networkStatus(activeNetwork(context), settings.wifiOnly && !allowMetered) != null) {
                     settings.status("網路已變更，請重新上傳")
                     return@synchronized false
