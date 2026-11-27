@@ -43,7 +43,7 @@ internal class LocalTimeline(private val files: JournalFiles) {
         }
     }
 
-    fun render(from: Long, to: Long, cached: JSONObject? = null, offline: Boolean = true): JSONObject {
+    fun render(from: Long, to: Long, cached: JSONObject? = null, offline: Boolean = true, preview: List<Session> = emptyList()): JSONObject {
         val existing = cached?.optJSONArray("cards") ?: JSONArray()
         val server = (0 until existing.length()).map(existing::getJSONObject)
         // Include sessions crossing the day boundary. UsageStats does not retain an unbounded open session.
@@ -51,7 +51,10 @@ internal class LocalTimeline(private val files: JournalFiles) {
             .flatMap { read(PREFIX + it).asSequence() }
             .filter { it.getLong("end_ms") > from && it.getLong("start_ms") < to }
             .toList()
-        val usage = local.filter { it.getString("id").startsWith("usage-") }
+        val previewCards = preview.filter { it.end > from && it.start < to }
+            .map { card("usage-" + it.id, it.app, it.start, it.end, "") }
+        val usage = (local.filter { it.getString("id").startsWith("usage-") } + previewCards)
+            .distinctBy { it.getString("id") }
         val captures = local.filterNot { it.getString("id").startsWith("usage-") }
             .sortedBy { it.getLong("start_ms") }
         val capturesByApp = captures.groupBy { it.getString("app") }
@@ -73,9 +76,25 @@ internal class LocalTimeline(private val files: JournalFiles) {
                 capture.optString("summary").takeIf { it.isNotBlank() }?.let { previous.put("summary", it) }
             } else grouped += capture
         }
-        val unmatched = (usage + grouped).filter { card ->
-            serverByApp[card.getString("app")].orEmpty().none {
-                it.getLong("start_ms") < card.getLong("end_ms") && card.getLong("start_ms") < it.getLong("end_ms")
+        val unmatched = (usage + grouped).flatMap { card ->
+            if (card.optString("summary").isBlank()) card.put("source", "app_only")
+            val start = card.getLong("start_ms")
+            val end = card.getLong("end_ms")
+            val covered = serverByApp[card.getString("app")].orEmpty()
+                .filter { it.getLong("start_ms") < end && it.getLong("end_ms") > start }
+                .sortedBy { it.getLong("start_ms") }
+            if (covered.isEmpty()) return@flatMap listOf(card)
+            val gaps = mutableListOf<Pair<Long, Long>>()
+            var cursor = start
+            for (serverCard in covered) {
+                val next = serverCard.getLong("start_ms")
+                if (cursor < next) gaps += cursor to next
+                cursor = maxOf(cursor, serverCard.getLong("end_ms"))
+            }
+            if (cursor < end) gaps += cursor to end
+            gaps.map { (left, right) ->
+                JSONObject(card.toString()).put("start_ms", left).put("end_ms", right)
+                    .put("id", card.getString("id") + "-" + left)
             }
         }
         return (cached ?: JSONObject()).put("offline", offline)

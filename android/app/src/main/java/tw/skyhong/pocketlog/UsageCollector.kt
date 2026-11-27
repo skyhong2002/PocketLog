@@ -24,19 +24,7 @@ class UsageCollector(private val context: Context) {
         if (now >= cursor && now - cursor < 15 * 60 * 1000) return
         // Respect consent/observed permission boundaries and raw retention.
         if (cursor > now || now - cursor >= RecordingRules.RAW_TTL) { reset(now); settings.drop(); return }
-        val stream = context.getSystemService(UsageStatsManager::class.java).queryEvents(cursor, now)
-        val event = UsageEvents.Event()
-        val events = mutableListOf<AppEvent>()
-        while (stream.hasNextEvent()) {
-            stream.getNextEvent(event)
-            if (events.size >= 20_000) { reset(now); settings.drop(); return }
-            when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> events += AppEvent(event.timeStamp, event.packageName.orEmpty(), true)
-                UsageEvents.Event.ACTIVITY_PAUSED -> events += AppEvent(event.timeStamp, event.packageName.orEmpty(), false)
-                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.DEVICE_SHUTDOWN -> events += AppEvent(event.timeStamp, "", false)
-            }
-        }
-        val scan = Sessions.scan(events, saved.optString("app").takeIf { it.isNotEmpty() && it != "null" }, saved.optLong("start"), now)
+        val scan = scan(saved, cursor, now) ?: run { reset(now); settings.drop(); return }
         val queue = JournalQueue(context)
         scan.sessions.filter { !RecordingRules.excluded(it.app, settings.exclusions, context.packageName) && it.end > it.start }
             .chunked(50).forEach { batch ->
@@ -47,5 +35,36 @@ class UsageCollector(private val context: Context) {
             }
         // Queue commits before cursor: crash replays stable IDs instead of losing sessions.
         checkpoint(now, scan.openApp, scan.openStart)
+    }
+
+    /** Preview since the last collector checkpoint without advancing it or queuing uploads. */
+    fun preview(now: Long = System.currentTimeMillis()): List<Session> {
+        val settings = RecordingSettings(context)
+        val revision = settings.revision
+        if (!settings.enabled || !settings.hasUsagePermission()) return emptyList()
+        val saved = state.readGranted() ?: return emptyList()
+        val cursor = saved.optLong("cursor", now)
+        if (cursor > now || now - cursor >= RecordingRules.RAW_TTL) return emptyList()
+        val scan = scan(saved, cursor, now) ?: return emptyList()
+        val sessions = scan.withOngoing(now).filter {
+            !RecordingRules.excluded(it.app, settings.exclusions, context.packageName)
+        }
+        return if (settings.revision == revision && settings.hasUsagePermission()) sessions else emptyList()
+    }
+
+    private fun scan(saved: JSONObject, cursor: Long, now: Long): SessionScan? {
+        val stream = context.getSystemService(UsageStatsManager::class.java).queryEvents(cursor, now) ?: return null
+        val event = UsageEvents.Event()
+        val events = mutableListOf<AppEvent>()
+        while (stream.hasNextEvent()) {
+            stream.getNextEvent(event)
+            if (events.size >= 20_000) return null
+            when (event.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> events += AppEvent(event.timeStamp, event.packageName.orEmpty(), true)
+                UsageEvents.Event.ACTIVITY_PAUSED -> events += AppEvent(event.timeStamp, event.packageName.orEmpty(), false)
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.DEVICE_SHUTDOWN -> events += AppEvent(event.timeStamp, "", false)
+            }
+        }
+        return Sessions.scan(events, saved.optString("app").takeIf { it.isNotEmpty() && it != "null" }, saved.optLong("start"), now)
     }
 }

@@ -87,6 +87,7 @@ class MainActivity : Activity() {
     /** Update checks and downloads never wait behind journal reads. */
     private val statusExecutor = Executors.newSingleThreadExecutor()
     private val uploadStatusExecutor = Executors.newSingleThreadExecutor()
+    private val timelinePreviewExecutor = Executors.newSingleThreadExecutor()
     private val replayExecutor = Executors.newSingleThreadExecutor()
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updateChecking = false
@@ -490,7 +491,8 @@ class MainActivity : Activity() {
             null
         }
         val data = if (local != null) {
-            local.render(requireNotNull(from), requireNotNull(to), remote, offline = remote?.optBoolean("offline") != false)
+            local.render(requireNotNull(from), requireNotNull(to), remote, offline = remote?.optBoolean("offline") != false,
+                preview = usagePreview(to))
         } else requireNotNull(remote)
         val apps = data.optJSONArray("apps")
         val packages = cardsOf(data).asSequence().map { it.optString("app") } +
@@ -498,6 +500,9 @@ class MainActivity : Activity() {
         prepareApps(packages)
         return data
     }
+
+    private fun usagePreview(to: Long): List<Session> =
+        if (to >= System.currentTimeMillis() - 60_000) UsageCollector(this).preview() else emptyList()
 
     private fun prepareApps(packages: Sequence<String>) {
         check(Looper.myLooper() != Looper.getMainLooper())
@@ -834,11 +839,10 @@ class MainActivity : Activity() {
     private fun home() {
         loaded = null
         val selected = day
-        lateinit var slot: LinearLayout
         val body = screen("時間軸", null, Tab.TIMELINE,
             action = Triple(R.drawable.ic_sync, "重新整理") {
                 SyncEngine.schedule(this@MainActivity)
-                if (credentials == null || loaded == null || loaded?.optBoolean("offline") == true) home() else reloadTimeline(slot, { api().request(dayPath(selected)) }, { readJournal(dayPath(selected)) })
+                home()
             })
         timelineDateBar.visibility = View.VISIBLE
         dateNav(timelineDateBar) { day = it; home() }
@@ -847,12 +851,70 @@ class MainActivity : Activity() {
         }
         val status = ui.column(body)
         uploadPanel(ui.column(body))
-        slot = ui.column(body)
-        refreshOnResume = { statusLine(status) }
-        load(slot, "讀取時間軸…", { readJournal(dayPath(selected)) }) { data ->
-            renderTimeline(slot, data)
-            startTimelineWatch(slot, data)
-            statusLine(status, query = false)
+        val slot = ui.column(body)
+        val token = generation
+        val connection = credentials
+        refreshOnResume = {
+            statusLine(status)
+            val previous = loaded
+            if (previous != null && selected == journalDay()) {
+                timelinePreviewExecutor.execute {
+                    val (from, to) = range(selected)
+                    val refreshed = runCatching {
+                        val server = JSONObject(previous.toString())
+                            .put("cards", JSONArray(cardsOf(previous).filterNot { it.optBoolean("local_record") }))
+                        LocalTimeline(this).render(from, to, server, offline = previous.optBoolean("offline"), preview = usagePreview(to))
+                            .also { data -> prepareApps(cardsOf(data).asSequence().map { it.getString("app") }) }
+                    }
+                    handler.post {
+                        if (token != generation || isDestroyed || loaded !== previous) return@post
+                        refreshed.onSuccess { data ->
+                            replaceTimeline(slot, data) {
+                                if (!data.optBoolean("local_preview")) startTimelineWatch(slot, data)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ui.spinnerRow(slot, "讀取手機上的時間軸…")
+        timelinePreviewExecutor.execute {
+            val (from, to) = range(selected)
+            val local = runCatching {
+                LocalTimeline(this).render(from, to, offline = connection == null, preview = usagePreview(to))
+                    .put("local_preview", connection != null)
+                    .also { data -> prepareApps(cardsOf(data).asSequence().map { it.getString("app") }) }
+            }
+            handler.post {
+                if (token != generation || isDestroyed) return@post
+                slot.removeAllViews()
+                local.onSuccess { renderTimeline(slot, it) }.onFailure {
+                    if (connection == null) ui.empty(slot, "無法讀取手機上的時間軸", describe(it), "重試") { home() }
+                }
+                if (connection == null) return@post
+                executor.execute {
+                    if (token != generation) return@execute
+                    val result = runCatching { readJournal(dayPath(selected)) }
+                    handler.post {
+                        if (token != generation || isDestroyed) return@post
+                        result.onSuccess { data ->
+                            val hadRecords = cardsOf(loaded).isNotEmpty()
+                            if (hadRecords) replaceTimeline(slot, data) { startTimelineWatch(slot, data) }
+                            else {
+                                slot.removeAllViews()
+                                renderTimeline(slot, data)
+                                startTimelineWatch(slot, data)
+                            }
+                            statusLine(status, query = false)
+                        }.onFailure {
+                            if (loaded == null) ui.empty(slot, "無法載入時間軸", describe(it), "重試") { home() }
+                            else if (slot.getChildAt(0)?.tag == "local-preview") {
+                                (slot.getChildAt(0) as TextView).text = "暫時無法取得伺服器活動，以下為手機記錄。"
+                            }
+                        }
+                    }
+                }
+            }
         }
         statusLine(status) { latest ->
             val previous = workspace?.optLong("revision")
@@ -1170,6 +1232,7 @@ class MainActivity : Activity() {
 
     private fun renderTimeline(slot: LinearLayout, data: JSONObject, jumpToActivity: Boolean) {
         loaded = data
+        if (data.optBoolean("local_preview")) ui.banner(slot, "先顯示手機上的 App 使用紀錄", Kind.INFO).tag = "local-preview"
         if (data.optBoolean("offline")) ui.banner(slot, "目前顯示手機上的時間軸。連線後可查看伺服器上的截圖與 AI 整理結果。", Kind.INFO)
         if (data.optBoolean("truncated")) ui.banner(slot, "這天的資料太多，只顯示一部分，統計可能不完整。", Kind.WARN)
         if (data.optBoolean("pending_card_edits")) ui.banner(slot, "你的修改已存在手機，正在等待上傳。", Kind.INFO)
@@ -1242,7 +1305,7 @@ class MainActivity : Activity() {
         }.apply { layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(38)); minHeight = ui.dp(38); minimumHeight = ui.dp(38); setPadding(ui.dp(14), 0, ui.dp(14), 0); textSize = 13f }
         draw()
         slot.addView(axis, ui.lp())
-        if (jumpToActivity && !data.optBoolean("offline") && list.isNotEmpty() && page.indexOfChild(slot) >= 0) {
+        if (jumpToActivity && list.isNotEmpty() && page.indexOfChild(slot) >= 0) {
             val anchor = if (day == journalDay()) list.last() else list.first()
             val start = anchor.getLong("start_ms")
             val hour = from + ((start - from).coerceAtLeast(0) / hourMs) * hourMs
@@ -1365,7 +1428,7 @@ class MainActivity : Activity() {
             when {
                 s.isAuthRejected(credentials) -> action("重新連線") { connectionRecovery() }
                 !s.hasUsageGrant -> action("開始記錄") { autoRecordFlow(0) { home() } }
-                loaded?.optBoolean("offline") == true -> ui.meta(this, "手機會在背景記錄，本機文字會顯示在這裡。").gravity = Gravity.CENTER
+                loaded?.optBoolean("offline") == true || loaded?.optBoolean("local_preview") == true -> ui.meta(this, "手機會在背景記錄，App 使用時段會顯示在這裡。").gravity = Gravity.CENTER
                 aiConfigured == false -> action("設定 AI") { aiSettings { home() } }
                 else -> ui.meta(this, "手機會在背景記錄，AI 整理後會出現在這裡。").gravity = Gravity.CENTER
             }
@@ -3114,7 +3177,7 @@ class MainActivity : Activity() {
         activityDetail?.dismiss(); activityDetail = null
         handler.removeCallbacksAndMessages(null)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
-        executor.shutdown(); statusExecutor.shutdown(); uploadStatusExecutor.shutdown(); replayExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
+        executor.shutdown(); statusExecutor.shutdown(); uploadStatusExecutor.shutdown(); timelinePreviewExecutor.shutdown(); replayExecutor.shutdown(); updateExecutor.shutdown(); exportBytes?.fill(0); if (!isChangingConfigurations) clearDrafts(); pendingAsk = null; pendingBrief = null; credentials = null
         super.onDestroy()
     }
 }

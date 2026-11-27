@@ -82,6 +82,26 @@ class RecordingTest {
         assertEquals(listOf("server", "usage-new"), (0 until cards.length()).map { cards.getJSONObject(it).getString("id") })
     }
 
+    @Test fun currentUsageAppearsBeforeServerCardsAndOnlyTheirCoveredTimeIsReplaced() {
+        val local = LocalTimeline(MemoryFiles())
+        val now = System.currentTimeMillis()
+        val scan = SessionScan(emptyList(), "org.example.reader", now - 100)
+        val preview = scan.withOngoing(now)
+        assertTrue(scan.sessions.isEmpty())
+        val first = local.render(now - 200, now, preview = preview).getJSONArray("cards").getJSONObject(0)
+        assertEquals("app_only", first.getString("source"))
+        assertEquals(now, first.getLong("end_ms"))
+        val server = JSONObject().put("id", "ai").put("app", "org.example.reader")
+            .put("start_ms", now - 80).put("end_ms", now - 30)
+        val merged = local.render(now - 200, now, JSONObject().put("cards", JSONArray().put(server)),
+            preview = preview).getJSONArray("cards")
+        assertEquals(3, merged.length())
+        assertEquals(now - 80, merged.getJSONObject(0).getLong("end_ms"))
+        assertEquals("ai", merged.getJSONObject(1).getString("id"))
+        assertEquals(now - 30, merged.getJSONObject(2).getLong("start_ms"))
+        assertEquals(now, merged.getJSONObject(2).getLong("end_ms"))
+    }
+
     @Test fun queuesAreDestinationBoundQuarantinedAndExpireOnFailure() {
         val files = MemoryFiles(); var dropped = 0
         val queue = JournalQueue(files) { dropped++ }

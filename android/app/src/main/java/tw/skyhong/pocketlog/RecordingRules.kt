@@ -64,7 +64,10 @@ data class AppEvent(val at: Long, val pkg: String, val foreground: Boolean)
 data class Session(val app: String, val start: Long, val end: Long) {
     val id: String get() = RecordingRules.digest("$app:$start:$end")
 }
-data class SessionScan(val sessions: List<Session>, val openApp: String?, val openStart: Long)
+data class SessionScan(val sessions: List<Session>, val openApp: String?, val openStart: Long) {
+    fun withOngoing(now: Long): List<Session> =
+        if (openApp == null || openStart >= now) sessions else sessions + Session(openApp, openStart, now)
+}
 object Sessions {
     /** Only finalized sessions leave the collector; an ongoing session survives the next scan. */
     fun scan(events: List<AppEvent>, app: String?, start: Long, now: Long): SessionScan {

@@ -10,11 +10,16 @@ internal class UsageCheckpoint(private val files: JournalFiles, private val drop
         try { files.write("usage", bytes) } finally { bytes.fill(0) }
     }
 
+    private fun read(onInvalid: () -> Unit = {}): JSONObject? {
+        val bytes = runCatching { files.read("usage") }.getOrNull() ?: return null
+        return try { runCatching { JSONObject(String(bytes)) }.onFailure { onInvalid() }.getOrNull() }
+        finally { bytes.fill(0) }
+    }
+
+    fun readGranted(): JSONObject? = read()?.takeIf { it.optBoolean("usage_granted") }
+
     fun reconcile(now: Long, granted: Boolean): JSONObject? {
-        val bytes = runCatching { files.read("usage") }.getOrNull()
-        val saved = try { bytes?.let { runCatching { JSONObject(String(it)) }.getOrNull() } }
-            finally { bytes?.fill(0) }
-        if (bytes != null && saved == null) dropped()
+        val saved = read(dropped)
         // Legacy checkpoints have no trustworthy permission boundary. Start fresh once.
         if (saved == null || !saved.has("usage_granted") || saved.optBoolean("usage_granted") != granted) {
             save(now, null, 0, granted)
